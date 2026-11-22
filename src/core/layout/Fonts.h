@@ -31,7 +31,7 @@ public:
     QStringList serif() const { return m_serif; }
     QStringList sansSerif() const { return m_sans; }
     QStringList monospace() const { return m_mono; }
-    void setBodyFamilies(const QStringList& f) { m_body = f; }   // the reader's text font (empty = book's)
+    void setBodyFamilies(const QStringList& f) { m_body = f; }   // the reader's font for all text but code (empty: the book's)
 
 private:
     mutable QMutex m_mutex;

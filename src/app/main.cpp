@@ -1,4 +1,5 @@
 #include "AppData.h"
+#include "Appearance.h"
 #include "Commands.h"
 #include "MainWindow.h"
 #include "ReaderView.h"
@@ -62,8 +63,9 @@ static int screenshot(QCommandLineParser& cli, const QString& out)
         return 2;
     }
     Settings settings;
-    if (cli.isSet(QStringLiteral("columns"))) settings.columns = cli.value(QStringLiteral("columns"));
-    if (cli.isSet(QStringLiteral("text-size"))) settings.textSizePct = qBound(60, cli.value(QStringLiteral("text-size")).toInt(), 300);
+    if (cli.isSet(QStringLiteral("columns"))) settings.look.columns = cli.value(QStringLiteral("columns"));
+    if (cli.isSet(QStringLiteral("text-size"))) settings.look.textSizePct = qBound(60, cli.value(QStringLiteral("text-size")).toInt(), 300);
+    if (cli.isSet(QStringLiteral("font"))) settings.look.font = cli.value(QStringLiteral("font"));
     settings.showContents = cli.isSet(QStringLiteral("contents"));
     if (cli.isSet(QStringLiteral("theme"))) settings.theme = cli.value(QStringLiteral("theme"));
     core::Library library;
@@ -115,6 +117,7 @@ static int screenshot(QCommandLineParser& cli, const QString& out)
     }
     if (cli.isSet(QStringLiteral("palette"))) w.runCommand(QStringLiteral("commands"));
     if (cli.isSet(QStringLiteral("theme-list"))) w.runCommand(QStringLiteral("themes"));
+    if (cli.isSet(QStringLiteral("appearance"))) w.runCommand(QStringLiteral("appearance"));
     QCoreApplication::processEvents();
     QElapsedTimer settle;
     settle.start();
@@ -141,6 +144,7 @@ int main(int argc, char* argv[])
     ui.setPointSize(10);
     QApplication::setFont(ui);
     core::registerBuiltInFormats();
+    registerBundledFonts();
     applyTheme(app, Theme::midnight());
 
     QCommandLineParser cli;
@@ -160,6 +164,8 @@ int main(int argc, char* argv[])
     cli.addOption({QStringLiteral("palette"), QStringLiteral("With --screenshot: show the command palette.")});
     cli.addOption({QStringLiteral("theme"), QStringLiteral("With --screenshot: use this theme (a key such as midnight, paper, nord)."), QStringLiteral("key")});
     cli.addOption({QStringLiteral("theme-list"), QStringLiteral("With --screenshot: show the theme list.")});
+    cli.addOption({QStringLiteral("appearance"), QStringLiteral("With --screenshot: show the text and layout panel.")});
+    cli.addOption({QStringLiteral("font"), QStringLiteral("With --screenshot: use this font for the text."), QStringLiteral("family")});
     cli.process(app);
 
     if (cli.isSet(QStringLiteral("screenshot"))) return screenshot(cli, cli.value(QStringLiteral("screenshot")));

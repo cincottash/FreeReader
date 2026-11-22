@@ -2,6 +2,7 @@
 // (keys, wheel, arrows shown on hover), selects text, and reports clicks on links and images.
 #pragma once
 
+#include "Appearance.h"
 #include "Theme.h"
 
 #include "core/layout/Layout.h"
@@ -30,7 +31,8 @@ public:
     explicit PageView(core::BookEngine* engine, QWidget* parent = nullptr);
 
     void setTheme(const Theme& t);
-    void setReadingOptions(int textSizePct, int lineSpacingPct, const QString& columns);
+    void setAppearance(const Appearance& a);
+    const Appearance& appearance() const { return m_look; }
 
     void setPosition(const core::Position& p);
     core::Position position() const { return m_anchor; }   // the first character on screen
@@ -88,8 +90,7 @@ private:
 
     core::BookEngine* m_engine;
     Theme m_theme = Theme::midnight();
-    int m_textSizePct = 100, m_lineSpacingPct = 160;
-    QString m_columns = QStringLiteral("auto");
+    Appearance m_look;
     Geometry m_geo;
     QTimer m_resizeTimer;
     core::Position m_anchor;

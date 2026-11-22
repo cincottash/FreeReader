@@ -5,6 +5,7 @@
 #include "core/position/Position.h"
 
 #include <QDateTime>
+#include <QJsonObject>
 #include <QList>
 #include <QString>
 
@@ -39,6 +40,10 @@ public:
     void savePosition(int bookId, const SavedPosition& pos);
     bool loadPosition(int bookId, SavedPosition* pos) const;
     QList<LibraryBook> recentBooks(int limit) const;
+
+    // Appearance layers: "lang:<code>" or "book:<id>"; an empty layer removes the row.
+    QJsonObject appearanceLayer(const QString& scope) const;
+    void setAppearanceLayer(const QString& scope, const QJsonObject& layer);
 
 private:
     QString m_connection;

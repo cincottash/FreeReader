@@ -4,6 +4,7 @@
 
 #include <QDir>
 #include <QFileInfo>
+#include <QJsonDocument>
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
@@ -14,7 +15,7 @@ namespace core {
 
 namespace {
 
-constexpr int kSchemaVersion = 1;
+constexpr int kSchemaVersion = 2;
 
 QString canonical(const QString& path)
 {
@@ -65,8 +66,15 @@ bool Library::open(const QString& databaseFile, QString* error)
                 return false;
             }
         }
-        q.exec(QStringLiteral("PRAGMA user_version=%1").arg(kSchemaVersion));
     }
+    if (version < 2) {
+        // Appearance for one language ("lang:es") or one book ("book:12"): only the values that differ.
+        if (!q.exec(QStringLiteral("CREATE TABLE IF NOT EXISTS appearance_layers (scope TEXT PRIMARY KEY, json TEXT NOT NULL)"))) {
+            if (error) *error = q.lastError().text();
+            return false;
+        }
+    }
+    if (version < kSchemaVersion) q.exec(QStringLiteral("PRAGMA user_version=%1").arg(kSchemaVersion));
     m_open = true;
     return true;
 }
@@ -145,6 +153,31 @@ QList<LibraryBook> Library::recentBooks(int limit) const
         out << b;
     }
     return out;
+}
+
+QJsonObject Library::appearanceLayer(const QString& scope) const
+{
+    if (!m_open) return {};
+    QSqlQuery q(QSqlDatabase::database(m_connection));
+    q.prepare(QStringLiteral("SELECT json FROM appearance_layers WHERE scope=?"));
+    q.addBindValue(scope);
+    if (!q.exec() || !q.next()) return {};
+    return QJsonDocument::fromJson(q.value(0).toString().toUtf8()).object();
+}
+
+void Library::setAppearanceLayer(const QString& scope, const QJsonObject& layer)
+{
+    if (!m_open) return;
+    QSqlQuery q(QSqlDatabase::database(m_connection));
+    if (layer.isEmpty()) {
+        q.prepare(QStringLiteral("DELETE FROM appearance_layers WHERE scope=?"));
+        q.addBindValue(scope);
+    } else {
+        q.prepare(QStringLiteral("INSERT INTO appearance_layers (scope, json) VALUES (?,?) ON CONFLICT(scope) DO UPDATE SET json=excluded.json"));
+        q.addBindValue(scope);
+        q.addBindValue(QString::fromUtf8(QJsonDocument(layer).toJson(QJsonDocument::Compact)));
+    }
+    q.exec();
 }
 
 }  // namespace core

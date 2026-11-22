@@ -39,25 +39,24 @@ void PageView::setTheme(const Theme& t)
     update();
 }
 
-void PageView::setReadingOptions(int textSizePct, int lineSpacingPct, const QString& columns)
+void PageView::setAppearance(const Appearance& a)
 {
-    m_textSizePct = textSizePct;
-    m_lineSpacingPct = lineSpacingPct;
-    m_columns = columns;
+    m_look = a;
+    m_engine->setBodyFont(a.font.isEmpty() ? QStringList() : QStringList{a.font});
     applyParams();
 }
 
 PageView::Geometry PageView::geometryFor(QSize size) const
 {
     Geometry g;
-    const float bodyPx = 20.f * float(m_textSizePct) / 100.f;
-    const float minSide = 40, gap = 64;
+    const float bodyPx = 20.f * float(m_look.textSizePct) / 100.f;
+    const float minSide = float(m_look.marginPx), gap = qMax(48.f, 2.f * bodyPx + float(m_look.marginPx) / 2.f);
     const float availW = float(size.width()) - 2 * minSide;
+    const float maxCol = qMax(200.f, float(m_look.pageWidthEm) * bodyPx);
     int cols = 1;
-    if (m_columns == QLatin1String("two")) cols = 2;
-    // Automatic: two columns only when each can be a comfortable reading width, with room at the sides.
-    else if (m_columns == QLatin1String("auto") && float(size.width()) - 2 * 72.f >= 2 * 30 * bodyPx + gap) cols = 2;
-    const float maxCol = qMax(260.f, 33.f * bodyPx);
+    if (m_look.columns == QLatin1String("two")) cols = 2;
+    // Automatic: two columns only when each can be at least 90 % of the chosen page width.
+    else if (m_look.columns == QLatin1String("auto") && availW >= 2 * qMin(maxCol, 30.f * bodyPx) * 0.9f + gap + 64.f) cols = 2;
     g.columns = cols;
     g.gap = gap;
     g.columnWidth = qMax(200.f, std::floor(qMin(maxCol, (availW - gap * float(cols - 1)) / float(cols))));
@@ -76,8 +75,11 @@ void PageView::applyParams()
     layout::LayoutParams p;
     p.columnWidth = m_geo.columnWidth;
     p.pageHeight = std::floor(m_geo.pageHeight);
-    p.pxPerCssPx = 1.25f * float(m_textSizePct) / 100.f;
-    p.lineSpacing = float(m_lineSpacingPct) / 100.f;
+    p.pxPerCssPx = 1.25f * float(m_look.textSizePct) / 100.f;
+    p.lineSpacing = float(m_look.lineSpacingPct) / 100.f;
+    p.justify = m_look.justify;
+    p.hyphenate = m_look.hyphenate;
+    p.fontKey = m_look.font;
     p.devicePixelRatio = devicePixelRatioF();
     m_engine->setParams(p);
     if (m_engine->isOpen()) {

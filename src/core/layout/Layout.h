@@ -23,7 +23,10 @@ struct LayoutParams {
     float pageHeight = 800;        // px of text area
     float pxPerCssPx = 1.25f;      // the reader's text size
     float lineSpacing = 1.5f;      // the reader's line spacing (minimum; a book's taller spacing is kept)
-    css::Align defaultAlign = css::Align::Justify;
+    css::Align defaultAlign = css::Align::Justify;   // paragraphs the book doesn't align
+    bool justify = true;           // off: the book's justified paragraphs are set ragged-right too
+    bool hyphenate = false;
+    QString fontKey;               // the reader's font choice (part of the cache key)
     qreal devicePixelRatio = 1;
 
     bool operator==(const LayoutParams&) const = default;
@@ -42,6 +45,11 @@ struct TextLines {
     const Block* block = nullptr;
     float width = 0;
     LayoutParams params;
+    // With hyphenation the laid-out text has extra soft hyphens. toLayout maps a block index to a layout index,
+    // toFlow the other way (both empty: the same text).
+    std::vector<int> toLayout, toFlow;
+    int L(int blockIndex) const { return toLayout.empty() ? blockIndex : toLayout[size_t(qBound(0, blockIndex, int(toLayout.size()) - 1))]; }
+    int F(int layoutIndex) const { return toFlow.empty() ? layoutIndex : toFlow[size_t(qBound(0, layoutIndex, int(toFlow.size()) - 1))]; }
 
     const QTextLayout& ui() const; // UI thread only
     void release() { layout.reset(); }

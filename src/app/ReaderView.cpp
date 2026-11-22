@@ -1,5 +1,6 @@
 #include "ReaderView.h"
 
+#include "AppearancePanel.h"
 #include "FooterBar.h"
 #include "Icons.h"
 #include "Popups.h"
@@ -12,6 +13,7 @@
 #include <QDesktopServices>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QJsonObject>
 #include <QLocale>
 #include <QPainter>
 #include <QPushButton>
@@ -88,7 +90,19 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     m_commandsButton = iconButton("commands", tr("Commands (Ctrl+K)"), m_theme);
     m_fullButton = iconButton("fullscreen", tr("Full screen (F11)"), m_theme);
     h->addWidget(m_tocButton);
-    // Recently used themes as dots (as in the mock-up), then the full theme list.
+    m_aaButton = new QToolButton;
+    m_aaButton->setObjectName(QStringLiteral("Icon"));
+    m_aaButton->setText(QStringLiteral("Aa"));
+    QFont aa(QStringLiteral("Literata"));
+    aa.setPixelSize(17);
+    aa.setWeight(QFont::DemiBold);
+    m_aaButton->setFont(aa);
+    m_aaButton->setFixedSize(40, 40);
+    m_aaButton->setCursor(Qt::PointingHandCursor);
+    m_aaButton->setFocusPolicy(Qt::NoFocus);
+    m_aaButton->setToolTip(tr("Text and layout: font, size, spacing, margins, columns"));
+    m_aaButton->setProperty("testId", "aaButton");
+    h->addWidget(m_aaButton);    // Recently used themes as dots (as in the mock-up), then the full theme list.
     m_themeDots = new QWidget;
     m_themeDots->setLayout(new QHBoxLayout);
     m_themeDots->layout()->setContentsMargins(6, 0, 6, 0);
@@ -120,7 +134,30 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     m_backChip->hide();
     m_backChip->setProperty("testId", "backChip");
     m_note = new NotePopup(m_pages);
-
+    m_panel = new AppearancePanel(this);
+    m_lookTimer.setSingleShot(true);
+    m_lookTimer.setInterval(60);   // sliders move in many small steps; lay out once they pause
+    connect(&m_lookTimer, &QTimer::timeout, this, &ReaderView::applyReadingOptions);
+    connect(m_aaButton, &QToolButton::clicked, this, [this] {
+        if (m_panel->isVisible()) {
+            m_panel->hide();
+            return;
+        }
+        applyReadingOptions();
+        m_panel->showBelow(m_aaButton->mapTo(this, QPoint(m_aaButton->width() + 140, m_aaButton->height() + 4)));
+    });
+    connect(m_panel, &AppearancePanel::valueChanged, this, &ReaderView::changeAppearance);
+    connect(m_panel, &AppearancePanel::themesRequested, this, [this] {
+        m_panel->hide();
+        emit moreThemesRequested(m_aaButton->mapTo(window(), QPoint(m_aaButton->width() + 140, m_aaButton->height())));
+    });
+    connect(m_panel, &AppearancePanel::resetRequested, this, [this](int scope) {
+        if (!m_library) return;
+        if (scope == AppearancePanel::ThisBook && m_bookId) m_library->setAppearanceLayer(QStringLiteral("book:%1").arg(m_bookId), {});
+        if (scope == AppearancePanel::Language && !languageCode().isEmpty())
+            m_library->setAppearanceLayer(QStringLiteral("lang:") + languageCode(), {});
+        applyReadingOptions();
+    });
     m_saveTimer.setSingleShot(true);
     m_saveTimer.setInterval(800);
     connect(&m_saveTimer, &QTimer::timeout, this, &ReaderView::savePosition);
@@ -211,9 +248,71 @@ void ReaderView::updateThemeDots()
     lay->addWidget(more);
 }
 
+QString ReaderView::languageCode() const
+{
+    const core::Book* book = m_engine->book();
+    if (!book || book->metadata.language.isEmpty()) return {};
+    return book->metadata.language.section(QLatin1Char('-'), 0, 0).section(QLatin1Char('_'), 0, 0).toLower();
+}
+
+QString ReaderView::languageName() const
+{
+    const QString code = languageCode();
+    if (code.isEmpty()) return {};
+    const QLocale loc(code);
+    return loc.language() == QLocale::C ? QString() : QLocale::languageToString(loc.language());
+}
+
+Appearance ReaderView::effectiveAppearance() const
+{
+    Appearance a = m_settings.look;
+    if (m_library) {
+        if (!languageCode().isEmpty()) a.merge(m_library->appearanceLayer(QStringLiteral("lang:") + languageCode()));
+        if (m_bookId) a.merge(m_library->appearanceLayer(QStringLiteral("book:%1").arg(m_bookId)));
+    }
+    return a;
+}
+
 void ReaderView::applyReadingOptions()
 {
-    m_pages->setReadingOptions(m_settings.textSizePct, m_settings.lineSpacingPct, m_settings.columns);
+    const Appearance a = effectiveAppearance();
+    m_pages->setAppearance(a);
+    const bool langOwn = m_library && !languageCode().isEmpty() && !m_library->appearanceLayer(QStringLiteral("lang:") + languageCode()).isEmpty();
+    const bool bookOwn = m_library && m_bookId && !m_library->appearanceLayer(QStringLiteral("book:%1").arg(m_bookId)).isEmpty();
+    m_panel->setValues(a, m_settings.theme == QLatin1String("system") ? tr("Match Operating System") : m_theme.name, languageName(), langOwn, bookOwn);
+}
+
+void ReaderView::changeAppearance(const QString& key, const QJsonValue& value)
+{
+    const QString langScope = languageCode().isEmpty() ? QString() : QStringLiteral("lang:") + languageCode();
+    const QString bookScope = m_bookId ? QStringLiteral("book:%1").arg(m_bookId) : QString();
+    auto setIn = [&](const QString& scope, bool set) {
+        if (scope.isEmpty() || !m_library) return;
+        QJsonObject layer = m_library->appearanceLayer(scope);
+        if (set) layer[key] = value;
+        else layer.remove(key);
+        m_library->setAppearanceLayer(scope, layer);
+    };
+    switch (m_panel->scope()) {
+    case AppearancePanel::AllBooks: {
+        // Written to All Books, and taken out of this book's and this language's own settings so it shows.
+        QJsonObject o = m_settings.look.toJson();
+        o[key] = value;
+        m_settings.look.merge(o);
+        setIn(langScope, false);
+        setIn(bookScope, false);
+        emit appearanceChanged();
+        break;
+    }
+    case AppearancePanel::Language:
+        setIn(langScope, true);
+        setIn(bookScope, false);
+        break;
+    case AppearancePanel::ThisBook:
+        setIn(bookScope, true);
+        break;
+    }
+    m_lookTimer.start();
 }
 
 void ReaderView::showBook(int bookId, const core::Position& start)
@@ -255,7 +354,10 @@ void ReaderView::setContentsVisible(bool on)
     m_settings.showContents = on;
 }
 
-bool ReaderView::isSettled() const { return m_engine->isOpen() && m_engine->index() && m_pages->isReady(); }
+bool ReaderView::isSettled() const
+{
+    return m_engine->isOpen() && m_engine->index() && !m_lookTimer.isActive() && m_pages->isReady();
+}
 
 void ReaderView::setFullScreenIcon(bool fullScreen)
 {
@@ -486,4 +588,9 @@ void ReaderView::onLink(const LinkClick& link, const QPoint& globalPos)
         return;
     }
     jumpTo(target);
+}
+
+void ReaderView::showAppearancePanel()
+{
+    if (!m_panel->isVisible()) m_aaButton->click();
 }

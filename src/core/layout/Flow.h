@@ -60,6 +60,8 @@ struct Block {
     float indent = 0;                          // first line, px (negative = hanging)
     float lineHeight = 0;                      // the book's multiplier (0 = normal)
     QFont font;                                // the paragraph's base font
+    QString lang;                              // the text's language ("es"), for hyphenation
+    bool hyphenate = true;                     // false where the book says hyphens: none/manual
     float fontPx = 16;
 
     // Box (px at the reader's text size; percentages of the column width kept apart)

@@ -44,6 +44,7 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     connect(m_themePicker, &ThemePicker::previewRequested, this, &MainWindow::previewTheme);
     connect(m_themePicker, &ThemePicker::chosen, this, &MainWindow::chooseTheme);
     connect(m_reader, &ReaderView::themeChosen, this, &MainWindow::chooseTheme);
+    connect(m_reader, &ReaderView::appearanceChanged, this, &MainWindow::saveSettingsSoon);
     connect(m_reader, &ReaderView::moreThemesRequested, this, [this](const QPoint& p) { m_themePicker->showFor(m_settings.theme, p); });
     connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this, [this] {
         if (m_settings.theme == QLatin1String("system")) showTheme(Theme::forChoice(QStringLiteral("system")), false);
@@ -146,6 +147,8 @@ void MainWindow::buildCommands()
     addCommand(QStringLiteral("columns-two"), tr("Two Columns"), QKeySequence(), [this] { setColumns(QStringLiteral("two")); });
     addCommand(QStringLiteral("columns-auto"), tr("Automatic Columns"), QKeySequence(), [this] { setColumns(QStringLiteral("auto")); },
                nullptr, tr("Two columns when the window is wide enough."));
+    addCommand(QStringLiteral("appearance"), tr("Text and Layout…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_A), [this] { m_reader->showAppearancePanel(); },
+               reading, tr("Font, text size, spacing, margins, page width, columns."));
     addCommand(QStringLiteral("themes"), tr("Choose Theme…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_T), [this] {
         m_themePicker->showFor(m_settings.theme, QPoint(width() - 8, 56));
     });
@@ -247,17 +250,11 @@ void MainWindow::showStart()
 
 void MainWindow::changeTextSize(int delta)
 {
-    m_settings.textSizePct = delta == 0 ? 100 : qBound(60, m_settings.textSizePct + delta, 300);
-    m_reader->applyReadingOptions();
-    saveSettingsSoon();
+    const int now = m_reader->effectiveAppearance().textSizePct;
+    m_reader->changeAppearance(QStringLiteral("text_size_pct"), delta == 0 ? 100 : qBound(60, now + delta, 300));
 }
 
-void MainWindow::setColumns(const QString& mode)
-{
-    m_settings.columns = mode;
-    m_reader->applyReadingOptions();
-    saveSettingsSoon();
-}
+void MainWindow::setColumns(const QString& mode) { m_reader->changeAppearance(QStringLiteral("columns"), mode); }
 
 void MainWindow::toggleFullScreen()
 {
