@@ -107,7 +107,8 @@ PracticeCard readCard(const QSqlQuery& q)
 // Whether a word can be practised in a direction (a definition card needs a definition, and so on).
 bool fits(const WordEntry& w, const QString& direction)
 {
-    if (w.translation.isEmpty()) return false;
+    // A highlighted word with no meaning yet: shown in the book's language, the meaning found on the card.
+    if (w.translation.isEmpty()) return !w.passage && direction == QLatin1String("recognize");
     if (w.passage) return direction == QLatin1String("recognize");
     if (direction == QLatin1String("definition")) return !w.definition.isEmpty();
     if (direction == QLatin1String("cloze")) return !w.sentence.isEmpty() && w.sentence.contains(w.text, Qt::CaseInsensitive) && w.sentence.simplified().size() > w.text.size() + 3;
@@ -124,7 +125,18 @@ bool WordLog::isOpen() const { return !m_connection.isEmpty() && QSqlDatabase::d
 
 int WordLog::record(const TranslationResult& r, const WordPlace& place, const QDateTime& now)
 {
-    if (!isOpen() || r.translation.trimmed().isEmpty() || r.text.trimmed().isEmpty()) return 0;
+    if (r.translation.trimmed().isEmpty()) return 0;
+    return save(r, place, now, true);
+}
+
+int WordLog::mark(const TranslationResult& meaning, const WordPlace& place, const QDateTime& now)
+{
+    return save(meaning, place, now, false);
+}
+
+int WordLog::save(const TranslationResult& r, const WordPlace& place, const QDateTime& now, bool lookup)
+{
+    if (!isOpen() || r.text.trimmed().isEmpty()) return 0;
     QSqlQuery q(QSqlDatabase::database(m_connection));
     const QString text = r.text.simplified();
     const bool passage = isPassage(text);
@@ -133,19 +145,56 @@ int WordLog::record(const TranslationResult& r, const WordPlace& place, const QD
     const QString key = keyFor(text, lemma, passage);
     const QString alts = QString::fromUtf8(QJsonDocument(QJsonArray::fromStringList(r.alternatives)).toJson(QJsonDocument::Compact));
 
-    q.prepare(QStringLiteral("SELECT id, edited FROM words WHERE language=? AND word_key=?"));
+    // A highlighted word that was never looked up is filed under the word as read (or the offline dictionary's
+    // dictionary form): the first lookup that brings another dictionary form takes that entry over instead of
+    // starting a second one.
+    if (lookup && !passage && !lemma.isEmpty() && key != keyFor(text, QString(), false)) {
+        QSqlQuery p(QSqlDatabase::database(m_connection));
+        p.prepare(QStringLiteral("UPDATE words SET word_key=?, lemma=? WHERE language=? AND word_key=? AND lookups=0 AND NOT EXISTS "
+                                 "(SELECT 1 FROM words w2 WHERE w2.language=? AND w2.word_key=?)"));
+        p.addBindValue(bindable(key));
+        p.addBindValue(bindable(lemma));
+        p.addBindValue(bindable(language));
+        p.addBindValue(bindable(keyFor(text, QString(), false)));
+        p.addBindValue(bindable(language));
+        p.addBindValue(bindable(key));
+        p.exec();
+    }
+
+    int found = 0;
+    bool wasEdited = false, hasMeaning = false;
+    q.prepare(QStringLiteral("SELECT id, edited, translation FROM words WHERE language=? AND word_key=?"));
     q.addBindValue(bindable(language));
     q.addBindValue(bindable(key));
-    if (q.exec() && q.next()) {
-        const int id = q.value(0).toInt();
-        const bool edited = q.value(1).toInt() != 0;
+    bool hit = q.exec() && q.next();
+    if (!hit && !lookup && !passage) {
+        // Highlighted again: the entry of the same word as read, whatever dictionary form a lookup gave it.
+        q.prepare(QStringLiteral("SELECT id, edited, translation FROM words WHERE language=? AND text=? AND passage=0 ORDER BY last_seen DESC LIMIT 1"));
+        q.addBindValue(bindable(language));
+        q.addBindValue(bindable(text));
+        hit = q.exec() && q.next();
+    }
+    if (hit) {
+        found = q.value(0).toInt();
+        wasEdited = q.value(1).toInt() != 0;
+        hasMeaning = !q.value(2).toString().isEmpty();
+    }
+    if (found) {
+        const int id = found;
+        // A hand-edited meaning stays; a highlight only fills a meaning that is missing.
+        const bool edited = wasEdited || r.translation.trimmed().isEmpty() || (!lookup && hasMeaning);
         QSqlQuery u(QSqlDatabase::database(m_connection));
-        u.prepare(QStringLiteral("UPDATE words SET text=?, lookups=lookups+1, last_seen=?, sentence=?, sentence_translation=?, book_id=?, book_title=?,"
+        // The sentence's English stays when the sentence is the same and this answer has none (a highlight).
+        u.prepare(QStringLiteral("UPDATE words SET text=?, lookups=lookups+?, last_seen=?, sentence_translation=CASE WHEN ?='' AND sentence=? "
+                                 "THEN sentence_translation ELSE ? END, sentence=?, book_id=?, book_title=?,"
                                  " spine=?, sel_start=?, sel_end=?, cfi=?, page_label=?, chapter=? WHERE id=?"));
         u.addBindValue(bindable(text));
+        u.addBindValue(bindable(lookup ? 1 : 0));
         u.addBindValue(bindable(iso(now)));
+        u.addBindValue(bindable(r.inSentence));
         u.addBindValue(bindable(place.sentence.simplified()));
         u.addBindValue(bindable(r.inSentence));
+        u.addBindValue(bindable(place.sentence.simplified()));
         u.addBindValue(bindable(place.bookId > 0 ? QVariant(place.bookId) : QVariant(QMetaType(QMetaType::Int))));
         u.addBindValue(bindable(place.bookTitle));
         u.addBindValue(bindable(place.spine));
@@ -172,7 +221,7 @@ int WordLog::record(const TranslationResult& r, const WordPlace& place, const QD
     }
     q.prepare(QStringLiteral("INSERT INTO words (language, word_key, text, lemma, passage, translation, alternatives, part_of_speech, definition,"
                              " sentence, sentence_translation, note, book_id, book_title, spine, sel_start, sel_end, cfi, page_label, chapter,"
-                             " lookups, added, last_seen) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?)"));
+                             " lookups, added, last_seen) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"));
     q.addBindValue(bindable(language));
     q.addBindValue(bindable(key));
     q.addBindValue(bindable(text));
@@ -193,6 +242,7 @@ int WordLog::record(const TranslationResult& r, const WordPlace& place, const QD
     q.addBindValue(bindable(place.cfi));
     q.addBindValue(bindable(place.pageLabel));
     q.addBindValue(bindable(place.chapter));
+    q.addBindValue(bindable(lookup ? 1 : 0));
     q.addBindValue(bindable(iso(now)));
     q.addBindValue(bindable(iso(now)));
     if (!q.exec()) {
@@ -200,6 +250,38 @@ int WordLog::record(const TranslationResult& r, const WordPlace& place, const QD
         return 0;
     }
     return q.lastInsertId().toInt();
+}
+
+bool WordLog::fillMeaning(int wordId, const TranslationResult& r)
+{
+    if (!isOpen() || wordId <= 0 || r.translation.trimmed().isEmpty()) return false;
+    const WordEntry w = word(wordId);
+    if (w.id == 0 || w.edited) return false;
+    QSqlQuery q(QSqlDatabase::database(m_connection));
+    q.prepare(QStringLiteral("UPDATE words SET translation=?, alternatives=?, part_of_speech=?, definition=?, note=?, lookups=lookups+1, "
+                             "sentence_translation=CASE WHEN ?='' THEN sentence_translation ELSE ? END WHERE id=?"));
+    q.addBindValue(bindable(r.translation.trimmed()));
+    q.addBindValue(bindable(QString::fromUtf8(QJsonDocument(QJsonArray::fromStringList(r.alternatives)).toJson(QJsonDocument::Compact))));
+    q.addBindValue(bindable(r.partOfSpeech));
+    q.addBindValue(bindable(r.definition));
+    q.addBindValue(bindable(r.note));
+    q.addBindValue(bindable(r.inSentence));
+    q.addBindValue(bindable(r.inSentence));
+    q.addBindValue(bindable(wordId));
+    if (!q.exec()) return false;
+    // The dictionary form, when the entry had none and no other entry is filed under it.
+    const QString lemma = r.lemma.simplified();
+    if (!w.passage && w.lemma.isEmpty() && !lemma.isEmpty() && lemma.compare(w.text, Qt::CaseInsensitive) != 0) {
+        QSqlQuery l(QSqlDatabase::database(m_connection));
+        l.prepare(QStringLiteral("UPDATE words SET lemma=?, word_key=? WHERE id=? AND NOT EXISTS (SELECT 1 FROM words w2 WHERE w2.language=? AND w2.word_key=?)"));
+        l.addBindValue(bindable(lemma));
+        l.addBindValue(bindable(keyFor(w.text, lemma, false)));
+        l.addBindValue(bindable(wordId));
+        l.addBindValue(bindable(w.language));
+        l.addBindValue(bindable(keyFor(w.text, lemma, false)));
+        l.exec();
+    }
+    return true;
 }
 
 QList<WordEntry> WordLog::words(int bookId) const

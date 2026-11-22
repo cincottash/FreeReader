@@ -4,6 +4,7 @@
 #include "Settings.h"
 
 #include "core/practice/Answer.h"
+#include "core/translate/TranslationService.h"
 
 #include <QButtonGroup>
 #include <QCheckBox>
@@ -196,7 +197,8 @@ QWidget* PracticeView::buildStart()
     m_counts = wrapLabel("practiceCounts", "Muted");
     lay->addWidget(m_counts);
     m_empty = wrapLabel("practiceEmpty");
-    m_empty->setText(tr("No words yet. Select a word while reading to look it up: every lookup is saved here, ready to practise."));
+    m_empty->setText(tr("No words yet. While reading, translate a word (right-click > Translate) or highlight it: both are saved "
+                        "here, ready to practise."));
     lay->addWidget(m_empty);
 
     lay->addWidget(sectionTitle(tr("WHAT TO PRACTISE")));
@@ -218,6 +220,11 @@ QWidget* PracticeView::buildStart()
     m_starred = new QCheckBox(tr("Starred Words Only"));
     m_starred->setProperty("testId", "practiceStarred");
     lay->addWidget(m_starred);
+    m_highlights = new QCheckBox(tr("Add Highlighted Words to the Word Log"));
+    m_highlights->setToolTip(tr("Words and short phrases (up to 4 words) you highlight are saved here without looking them up. "
+                                "The offline dictionary fills in the meaning when it knows the word."));
+    m_highlights->setProperty("testId", "practiceHighlights");
+    lay->addWidget(m_highlights);
 
     lay->addWidget(sectionTitle(tr("HOW")));
     m_typed = new QCheckBox(tr("Type the Answer (Instead of Flipping the Card)"));
@@ -254,11 +261,12 @@ QWidget* PracticeView::buildStart()
         m_settings.practiceSentenceFront = m_sentenceFront->isChecked();
         m_settings.practicePassages = m_passages->isChecked();
         m_settings.practiceNewPerDay = m_newPerDay->value();
+        m_settings.practiceHighlights = m_highlights->isChecked();
         emit settingsChanged();
         refreshCounts();
     };
     for (QCheckBox* c : m_dir) connect(c, &QCheckBox::toggled, this, saveOptions);
-    for (QCheckBox* c : {m_passages, m_starred, m_typed, m_sentenceFront}) connect(c, &QCheckBox::toggled, this, saveOptions);
+    for (QCheckBox* c : {m_passages, m_starred, m_typed, m_sentenceFront, m_highlights}) connect(c, &QCheckBox::toggled, this, saveOptions);
     connect(m_newPerDay, &QSpinBox::valueChanged, this, saveOptions);
     connect(m_book, &QComboBox::currentIndexChanged, this, [this] { refreshCounts(); });
     connect(m_start, &QPushButton::clicked, this, [this] { startSession(); });
@@ -284,7 +292,8 @@ void PracticeView::showStart()
         c->setChecked(m_settings.practiceDirections.contains(c->property("direction").toString()));
     }
     {
-        const QSignalBlocker b1(m_typed), b2(m_sentenceFront), b3(m_passages), b4(m_newPerDay), b5(m_book);
+        const QSignalBlocker b1(m_typed), b2(m_sentenceFront), b3(m_passages), b4(m_newPerDay), b5(m_book), b6(m_highlights);
+        m_highlights->setChecked(m_settings.practiceHighlights);
         m_typed->setChecked(m_settings.practiceTyped);
         m_sentenceFront->setChecked(m_settings.practiceSentenceFront);
         m_passages->setChecked(m_settings.practicePassages);
@@ -316,7 +325,7 @@ void PracticeView::refreshCounts()
     const bool any = c.dueNow + newLeft > 0;
     m_start->setEnabled(any);
     if (any) m_startHint->clear();
-    else if (words == 0) m_startHint->setText(tr("Look up some words while reading first."));
+    else if (words == 0) m_startHint->setText(tr("Translate or highlight some words while reading first."));
     else if (c.newAvailable > 0) m_startHint->setText(tr("Nothing due. Today's new cards are done; raise New Cards a Day for more."));
     else m_startHint->setText(tr("Nothing due now. Come back later: cards return when they are due."));
 }
@@ -402,6 +411,12 @@ QWidget* PracticeView::buildCard()
     m_backDetail = wrapLabel("cardBackDetail");
     m_backDetail->setAlignment(Qt::AlignCenter);
     back->addWidget(m_backDetail);
+    m_lookUp = new QPushButton(tr("Look Up Meaning"));
+    m_lookUp->setProperty("testId", "cardLookUp");
+    m_lookUp->setCursor(Qt::PointingHandCursor);
+    m_lookUp->setToolTip(tr("Translates the word with the translation engines that are on, and saves the meaning."));
+    back->addWidget(m_lookUp, 0, Qt::AlignCenter);
+    connect(m_lookUp, &QPushButton::clicked, this, &PracticeView::lookUpMeaning);
     m_backSentence = wrapLabel("cardBackSentence");
     m_backSentence->setTextFormat(Qt::RichText);
     back->addWidget(m_backSentence);
@@ -486,6 +501,10 @@ void PracticeView::showCard()
     m_revealed = false;
     m_verdictText.clear();
     m_suggested = Rating::Good;
+    m_lookupId = 0;   // an answer for the previous card is ignored
+    m_lookUp->setText(tr("Look Up Meaning"));
+    m_lookUp->setEnabled(true);
+    m_lookUp->hide();
     const QString d = m_card.direction;
     const bool sentenceFront = m_settings.practiceSentenceFront && !m_word.sentence.isEmpty() && !m_word.passage;
     QString detail;
@@ -516,7 +535,8 @@ void PracticeView::showCard()
     m_frontSentence->setVisible(!m_frontSentence->text().isEmpty());
 
     // Typing a long passage's translation isn't practice: those cards are always flipped.
-    const bool typed = m_settings.practiceTyped && !m_word.passage;
+    // A word with no meaning yet has nothing to check a typed answer against: flipped too.
+    const bool typed = m_settings.practiceTyped && !m_word.passage && !m_word.translation.isEmpty();
     m_answer->clear();
     m_answer->setVisible(typed);
     m_check->setVisible(typed);
@@ -568,13 +588,62 @@ void PracticeView::checkTyped()
     revealAnswer();
 }
 
+void PracticeView::setTranslator(core::TranslationService* service)
+{
+    m_translator = service;
+    if (!service) return;
+    connect(service, &core::TranslationService::finished, this, [this](int id, const core::TranslationResult& r, const QString& why) {
+        if (id != m_lookupId || m_lookupId == 0) return;
+        m_lookupId = 0;
+        m_lookUp->setText(tr("Look Up Meaning"));
+        m_lookUp->setEnabled(true);
+        if (page() != CardPage || m_word.id == 0) return;
+        core::TranslationResult got = r;
+        got.text = m_word.text;
+        if (r.translation.trimmed().isEmpty() || !m_log->fillMeaning(m_word.id, got)) {
+            const bool allOff = !m_settings.useGemini && !m_settings.useLmStudio && !m_settings.useDictionary;
+            m_backDetail->setText(allOff ? tr("Every translation engine is turned off (Settings > Translation).")
+                                         : why.isEmpty() ? tr("No answer.") : why);
+            m_backDetail->show();
+            return;
+        }
+        m_word = m_log->word(m_word.id);
+        showMeaningOnCard();
+    });
+}
+
+void PracticeView::lookUpMeaning()
+{
+    if (!m_translator || page() != CardPage || !m_revealed || m_word.id == 0 || m_lookupId) return;
+    core::TranslationRequest r;
+    r.text = m_word.text;
+    r.sentence = m_word.sentence.size() > 600 || m_word.sentence == m_word.text ? QString() : m_word.sentence;
+    r.from = m_word.language == QLatin1String("und") ? QString() : m_word.language;
+    // The book's own offline choice applies here too.
+    m_translator->setOfflineOnly(m_settings.offlineOnly || (m_word.bookId && m_settings.offlineBooks.contains(QString::number(m_word.bookId))));
+    m_lookUp->setText(tr("Looking Up…"));
+    m_lookUp->setEnabled(false);
+    m_lookupId = m_translator->translate(r);
+}
+
+void PracticeView::showMeaningOnCard()
+{
+    m_revealed = false;
+    revealAnswer();
+}
+
 void PracticeView::revealAnswer()
 {
     if (m_revealed || page() != CardPage) return;
     m_revealed = true;
     const QString d = m_card.direction;
     QStringList detail;
-    if (d == QLatin1String("recognize")) {
+    m_lookUp->setVisible(m_word.translation.isEmpty() && m_translator);
+    if (d == QLatin1String("recognize") && m_word.translation.isEmpty()) {
+        // A highlighted word that no dictionary knew.
+        m_backMain->setText(tr("No meaning saved yet."));
+        detail << tr("Look it up, or type a meaning in the Word List.");
+    } else if (d == QLatin1String("recognize")) {
         m_backMain->setText(m_word.translation);
         if (!m_word.alternatives.isEmpty()) detail << tr("Also: %1").arg(m_word.alternatives.join(QStringLiteral(", ")));
         if (!m_word.definition.isEmpty()) detail << m_word.definition;

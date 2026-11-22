@@ -3,7 +3,9 @@
 //   card or type the answer, the sentence on the front, new words per day), with today's counts.
 // - A session: one card at a time. Show Answer (Space) or type and Check (Enter), then Again / Hard / Good / Easy
 //   (1-4), each with when the card comes back. Cards answered Again come back in the same session.
-// - Word List: every word looked up, searchable; edit the meaning, star, start over, delete, show it in the book,
+// - A highlighted word with no meaning yet is practised from the book's language only; its card has a Look Up
+//   Meaning button (the only lookup Practice ever makes, and only when pressed).
+// - Word List: every word looked up or highlighted, searchable; edit the meaning, star, start over, delete, show it in the book,
 //   export for Anki.
 #pragma once
 
@@ -30,6 +32,11 @@ class QTreeWidget;
 class QTreeWidgetItem;
 struct Settings;
 
+namespace core {
+class TranslationService;
+struct TranslationResult;
+}
+
 class PracticeView : public QWidget {
     Q_OBJECT
 public:
@@ -39,6 +46,9 @@ public:
     void setTheme(const Theme& t);
     void setInteractive(bool on) { m_interactive = on; }
     void setClock(std::function<QDateTime()> now) { m_now = std::move(now); }   // tests
+    // For the Look Up Meaning button on a card whose word has no meaning yet (a highlighted word).
+    void setTranslator(core::TranslationService* service);
+    void lookUpMeaning();
 
     void showStart();           // refreshes counts
     void showList();
@@ -86,7 +96,11 @@ private:
     QString languageName() const;
     QTreeWidgetItem* currentListItem() const;
 
+    void showMeaningOnCard();
+
     core::WordLog* m_log;
+    core::TranslationService* m_translator = nullptr;
+    int m_lookupId = 0;
     Settings& m_settings;
     Theme m_theme = Theme::midnight();
     bool m_interactive = true;
@@ -106,6 +120,7 @@ private:
     QCheckBox* m_dir[4];
     QCheckBox* m_passages;
     QCheckBox* m_starred;
+    QCheckBox* m_highlights;
     QCheckBox* m_typed;
     QCheckBox* m_sentenceFront;
     QSpinBox* m_newPerDay;
@@ -127,6 +142,7 @@ private:
     QLabel* m_backDetail;
     QLabel* m_backSentence;
     QLabel* m_backSource;
+    QPushButton* m_lookUp;
     QWidget* m_rateRow;
     QPushButton* m_rate[4];
     QLabel* m_rateWhen[4];

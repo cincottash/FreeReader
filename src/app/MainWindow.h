@@ -97,6 +97,8 @@ private:
 public:
     void showSettings(int tab = 0);
     void applyTranslationSettings();
+    void translationOptionsChanged();   // a switch in the menu changed: apply, save, update the open dialog
+    void syncChecks();                  // check marks of the menu switches from the settings
     core::TranslationService* translator() const { return m_translator; }
     core::GeminiProvider* gemini() const { return m_gemini; }
     core::LmStudioProvider* lmStudio() const { return m_lmStudio; }

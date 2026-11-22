@@ -242,10 +242,10 @@ void LmStudioProvider::setAddress(const QString& address)
     m_base = QUrl(a);
 }
 
-void LmStudioProvider::checkModel(std::function<void(const QString&, TranslationFailure)> done)
+void LmStudioProvider::listModels(std::function<void(const QList<Model>&, TranslationFailure)> done)
 {
-    // LM Studio's own list says which models are loaded; the OpenAI-style list (older versions) doesn't, so
-    // there the first model is assumed loaded.
+    // LM Studio's own list has every downloaded model and says which are loaded; the OpenAI-style list (older
+    // versions) has only what can answer now, so there every model counts as loaded.
     QUrl url = m_base;
     url.setPath(QStringLiteral("/api/v0/models"));
     QNetworkRequest req(url);
@@ -260,15 +260,14 @@ void LmStudioProvider::checkModel(std::function<void(const QString&, Translation
         }
         const QJsonObject o = readJson(reply);
         if (status == 200 && o.value(QLatin1String("data")).isArray()) {
+            QList<Model> out;
             for (const QJsonValue& v : o.value(QLatin1String("data")).toArray()) {
                 const QJsonObject m = v.toObject();
                 const QString type = m.value(QLatin1String("type")).toString();
-                if (m.value(QLatin1String("state")).toString() == QLatin1String("loaded") && (type == QLatin1String("llm") || type == QLatin1String("vlm"))) {
-                    done(m.value(QLatin1String("id")).toString(), TranslationFailure::None);
-                    return;
-                }
+                if (type != QLatin1String("llm") && type != QLatin1String("vlm")) continue;
+                out << Model{m.value(QLatin1String("id")).toString(), m.value(QLatin1String("state")).toString() == QLatin1String("loaded")};
             }
-            done({}, TranslationFailure::NoModel);
+            done(out, TranslationFailure::None);
             return;
         }
         QUrl url2 = m_base;
@@ -278,11 +277,41 @@ void LmStudioProvider::checkModel(std::function<void(const QString&, Translation
         QNetworkReply* r2 = m_net->get(req2);
         connect(r2, &QNetworkReply::finished, this, [r2, done] {
             r2->deleteLater();
-            const QJsonArray data = readJson(r2).value(QLatin1String("data")).toArray();
-            if (r2->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() != 200) done({}, TranslationFailure::Offline);
-            else if (data.isEmpty()) done({}, TranslationFailure::NoModel);
-            else done(data.first().toObject().value(QLatin1String("id")).toString(), TranslationFailure::None);
+            if (r2->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() != 200) {
+                done({}, TranslationFailure::Offline);
+                return;
+            }
+            QList<Model> out;
+            for (const QJsonValue& v : readJson(r2).value(QLatin1String("data")).toArray()) {
+                const QString id = v.toObject().value(QLatin1String("id")).toString();
+                if (!id.isEmpty() && !id.contains(QLatin1String("embed"), Qt::CaseInsensitive)) out << Model{id, true};
+            }
+            done(out, TranslationFailure::None);
         });
+    });
+}
+
+void LmStudioProvider::checkModel(std::function<void(const QString&, TranslationFailure)> done)
+{
+    const QString chosen = m_model;
+    listModels([chosen, done](const QList<Model>& models, TranslationFailure f) {
+        if (f != TranslationFailure::None) {
+            done({}, f);
+            return;
+        }
+        // The chosen model when LM Studio has it (it loads it if needed), otherwise the loaded one.
+        if (!chosen.isEmpty())
+            for (const Model& m : models)
+                if (m.id == chosen) {
+                    done(m.id, TranslationFailure::None);
+                    return;
+                }
+        for (const Model& m : models)
+            if (m.loaded) {
+                done(m.id, TranslationFailure::None);
+                return;
+            }
+        done({}, TranslationFailure::NoModel);
     });
 }
 

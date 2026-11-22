@@ -32,6 +32,9 @@ public:
 
     // Starts a lookup; `finished` reports it with the returned id. A newer lookup doesn't cancel older ones.
     int translate(const TranslationRequest& request);
+    // The offline dictionary's answer for a word or short phrase, at once and without any lookup online; empty
+    // when no dictionary is installed and on, or it doesn't know the word.
+    TranslationResult offlineMeaning(const QString& text, const QString& from) const;
 
     // What happened to each provider on the last lookup that reached it ("Gemini: today's free limit is used up").
     QString lastStatus(const QString& provider) const { return m_status.value(provider); }

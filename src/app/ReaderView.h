@@ -37,6 +37,7 @@ class WordLog;
 class Annotations;
 struct SearchHit;
 struct TranslationResult;
+struct WordPlace;
 }
 
 class ReaderView : public QWidget {
@@ -135,6 +136,9 @@ private:
     void placeBackChip();
     QString chapterTitleAt(const core::Position& p) const;
     void onTranslated(int id, const core::TranslationResult& r, const QString& why);
+    core::WordPlace wordPlace(int spine, int start, int end, const QString& sentence) const;
+    // A new highlight of a word or short phrase joins the word log (no lookup); returns the word's id or 0.
+    int markHighlightedWord(const QString& text, int spine, int start, int end, const QString& sentence);
     void speak(const QString& text, const QString& language);
 
     core::BookEngine* m_engine;

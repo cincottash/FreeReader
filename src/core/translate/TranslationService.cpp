@@ -50,6 +50,12 @@ int TranslationService::translate(const TranslationRequest& request)
     return id;
 }
 
+TranslationResult TranslationService::offlineMeaning(const QString& text, const QString& from) const
+{
+    if (!m_instant || !m_instant->isSetUp()) return {};
+    return m_instant->lookUp(text, from);
+}
+
 void TranslationService::next(int id, const TranslationRequest& request, size_t from, QStringList why)
 {
     for (size_t i = from; i < m_providers.size(); ++i) {

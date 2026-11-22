@@ -70,6 +70,12 @@ public:
 
     // Logs a lookup (adds the word or updates it). Returns the entry's id, 0 when nothing was logged.
     int record(const TranslationResult& r, const WordPlace& place, const QDateTime& now = QDateTime::currentDateTimeUtc());
+    // Logs a highlighted word without a lookup: `meaning` is the offline dictionary's answer, or has only `text`
+    // (then the word waits for a meaning: practised Spanish -> English only, with a Look Up button on the card).
+    // Not counted as a lookup; never replaces a meaning the word already has.
+    int mark(const TranslationResult& meaning, const WordPlace& place, const QDateTime& now = QDateTime::currentDateTimeUtc());
+    // A lookup's answer for one entry (the Look Up button on a card): its meaning, unless edited by hand.
+    bool fillMeaning(int wordId, const TranslationResult& r);
     QList<WordEntry> words(int bookId = 0) const;   // newest first; 0: all books
     WordEntry word(int id) const;
     bool update(const WordEntry& e);                 // meaning, note, star; marks the meaning as edited
@@ -99,6 +105,7 @@ public:
     bool exportTsv(const QString& path, int bookId, QString* error) const;
 
 private:
+    int save(const TranslationResult& r, const WordPlace& place, const QDateTime& now, bool lookup);
     PracticeCard ensureCard(int wordId, const QString& direction, const QDateTime& now);
     QString m_connection;
 };

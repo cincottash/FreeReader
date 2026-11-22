@@ -7,6 +7,7 @@
 #pragma once
 
 #include "Commands.h"
+#include "core/translate/AiProviders.h"
 
 #include <QDialog>
 
@@ -48,6 +49,7 @@ public:
     void removeGeminiKey();
     void testGemini();
     void checkLmStudio();
+    void testLmStudio();
     void refreshTranslation();
     void setDictionary(core::OfflineDictionary* dictionary, const QString& installPath);
     QString installDictionary(const QString& file);   // empty when installed, else why not
@@ -64,6 +66,7 @@ private:
     QWidget* buildShortcutsTab();
     QWidget* buildGeneralTab();
     void fill();
+    void fillLmModels(const QList<core::LmStudioProvider::Model>& models);
 
     Settings& m_settings;
     std::vector<Command*> m_commands;
@@ -84,6 +87,7 @@ private:
     QLabel* m_geminiResult;
     QCheckBox* m_useLm;
     QLineEdit* m_lmAddress;
+    QComboBox* m_lmModel;
     QLabel* m_lmResult;
     QCheckBox* m_offline;
     core::OfflineDictionary* m_dict = nullptr;

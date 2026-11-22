@@ -160,8 +160,9 @@ QWidget* SettingsDialog::buildTranslationTab()
     lay->addWidget(m_geminiResult);
 
     lay->addWidget(sectionTitle(tr("LM STUDIO (ON THIS COMPUTER)")));
-    lay->addWidget(muted(tr("Asked when Gemini can't answer (offline, or today's free lookups are used up). FreeReader uses "
-                            "the model you have loaded in LM Studio and never loads one itself.")));
+    lay->addWidget(muted(tr("Asked when Gemini can't answer (offline, or today's free lookups are used up). LM Studio's server "
+                            "must be running. With a model chosen, LM Studio loads it the first time it's needed (that "
+                            "takes a moment, and uses the graphics card's memory until LM Studio unloads it).")));
     m_useLm = new QCheckBox(tr("Use LM Studio"));
     m_useLm->setProperty("testId", "useLmStudio");
     lay->addWidget(m_useLm);
@@ -175,6 +176,24 @@ QWidget* SettingsDialog::buildTranslationTab()
     check->setProperty("testId", "checkLmStudio");
     lmRow->addWidget(check);
     lay->addLayout(lmRow);
+    auto* lmModelRow = new QHBoxLayout;
+    lmModelRow->addWidget(new QLabel(tr("Model")));
+    m_lmModel = new QComboBox;
+    m_lmModel->setProperty("testId", "lmModel");
+    m_lmModel->setToolTip(tr("Check fills this list with the models LM Studio has."));
+    lmModelRow->addWidget(m_lmModel, 1);
+    auto* lmTest = new QPushButton(tr("Test"));
+    lmTest->setToolTip(tr("Looks up one word with LM Studio."));
+    lmTest->setProperty("testId", "testLmStudio");
+    lmModelRow->addWidget(lmTest);
+    lay->addLayout(lmModelRow);
+    connect(lmTest, &QPushButton::clicked, this, &SettingsDialog::testLmStudio);
+    connect(m_lmModel, &QComboBox::currentIndexChanged, this, [this] {
+        const QString v = m_lmModel->currentData().toString();
+        if (v == m_settings.lmStudioModel) return;
+        m_settings.lmStudioModel = v;
+        emit translationChanged();
+    });
     m_lmResult = muted(QString());
     m_lmResult->setProperty("testId", "lmResult");
     lay->addWidget(m_lmResult);
@@ -212,9 +231,9 @@ QWidget* SettingsDialog::buildTranslationTab()
     connect(m_removeDict, &QPushButton::clicked, this, &SettingsDialog::removeDictionary);
 
     lay->addWidget(sectionTitle(tr("WHILE READING")));
-    m_auto = new QCheckBox(tr("Translate Selected Text Right Away"));
-    m_auto->setToolTip(tr("Off: right-click the selection and choose Translate."));
-    m_auto->setProperty("testId", "autoTranslate");
+    m_auto = new QCheckBox(tr("Translate When Text Is Selected"));
+    m_auto->setToolTip(tr("Off: selecting only selects. Right-click the selection and choose Translate, or press Ctrl+E."));
+    m_auto->setProperty("testId", "translateOnSelect");
     lay->addWidget(m_auto);
     m_offline = new QCheckBox(tr("Offline Only (Never Send Text Over the Internet)"));
     m_offline->setToolTip(tr("Gemini is not asked. Single books can be kept offline from the View menu."));
@@ -243,7 +262,7 @@ QWidget* SettingsDialog::buildTranslationTab()
         emit translationChanged();
     });
     connect(m_auto, &QCheckBox::toggled, this, [this](bool on) {
-        m_settings.autoTranslate = on;
+        m_settings.translateOnSelect = on;
         emit translationChanged();
     });
     connect(m_offline, &QCheckBox::toggled, this, [this](bool on) {
@@ -270,10 +289,11 @@ void SettingsDialog::refreshTranslation()
     const QSignalBlocker b1(m_useGemini), b2(m_useLm), b3(m_auto), b4(m_offline), b5(m_model);
     m_useGemini->setChecked(m_settings.useGemini);
     m_useLm->setChecked(m_settings.useLmStudio);
-    m_auto->setChecked(m_settings.autoTranslate);
+    m_auto->setChecked(m_settings.translateOnSelect);
     m_offline->setChecked(m_settings.offlineOnly);
     m_model->setCurrentText(m_settings.geminiModel.isEmpty() ? QString::fromLatin1(core::GeminiProvider::kDefaultModel) : m_settings.geminiModel);
     m_lmAddress->setText(m_settings.lmStudioAddress);
+    fillLmModels({});
     {
         const QSignalBlocker b6(m_useDict);
         m_useDict->setChecked(m_settings.useDictionary);
@@ -387,14 +407,66 @@ void SettingsDialog::checkLmStudio()
     m_lm->setAddress(m_lmAddress->text());
     m_lmResult->setText(tr("Checking…"));
     QPointer<SettingsDialog> self(this);
-    m_lm->checkModel([self](const QString& model, core::TranslationFailure f) {
+    m_lm->listModels([self](const QList<core::LmStudioProvider::Model>& models, core::TranslationFailure f) {
         if (!self) return;
+        if (f != core::TranslationFailure::None) {
+            self->m_lmResult->setText(tr("Not running at %1. Start LM Studio's server (Developer tab, or “lms server start”) to use it.")
+                                          .arg(self->m_lm->address()));
+            return;
+        }
+        self->fillLmModels(models);
+        QStringList loaded;
+        for (const auto& m : models)
+            if (m.loaded) loaded << m.id;
+        QString text = loaded.isEmpty() ? tr("Running, %1 available, none loaded.").arg(models.size())
+                                        : tr("Running, %1 available; loaded: %2.").arg(models.size()).arg(loaded.join(QStringLiteral(", ")));
+        if (models.isEmpty()) text = tr("Running, but LM Studio has no language models. Download one in LM Studio.");
+        else if (self->m_settings.lmStudioModel.isEmpty() && loaded.isEmpty())
+            text += QLatin1Char(' ') + tr("Choose a model above, or load one in LM Studio.");
+        self->m_lmResult->setText(text);
+    });
+}
+
+void SettingsDialog::fillLmModels(const QList<core::LmStudioProvider::Model>& models)
+{
+    const QSignalBlocker b(m_lmModel);
+    m_lmModel->clear();
+    m_lmModel->addItem(tr("The Model Loaded in LM Studio"), QString());
+    bool found = false;
+    for (const auto& m : models) {
+        m_lmModel->addItem(m.loaded ? tr("%1 (loaded)").arg(m.id) : m.id, m.id);
+        if (m.id == m_settings.lmStudioModel) found = true;
+    }
+    // A chosen model stays in the list before Check runs (or when LM Studio is off).
+    if (!m_settings.lmStudioModel.isEmpty() && !found) m_lmModel->addItem(m_settings.lmStudioModel, m_settings.lmStudioModel);
+    m_lmModel->setCurrentIndex(qMax(0, m_lmModel->findData(m_settings.lmStudioModel)));
+}
+
+void SettingsDialog::testLmStudio()
+{
+    if (!m_lm) return;
+    m_lm->setAddress(m_lmAddress->text());
+    m_lm->setModel(m_settings.lmStudioModel);
+    m_lmResult->setText(tr("Asking LM Studio… (the first answer can take a while if the model has to be loaded)"));
+    core::TranslationRequest r;
+    r.text = QStringLiteral("biblioteca");
+    r.sentence = QStringLiteral("Pasó la tarde en la biblioteca.");
+    r.from = QStringLiteral("es");
+    const bool wasEnabled = m_settings.useLmStudio;
+    m_lm->setEnabled(true);
+    auto timer = std::make_shared<QElapsedTimer>();
+    timer->start();
+    QPointer<SettingsDialog> self(this);
+    m_lm->translate(r, [self, timer, wasEnabled](const core::TranslationResult& res, core::TranslationFailure f, const QString& detail) {
+        if (!self) return;
+        self->m_lm->setEnabled(wasEnabled);
+        const QString secs = QLocale().toString(double(timer->elapsed()) / 1000.0, 'f', 1);
         if (f == core::TranslationFailure::None)
-            self->m_lmResult->setText(tr("Running, with %1 loaded.").arg(model));
-        else if (f == core::TranslationFailure::NoModel)
-            self->m_lmResult->setText(tr("Running, but no model is loaded. Load one in LM Studio to use it."));
+            self->m_lmResult->setText(tr("Working: “biblioteca” is “%1” (%2 s, %3).")
+                                          .arg(res.translation, secs,
+                                               self->m_settings.lmStudioModel.isEmpty() ? tr("the loaded model") : self->m_settings.lmStudioModel));
         else
-            self->m_lmResult->setText(tr("Not running at %1. Start LM Studio's server (Developer tab) to use it.").arg(self->m_lm->address()));
+            self->m_lmResult->setText(tr("Not working: %1.").arg(core::failureText(f)) + (detail.isEmpty() ? QString() : QStringLiteral(" ") + detail));
     });
 }
 

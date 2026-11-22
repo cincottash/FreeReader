@@ -65,6 +65,7 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     m_reader->setAnnotations(m_annotations.get());
     m_practice = new PracticeView(m_words.get(), m_settings);
     m_practice->setInteractive(interactive);
+    m_practice->setTranslator(m_translator);
     m_stack->addWidget(m_practice);
     m_stack->addWidget(m_start);
     m_stack->addWidget(m_reader);
@@ -138,6 +139,7 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     applyTranslationSettings();
     buildCommands();
     buildMenus();
+    syncChecks();
     showTheme(Theme::forChoice(m_settings.theme), false);
 
     if (!m_settings.geometry.isEmpty()) {
@@ -251,7 +253,21 @@ void MainWindow::buildCommands()
     addCommand(QStringLiteral("word-list"), tr("Word List"), QKeySequence(), [this] { showPractice(true); }, nullptr,
                tr("Every word you looked up, with its meaning."));
     addCommand(QStringLiteral("translation-settings"), tr("Translation Settings…"), QKeySequence(),
-               [this] { showSettings(SettingsDialog::TranslationTab); }, nullptr, tr("Gemini key, LM Studio, offline only."));
+               [this] { showSettings(SettingsDialog::TranslationTab); }, nullptr, tr("Gemini key, LM Studio model, offline dictionary."));
+    // The translation switches, also in Settings > Translation: each engine on its own, and offline only.
+    auto toggle = [this](const char* id, const QString& label, bool Settings::*field, const QString& hint) {
+        addCommand(QString::fromLatin1(id), label, QKeySequence(), [this, field] {
+            m_settings.*field = !(m_settings.*field);
+            translationOptionsChanged();
+        }, nullptr, hint);
+        command(QString::fromLatin1(id))->action->setCheckable(true);
+    };
+    toggle("translate-on-select", tr("Translate When Text Is Selected"), &Settings::translateOnSelect,
+           tr("Off: selecting only selects. Right-click > Translate, or Ctrl+E."));
+    toggle("use-gemini", tr("Use Gemini (Online)"), &Settings::useGemini, tr("Google's Gemini, asked first."));
+    toggle("use-lm-studio", tr("Use LM Studio (This Computer)"), &Settings::useLmStudio, tr("Asked when Gemini can't answer."));
+    toggle("use-dictionary", tr("Use the Offline Dictionary"), &Settings::useDictionary, tr("Single words at once, and when nothing else answers."));
+    toggle("offline-only", tr("Offline Only"), &Settings::offlineOnly, tr("No text is sent over the internet: Gemini is never asked."));
     addCommand(QStringLiteral("keyboard-shortcuts"), tr("Keyboard Shortcuts"), QKeySequence(), [this] { showSettings(SettingsDialog::ShortcutsTab); },
                nullptr, tr("Every shortcut, and changing them."));
     applyShortcuts();
@@ -269,7 +285,7 @@ void MainWindow::buildMenus()
     auto watch = [this](QMenu* m) {
         connect(m, &QMenu::aboutToShow, this, [this] {
             for (auto& c : m_commands) c->action->setEnabled(c->isEnabled());
-            if (Command* c = command(QStringLiteral("book-offline"))) c->action->setChecked(m_reader->bookIsOffline());
+            syncChecks();
         });
         connect(m, &QMenu::aboutToHide, this, [this] {
             for (auto& c : m_commands) c->action->setEnabled(true);
@@ -327,7 +343,19 @@ void MainWindow::buildMenus()
     QMenu* settings = bar->addMenu(tr("&Settings"));
     settings->setProperty("testId", "menuSettings");
     add(settings, "appearance");
-    add(settings, "translation-settings");
+    QMenu* translation = settings->addMenu(tr("Translation"));
+    translation->setProperty("testId", "menuTranslation");
+    add(translation, "translate-on-select");
+    translation->addSeparator();
+    add(translation, "use-gemini");
+    add(translation, "use-lm-studio");
+    add(translation, "use-dictionary");
+    translation->addSeparator();
+    add(translation, "offline-only");
+    add(translation, "book-offline");
+    translation->addSeparator();
+    add(translation, "translation-settings");
+    watch(translation);
     m_themeMenu = settings->addMenu(tr("Theme"));
     m_themeMenu->setProperty("testId", "menuTheme");
     connect(m_themeMenu, &QMenu::aboutToShow, this, &MainWindow::fillThemeMenu);
@@ -413,7 +441,29 @@ void MainWindow::applyTranslationSettings()
     m_gemini->setModel(m_settings.geminiModel);
     m_lmStudio->setEnabled(m_settings.useLmStudio);
     m_lmStudio->setAddress(m_settings.lmStudioAddress);
+    m_lmStudio->setModel(m_settings.lmStudioModel);
     m_translator->clearPauses();
+    syncChecks();
+}
+
+void MainWindow::translationOptionsChanged()
+{
+    applyTranslationSettings();
+    saveSettingsSoon();
+    if (m_settingsDialog) m_settingsDialog->refreshTranslation();
+}
+
+void MainWindow::syncChecks()
+{
+    auto set = [this](const char* id, bool on) {
+        if (Command* c = command(QString::fromLatin1(id))) c->action->setChecked(on);
+    };
+    set("translate-on-select", m_settings.translateOnSelect);
+    set("use-gemini", m_settings.useGemini);
+    set("use-lm-studio", m_settings.useLmStudio);
+    set("use-dictionary", m_settings.useDictionary);
+    set("offline-only", m_settings.offlineOnly);
+    set("book-offline", m_reader && m_reader->bookIsOffline());
 }
 
 void MainWindow::showSettings(int tab)

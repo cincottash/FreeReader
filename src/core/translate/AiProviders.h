@@ -62,7 +62,19 @@ public:
     void setAddress(const QString& address);   // "http://localhost:1234"
     QString address() const { return m_base.toString(); }
     void setEnabled(bool on) { m_enabled = on; }
-    // Asks which model is loaded: `done(model, failure)`; model empty when none.
+    // The model to use (an LM Studio model id). Empty: whichever model is loaded. A chosen model that isn't loaded
+    // is loaded by LM Studio when asked (its "just in time" loading, on by default), which takes a while once.
+    void setModel(const QString& model) { m_model = model.trimmed(); }
+    QString model() const { return m_model; }
+
+    struct Model {
+        QString id;
+        bool loaded = false;
+    };
+    // The language models LM Studio has (downloaded, loaded or not): `done(models, failure)`. Embedding models are
+    // left out. Older LM Studio versions only list models without saying which are loaded (all marked loaded).
+    void listModels(std::function<void(const QList<Model>& models, TranslationFailure failure)> done);
+    // The model a lookup would use: `done(model, failure)`; model empty when none (nothing loaded and none chosen).
     void checkModel(std::function<void(const QString& model, TranslationFailure failure)> done);
 
 private:
@@ -70,6 +82,7 @@ private:
 
     QNetworkAccessManager* m_net;
     QUrl m_base;
+    QString m_model;
     bool m_enabled = true;
 };
 

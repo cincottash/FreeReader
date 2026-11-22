@@ -282,7 +282,7 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
         int letters = 0;
         for (const QChar c : t)
             if (c.isLetter()) ++letters;
-        if (m_settings.autoTranslate && letters >= 2) translateSelection();
+        if (m_settings.translateOnSelect && letters >= 2) translateSelection();
     });
     connect(m_pages, &PageView::selectionMenuRequested, this, [this](const QPoint& at) {
         QMenu* menu = buildSelectionMenu();
@@ -785,29 +785,63 @@ void ReaderView::onTranslated(int id, const core::TranslationResult& r, const QS
 {
     if (id != m_lookupId || !m_translate->isVisible()) return;
     if (r.isEmpty()) {
-        QString text = why.isEmpty() ? tr("No translation service is set up.") : why;
+        const bool allOff = !m_settings.useGemini && !m_settings.useLmStudio && !m_settings.useDictionary;
+        QString text = allOff ? tr("Every translation engine is turned off (Settings > Translation).")
+                              : why.isEmpty() ? tr("No translation engine is set up yet.") : why;
         if (bookIsOffline()) text += QLatin1Char('\n') + tr("This book is kept offline, so Gemini isn't asked.");
         m_translate->showNothing(text);
     } else {
         m_translate->showResult(r, m_dictionaryFirst);
         // Every lookup goes to the word log, with the place it was seen.
         if (m_words && m_bookId) {
-            core::WordPlace place;
-            place.bookId = m_bookId;
-            place.bookTitle = m_title->text();
-            place.language = languageCode();
-            place.spine = m_lookupSpine;
-            place.start = m_lookupStart;
-            place.end = m_lookupEnd;
-            place.sentence = m_lookupSentence;
-            const core::Position at{m_lookupSpine, m_lookupStart};
-            place.cfi = m_engine->cfiFor(at);
-            if (const auto ix = m_engine->index()) place.pageLabel = ix->pageLabel(at);
-            place.chapter = chapterTitleAt(at);
-            m_words->record(r, place);
+            m_words->record(r, wordPlace(m_lookupSpine, m_lookupStart, m_lookupEnd, m_lookupSentence));
             emit wordLogged();
         }
     }
+}
+
+core::WordPlace ReaderView::wordPlace(int spine, int start, int end, const QString& sentence) const
+{
+    core::WordPlace place;
+    place.bookId = m_bookId;
+    place.bookTitle = m_title->text();
+    place.language = languageCode();
+    place.spine = spine;
+    place.start = start;
+    place.end = end;
+    place.sentence = sentence;
+    const core::Position at{spine, start};
+    place.cfi = m_engine->cfiFor(at);
+    if (const auto ix = m_engine->index()) place.pageLabel = ix->pageLabel(at);
+    place.chapter = chapterTitleAt(at);
+    return place;
+}
+
+int ReaderView::markHighlightedWord(const QString& highlighted, int spine, int start, int end, const QString& sentence)
+{
+    if (!m_words || !m_bookId || !m_settings.practiceHighlights) return 0;
+    // Words and short phrases only (up to 4 words); a highlighted passage is a quote, not vocabulary.
+    QString text = highlighted.simplified();
+    while (!text.isEmpty() && !text.front().isLetterOrNumber()) text.remove(0, 1);
+    while (!text.isEmpty() && !text.back().isLetterOrNumber()) text.chop(1);
+    int letters = 0;
+    for (const QChar c : text)
+        if (c.isLetter()) ++letters;
+    if (letters < 2 || text.size() > 60 || text.split(QLatin1Char(' '), Qt::SkipEmptyParts).size() > 4) return 0;
+    // No lookup: the offline dictionary's meaning when it has one, else none yet.
+    core::TranslationResult meaning = m_translator ? m_translator->offlineMeaning(text, languageCode()) : core::TranslationResult();
+    meaning.text = text;
+    // A very long sentence (old books have them) is cut to the part around the word.
+    QString context = sentence.simplified();
+    if (context.size() > 600) {
+        const int at = int(context.indexOf(text, 0, Qt::CaseInsensitive));
+        const int from = at < 0 ? 0 : qMax(0, at - 250);
+        context = (from > 0 ? QStringLiteral("…") : QString()) + context.mid(from, 500).trimmed() +
+                  (from + 500 < context.size() ? QStringLiteral("…") : QString());
+    }
+    const int id = m_words->mark(meaning, wordPlace(spine, start, end, context));
+    if (id) emit wordLogged();
+    return id;
 }
 
 QMenu* ReaderView::buildSelectionMenu()
@@ -819,7 +853,9 @@ QMenu* ReaderView::buildSelectionMenu()
     // Highlight colors in a row at the top, as in Kindle. Inside a highlight, the dot of its color is marked.
     if (m_notes && m_bookId) {
         const int current = highlightAtSelection();
-        const QString currentColor = current ? m_notes->get(current).color : QString();
+        const core::Annotation currentHl = current ? m_notes->get(current) : core::Annotation();
+        const QString currentColor = currentHl.color;
+        const bool currentHasNote = !currentHl.note.trimmed().isEmpty();
         auto* row = new QWidget;
         auto* h = new QHBoxLayout(row);
         h->setContentsMargins(10, 6, 10, 6);
@@ -829,7 +865,11 @@ QMenu* ReaderView::buildSelectionMenu()
             dot->setObjectName(QStringLiteral("Icon"));
             dot->setFixedSize(30, 30);
             dot->setCursor(Qt::PointingHandCursor);
-            dot->setToolTip(tr("Highlight") + QStringLiteral(" (") + c + QLatin1Char(')'));
+            // The marked dot (the highlight's own color) takes the highlight away, unless it has a note.
+            if (c == currentColor)
+                dot->setToolTip(currentHasNote ? tr("This highlight has a note: Remove Highlight takes both away.") : tr("Remove Highlight"));
+            else
+                dot->setToolTip(tr("Highlight") + QStringLiteral(" (") + c + QLatin1Char(')'));
             dot->setProperty("testId", (QStringLiteral("hl-") + c).toLatin1().constData());
             QPixmap pm(44, 44);
             pm.setDevicePixelRatio(2.0);
@@ -942,9 +982,18 @@ int ReaderView::highlightSelection(const QString& color)
 {
     if (!m_notes || !m_bookId || !m_pages->hasSelection() || m_pages->selectedText().trimmed().isEmpty()) return 0;
     const int spine = m_pages->selectionSpine(), start = m_pages->selectionStart(), end = m_pages->selectionEnd();
-    // Inside an existing highlight: that one changes color (a highlight is never stacked on another).
+    // Inside an existing highlight: that one changes color (a highlight is never stacked on another). Its own
+    // color again takes the highlight away, as in Kindle (the owner's request, 2026-11-22). A note on it goes
+    // with it only when it has none: one with a note is kept (Remove Highlight still removes it).
     for (core::Annotation a : m_notes->highlightsAt(m_bookId, spine, start, end))
         if (a.start <= start && a.end >= end) {
+            if (a.color == color && a.note.trimmed().isEmpty()) {
+                m_notes->remove(a.id);
+                m_translate->hide();
+                m_pages->clearSelection();
+                refreshAnnotations();
+                return 0;
+            }
             a.color = color;
             m_notes->update(a);
             m_pages->clearSelection();
@@ -969,6 +1018,7 @@ int ReaderView::highlightSelection(const QString& color)
             }
         }
     }
+    const QString sentence = m_pages->selectionSentence();
     // Overlapping ones are merged into the new highlight, keeping their notes.
     QStringList notes;
     for (const core::Annotation& a : m_notes->highlightsAt(m_bookId, spine, from, to)) {
@@ -991,6 +1041,7 @@ int ReaderView::highlightSelection(const QString& color)
     if (const auto ix = m_engine->index()) a.pageLabel = ix->pageLabel({spine, from});
     a.chapter = chapterTitleAt({spine, from});
     const int id = m_notes->add(a);
+    if (id) markHighlightedWord(a.text, spine, from, to, sentence);
     m_translate->hide();
     m_pages->clearSelection();
     refreshAnnotations();
