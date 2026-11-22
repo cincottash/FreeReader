@@ -9,11 +9,13 @@
 #include "core/position/Position.h"
 
 #include <QMainWindow>
+#include <QPointer>
 
 #include <memory>
 #include <vector>
 
 class CommandPalette;
+class SettingsDialog;
 class ThemePicker;
 class ImageViewer;
 class QStackedWidget;
@@ -74,6 +76,13 @@ private:
     void changeDataFolder();
     void about();
     void showTheme(const Theme& t, bool preview);
+    void applyShortcuts();
+
+public:
+    void showSettings();
+    SettingsDialog* settingsDialog() const;
+
+private:
 
     Settings& m_settings;
     core::Library* m_library;
@@ -87,6 +96,7 @@ private:
     ImageViewer* m_imageViewer;
     ThemePicker* m_themePicker;
     QString m_previewKey;
+    QPointer<SettingsDialog> m_settingsDialog;
     std::vector<std::unique_ptr<Command>> m_commands;
     QString m_openingPath;
     QString m_lastError;

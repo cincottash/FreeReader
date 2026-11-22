@@ -4,6 +4,7 @@
 #include "Popups.h"
 #include "ReaderView.h"
 #include "LibraryView.h"
+#include "SettingsDialog.h"
 #include "ThemePicker.h"
 
 #include "core/format/FormatPlugin.h"
@@ -102,9 +103,8 @@ void MainWindow::addCommand(const QString& id, const QString& label, const QKeyS
     c->label = label;
     c->hint = hint;
     c->shortcut = key;
-    // Shortcut overrides from the settings ("id=Ctrl+X").
-    for (const QString& o : m_settings.shortcuts)
-        if (o.section(QLatin1Char('='), 0, 0) == id) c->shortcut = QKeySequence(o.section(QLatin1Char('='), 1), QKeySequence::PortableText);
+    c->defaultShortcut = key;
+
     c->run = std::move(run);
     c->enabled = std::move(enabled);
     c->action = new QAction(label, this);
@@ -175,13 +175,59 @@ void MainWindow::buildCommands()
     addCommand(QStringLiteral("data-folder"), tr("Change App Data Folder…"), QKeySequence(), [this] { changeDataFolder(); });
     addCommand(QStringLiteral("about"), tr("About FreeReader"), QKeySequence(), [this] { about(); });
     addCommand(QStringLiteral("quit"), tr("Quit"), QKeySequence(Qt::CTRL | Qt::Key_Q), [this] { close(); });
-    // Second shortcuts people expect for the palette.
-    if (Command* c = command(QStringLiteral("commands")))
-        c->action->setShortcuts({QKeySequence(Qt::CTRL | Qt::Key_K), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_P), QKeySequence(Qt::Key_F1)});
-    if (Command* c = command(QStringLiteral("larger")))
-        c->action->setShortcuts({QKeySequence(Qt::CTRL | Qt::Key_Equal), QKeySequence(Qt::CTRL | Qt::Key_Plus)});
-    if (Command* c = command(QStringLiteral("back")))
-        c->action->setShortcuts({QKeySequence(Qt::ALT | Qt::Key_Left), QKeySequence(Qt::Key_Backspace)});
+    addCommand(QStringLiteral("settings"), tr("Settings…"), QKeySequence(Qt::CTRL | Qt::Key_Comma), [this] { showSettings(); }, nullptr,
+               tr("App data folder, keyboard shortcuts, resets."));
+    applyShortcuts();
+}
+
+void MainWindow::applyShortcuts()
+{
+    // Second keys people expect, used while the command keeps its default.
+    static const QHash<QString, QList<QKeySequence>> extra = {
+        {QStringLiteral("commands"), {QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_P), QKeySequence(Qt::Key_F1)}},
+        {QStringLiteral("larger"), {QKeySequence(Qt::CTRL | Qt::Key_Plus)}},
+        {QStringLiteral("back"), {QKeySequence(Qt::Key_Backspace)}},
+    };
+    for (auto& c : m_commands) {
+        QKeySequence keys = c->defaultShortcut;
+        bool changed = false;
+        // Changes from Settings: "id=Ctrl+X" ("id=" for none).
+        for (const QString& o : m_settings.shortcuts)
+            if (o.section(QLatin1Char('='), 0, 0) == c->id) {
+                keys = QKeySequence(o.section(QLatin1Char('='), 1), QKeySequence::PortableText);
+                changed = true;
+            }
+        c->shortcut = keys;
+        QList<QKeySequence> all;
+        if (!keys.isEmpty()) all << keys;
+        if (!changed) all << extra.value(c->id);
+        c->action->setShortcuts(all);
+    }
+}
+
+void MainWindow::showSettings()
+{
+    if (!m_settingsDialog) {
+        std::vector<Command*> list;
+        for (auto& c : m_commands) list.push_back(c.get());
+        m_settingsDialog = new SettingsDialog(m_settings, list, this);
+        connect(m_settingsDialog, &SettingsDialog::shortcutsChanged, this, [this] {
+            applyShortcuts();
+            saveSettingsSoon();
+        });
+        connect(m_settingsDialog, &SettingsDialog::resetTextAndLayoutRequested, this, [this] {
+            m_settings.look = Appearance();
+            if (isReading()) m_reader->applyReadingOptions();
+            saveSettingsSoon();
+        });
+        connect(m_settingsDialog, &SettingsDialog::changeDataFolderRequested, this, [this] {
+            changeDataFolder();
+            m_settingsDialog->setDataFolder(appdata::folder(), appdata::isTemporary());
+        });
+    }
+    m_settingsDialog->setDataFolder(appdata::folder(), appdata::isTemporary());
+    m_settingsDialog->show();
+    m_settingsDialog->raise();
 }
 
 Command* MainWindow::command(const QString& id) const
@@ -401,3 +447,5 @@ void MainWindow::previewTheme(const QString& key)
     }
     showTheme(Theme::forChoice(key), true);
 }
+
+SettingsDialog* MainWindow::settingsDialog() const { return m_settingsDialog.data(); }
