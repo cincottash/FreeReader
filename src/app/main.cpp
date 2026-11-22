@@ -28,6 +28,11 @@
 #include <QTemporaryDir>
 #include <QTimer>
 
+#ifdef HAVE_TEXT_TO_SPEECH
+#include <QTextToSpeech>
+#include <QVoice>
+#endif
+
 #include <cstdio>
 #include <functional>
 
@@ -95,6 +100,39 @@ static int checkTranslation(const QString& out)
     QTimer::singleShot(40000, qApp, [] { QCoreApplication::exit(6); });
     const int loop = QCoreApplication::exec();
     return loop == 6 ? 6 : code;
+}
+
+// --check-speech: the speech engines this build has, and each one's languages and voices, written to a file. Says
+// nothing aloud and shows nothing; for checking a build (and CI) can read words aloud on this system.
+static int checkSpeech(const QString& out)
+{
+    QFile f(out);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        fprintf(stderr, "Can't write %s\n", qPrintable(out));
+        return 2;
+    }
+    QTextStream ts(&f);
+    ts.setEncoding(QStringConverter::Utf8);
+#ifdef HAVE_TEXT_TO_SPEECH
+    const QStringList engines = QTextToSpeech::availableEngines();
+    ts << "Speech engines: " << (engines.isEmpty() ? QStringLiteral("none") : engines.join(QStringLiteral(", "))) << "\n";
+    for (const QString& e : engines) {
+        QTextToSpeech tts(e);
+        // Some engines (speech-dispatcher) report their voices a moment after they start.
+        waitFor([&] { return !tts.availableLocales().isEmpty() || tts.state() == QTextToSpeech::Error; }, 3000);
+        ts << e << ": state " << int(tts.state()) << (tts.state() == QTextToSpeech::Error ? QStringLiteral(" (error: ") + tts.errorString() + QLatin1Char(')') : QString()) << "\n";
+        for (const QLocale& l : tts.availableLocales()) {
+            tts.setLocale(l);
+            QStringList voices;
+            for (const QVoice& v : tts.availableVoices()) voices << v.name();
+            ts << "  " << l.name() << ": " << voices.join(QStringLiteral(", ")) << "\n";
+        }
+    }
+    return engines.isEmpty() ? 3 : 0;
+#else
+    ts << "Speech engines: none (built without Qt TextToSpeech)\n";
+    return 3;
+#endif
 }
 
 // --screenshot: renders the window off-screen to a PNG and exits. Never shows a dialog or a window: problems are
@@ -222,10 +260,12 @@ int main(int argc, char* argv[])
     cli.addOption({QStringLiteral("list-view"), QStringLiteral("With --screenshot: show the library as a list.")});
     cli.addOption({QStringLiteral("appearance"), QStringLiteral("With --screenshot: show the text and layout panel.")});
     cli.addOption({QStringLiteral("font"), QStringLiteral("With --screenshot: use this font for the text."), QStringLiteral("family")});
+    cli.addOption({QStringLiteral("check-speech"), QStringLiteral("Write the speech engines, languages and voices to this file and exit."), QStringLiteral("file")});
     cli.addOption({QStringLiteral("check-translation"), QStringLiteral("Look up one word with Gemini (the saved key), write the answer to this file and exit."), QStringLiteral("file")});
     cli.process(app);
 
     if (cli.isSet(QStringLiteral("check-translation"))) return checkTranslation(cli.value(QStringLiteral("check-translation")));
+    if (cli.isSet(QStringLiteral("check-speech"))) return checkSpeech(cli.value(QStringLiteral("check-speech")));
     if (cli.isSet(QStringLiteral("screenshot"))) return screenshot(cli, cli.value(QStringLiteral("screenshot")));
 
     if (appdata::resolve(cli.value(QStringLiteral("data-folder")), nullptr).isEmpty()) return 0;

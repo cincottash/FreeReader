@@ -47,10 +47,16 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
   paste it in **Settings ▸ Translation ▸ Translation Settings…**. The key is kept in Windows Credential Manager
   (or the system's key store on Linux), never in a file. **Test** looks up one word to check it works.
 - **Offline Only** (for all books, or just the open one) never sends text over the internet.
-- **Offline dictionary** (optional, 31 MB): **Download Dictionary** in the translation settings fetches the
-  Spanish → English dictionary (120,000 words, made from [Wiktionary](https://en.wiktionary.org), CC BY-SA 4.0)
-  from this project's [releases](https://github.com/cincottash/FreeReader/releases/tag/dictionary-es-en-1). It
-  answers single words at once, including verb forms ("tenía" → tener), with no internet.
+- **Offline dictionaries** (optional downloads in the translation settings) answer single words at once, with no
+  internet:
+  - **Spanish → English** (31 MB): 120,000 words from [Wiktionary](https://en.wiktionary.org) (CC BY-SA 4.0),
+    with verb forms ("tenía" → tener). [Release](https://github.com/cincottash/FreeReader/releases/tag/dictionary-es-en-1).
+  - **English definitions** (11 MB), for English books: 160,000 words and names from
+    [Open English WordNet](https://github.com/globalwordnet/english-wordnet) (CC BY 4.0), with their forms
+    ("ran" → run, "studies" → study). [Release](https://github.com/cincottash/FreeReader/releases/tag/dictionary-en-1).
+- **Hear Pronunciation** uses the computer's own voices. Windows: add a voice for the book's language (free) in
+  Settings ▸ Time & Language ▸ Speech; the pop-up says when one is missing. Linux: speech-dispatcher with
+  espeak-ng.
 
 ## Practice
 

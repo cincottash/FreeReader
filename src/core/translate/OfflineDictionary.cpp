@@ -82,6 +82,70 @@ QString shortGloss(const QString& g, const QString& pos = QString())
     return s.isEmpty() ? g.trimmed() : s;
 }
 
+struct RegularForm {
+    QString lemma, pos, description;
+};
+
+// English regular inflections (WordNet's "morphy" rules): the first ending whose removal leaves a word of the
+// matching part of speech; a doubled last letter is undone too ("running" -> "run", "bigger" -> "big").
+RegularForm regularEnglishForm(const QSqlDatabase& db, const QString& word)
+{
+    struct Rule {
+        const char* pos;
+        const char* ending;
+        const char* replace;
+        const char* description;
+        bool undoDouble;
+    };
+    static const Rule rules[] = {
+        {"noun", "ies", "y", "plural", false},      {"noun", "ches", "ch", "plural", false}, {"noun", "shes", "sh", "plural", false},
+        {"noun", "ses", "s", "plural", false},      {"noun", "xes", "x", "plural", false},   {"noun", "zes", "z", "plural", false},
+        {"noun", "men", "man", "plural", false},    {"noun", "s", "", "plural", false},
+        {"verb", "ies", "y", "third-person singular", false}, {"verb", "es", "e", "third-person singular", false},
+        {"verb", "es", "", "third-person singular", false},   {"verb", "s", "", "third-person singular", false},
+        {"verb", "ied", "y", "past tense or past participle", false}, {"verb", "ed", "e", "past tense or past participle", false},
+        {"verb", "ed", "", "past tense or past participle", true},    {"verb", "ing", "e", "present participle", false},
+        {"verb", "ing", "", "present participle", true},
+        {"adj", "ier", "y", "comparative", false},  {"adj", "er", "e", "comparative", false},  {"adj", "er", "", "comparative", true},
+        {"adj", "iest", "y", "superlative", false}, {"adj", "est", "e", "superlative", false}, {"adj", "est", "", "superlative", true},
+    };
+    auto has = [&](const QString& candidate, const QString& pos) {
+        if (candidate.size() < 2) return false;
+        for (const Entry& e : entriesFor(db, candidate, 1))
+            if (e.pos == pos) return true;
+        return false;
+    };
+    for (const Rule& r : rules) {
+        const QString ending = QString::fromLatin1(r.ending);
+        if (!word.endsWith(ending) || word.size() <= ending.size() + 1) continue;
+        const QString stem = word.left(word.size() - ending.size());
+        const QString pos = QString::fromLatin1(r.pos);
+        QString candidate = stem + QString::fromLatin1(r.replace);
+        if (has(candidate, pos)) return {candidate, pos, QString::fromLatin1(r.description)};
+        if (r.undoDouble && stem.size() >= 3 && stem.back() == stem.at(stem.size() - 2) && !QStringLiteral("aeiou").contains(stem.back())) {
+            candidate = stem.left(stem.size() - 1);
+            if (has(candidate, pos)) return {candidate, pos, QString::fromLatin1(r.description)};
+        }
+    }
+    return {};
+}
+
+// What an English form is, from its ending, for forms WordNet lists without saying ("ran", "geese").
+QString englishFormName(const QString& form, const QString& pos)
+{
+    if (pos == QLatin1String("verb")) {
+        if (form.endsWith(QLatin1String("ing"))) return QStringLiteral("present participle");
+        if (form.endsWith(QLatin1String("s")) && !form.endsWith(QLatin1String("ss"))) return QStringLiteral("third-person singular");
+        return QStringLiteral("past tense or past participle");
+    }
+    if (pos == QLatin1String("noun")) return QStringLiteral("plural");
+    if (pos == QLatin1String("adj") || pos == QLatin1String("adv")) {
+        if (form.endsWith(QLatin1String("est"))) return QStringLiteral("superlative");
+        if (form.endsWith(QLatin1String("er"))) return QStringLiteral("comparative");
+    }
+    return {};
+}
+
 QString posName(const QString& pos)
 {
     static const QHash<QString, QString> names = {{"adj", "adjective"}, {"adv", "adverb"}, {"prep", "preposition"}, {"conj", "conjunction"},
@@ -166,6 +230,11 @@ TranslationResult OfflineDictionary::lookUp(const QString& text, const QString& 
     // Punctuation around a selected word ("¿Qué?", "«hidalgo»,").
     word.remove(QRegularExpression(QStringLiteral("^[\\p{P}\\s]+|[\\p{P}\\s]+$")));
     if (word.isEmpty()) return r;
+    // English possessives: "Shakespeare's" is Shakespeare (unless the dictionary has the whole word: "o'clock").
+    if (m_info.language == QLatin1String("en") && word.size() > 3 &&
+        (word.endsWith(QLatin1String("'s"), Qt::CaseInsensitive) || word.endsWith(QStringLiteral("’s"), Qt::CaseInsensitive)) &&
+        entriesFor(db, word, 1).isEmpty())
+        word.chop(2);
 
     const QList<Entry> own = entriesFor(db, word);
     // An inflected form: its description and its dictionary form (the closest spelling match).
@@ -186,6 +255,35 @@ TranslationResult OfflineDictionary::lookUp(const QString& text, const QString& 
             }
     }
     const int ownTier = own.isEmpty() ? 99 : std::min_element(own.begin(), own.end(), [](const Entry& a, const Entry& b) { return a.tier < b.tier; })->tier;
+    // English: WordNet lists only irregular forms ("ran", "geese"); regular ones ("books", "walked", "running",
+    // "bigger") are found by taking their ending off, as WordNet's own "morphy" does.
+    RegularForm also;
+    if (m_info.language == QLatin1String("en")) {
+        // A listed irregular form ("ran", "running"), else a regular one ("walked").
+        const RegularForm f = !lemma.isEmpty() ? RegularForm{lemma, formPos, formDescription.isEmpty() ? englishFormName(word.toLower(), formPos) : formDescription}
+                                               : regularEnglishForm(db, word.toLower());
+        const int fTier = !lemma.isEmpty() ? formTier : 1;
+        lemma.clear();
+        if (!f.lemma.isEmpty()) {
+            // A word that is also an entry of its own ("flies": a theatre's fly space) is usually the form of a
+            // commoner word: the one with more meanings wins.
+            auto senses = [](const QList<Entry>& list) {
+                qsizetype n = 0;
+                for (const Entry& e : list)
+                    if (e.tier <= 1) n += e.glosses.size();
+                return n;
+            };
+            if (ownTier > fTier || senses(entriesFor(db, f.lemma, 1)) >= senses(own)) {
+                lemma = f.lemma;
+                formPos = f.pos;
+                formDescription = f.description;
+                formTier = qMin(fTier, ownTier - 1);
+            } else {
+                // The word's own meaning first ("a running joke"), the verb it comes from after it ("run").
+                also = f;
+            }
+        }
+    }
     // The closer spelling decides: "tenía" is a form of "tener", not "tenia" (tapeworm) without its accent. At the
     // same closeness the word in its own right wins ("casa" is a house before it is a form of "casar").
     const bool asForm = !lemma.isEmpty() && formTier < ownTier;
@@ -193,6 +291,9 @@ TranslationResult OfflineDictionary::lookUp(const QString& text, const QString& 
     if (asForm) {
         entries = entriesFor(db, lemma, 1);
         if (entries.isEmpty()) entries = entriesFor(db, lemma);
+        // The form's part of speech first ("hopped": the verb "hop", before the noun).
+        if (!formPos.isEmpty())
+            std::stable_partition(entries.begin(), entries.end(), [&](const Entry& e) { return e.pos == formPos; });
     } else {
         // The closest spellings only ("qué", never also "que"); other capitals follow an exact match as more
         // meanings ("Mancha", the place, then "mancha", a stain).
@@ -202,6 +303,12 @@ TranslationResult OfflineDictionary::lookUp(const QString& text, const QString& 
         formDescription.clear();
     }
     if (entries.isEmpty()) return r;
+    // WordNet lists parts of speech in no useful order: the one with the most meanings (the commonest) first
+    // ("colour": the noun, not the rare adjective). Wiktionary's own order is kept.
+    if (isMonolingual() && !asForm)
+        std::stable_sort(entries.begin(), entries.end(), [](const Entry& a, const Entry& b) {
+            return a.tier != b.tier ? a.tier < b.tier : a.glosses.size() > b.glosses.size();
+        });
 
     const Entry& first = entries.first();
     QStringList meanings;
@@ -210,23 +317,56 @@ TranslationResult OfflineDictionary::lookUp(const QString& text, const QString& 
             const QString s = shortGloss(g, e.pos);
             if (!s.isEmpty() && !meanings.contains(s, Qt::CaseInsensitive)) meanings << s;
         }
-    r.translation = meanings.value(0);
-    for (int i = 1; i < meanings.size() && r.alternatives.size() < 4; ++i)
-        if (meanings[i].size() <= 40) r.alternatives << meanings[i];
+    if (isMonolingual()) {
+        // A dictionary of definitions (English -> English): the first definition, then the next ones numbered.
+        r.translation = entries.first().glosses.value(0);
+        QStringList more;
+        for (const Entry& e : entries)
+            for (const QString& g : e.glosses)
+                if (g != r.translation && more.size() < 3 && !more.contains(g)) more << g;
+        for (int i = 0; i < more.size(); ++i) r.definition += (i ? QStringLiteral("\n") : QString()) + QStringLiteral("%1. %2").arg(i + 2).arg(more[i]);
+        if (asForm) {
+            // The word in its own right, after the word it's a form of ("building": also a structure).
+            for (const Entry& e : own)
+                if (e.tier <= 1 && !e.glosses.isEmpty()) {
+                    const QString line = tr("Also on its own (%1): %2").arg(posName(e.pos), e.glosses.first());
+                    r.definition = r.definition.isEmpty() ? line : line + QLatin1Char('\n') + r.definition;
+                    break;
+                }
+        }
+        if (!asForm && !also.lemma.isEmpty()) {
+            QList<Entry> base = entriesFor(db, also.lemma, 1);
+            std::stable_partition(base.begin(), base.end(), [&](const Entry& e) { return e.pos == also.pos; });
+            if (!base.isEmpty()) {
+                const QString line = tr("Also the %1 of “%2”: %3").arg(also.description, also.lemma, base.first().glosses.value(0));
+                r.definition = r.definition.isEmpty() ? line : line + QLatin1Char('\n') + r.definition;
+            }
+        }
+    } else {
+        r.translation = meanings.value(0);
+        for (int i = 1; i < meanings.size() && r.alternatives.size() < 4; ++i)
+            if (meanings[i].size() <= 40) r.alternatives << meanings[i];
+    }
     QStringList pos{posName(first.pos)};
     for (const QString& tag : {QStringLiteral("masculine"), QStringLiteral("feminine")})
         if (first.tags.split(QLatin1Char(' ')).contains(tag)) pos << tag;
-    if (!formDescription.isEmpty()) {
+    if (asForm) {
         // "first-person singular preterite indicative of piar" -> "first-person singular preterite indicative"
         QString d = formDescription;
         const int of = int(d.lastIndexOf(QStringLiteral(" of ")));
         if (of > 0) d = d.left(of);
-        pos = QStringList{posName(formPos.isEmpty() ? first.pos : formPos), d};
+        pos = QStringList{posName(formPos.isEmpty() ? first.pos : formPos)};
+        if (!d.trimmed().isEmpty()) pos << d.trimmed();
     }
     r.partOfSpeech = pos.join(QStringLiteral(", "));
     r.lemma = lemma.compare(r.text, Qt::CaseInsensitive) == 0 ? QString() : lemma;
     r.provider = tr("Offline dictionary");
     return r;
+}
+
+bool OfflineDictionary::handles(const TranslationRequest& request) const
+{
+    return request.from.isEmpty() || m_info.language.isEmpty() || request.from == m_info.language;
 }
 
 void OfflineDictionary::translate(const TranslationRequest& request, Done done)

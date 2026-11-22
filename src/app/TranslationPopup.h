@@ -27,12 +27,15 @@ public:
     // `interim`: the offline dictionary's answer while the online one is on its way (still loading).
     void showResult(const core::TranslationResult& r, bool dictionaryFirst = false, bool interim = false);
     void showNothing(const QString& why);
+    // Hear Pronunciation can't read this language: why, and (Windows) a button to the system's speech settings.
+    void showSpeechProblem(const QString& text, bool canOpenSettings);
     const core::TranslationResult& result() const { return m_result; }
     bool isLoading() const { return m_loading; }
 
 signals:
     void settingsRequested();
     void speakRequested(const QString& text, const QString& language);
+    void speechSettingsRequested();
 
 private:
     void setHead(const QString& word, const QString& detail);
@@ -48,6 +51,8 @@ private:
     QLabel* m_word;
     QLabel* m_detail;
     QToolButton* m_speak;
+    QLabel* m_speechNote;
+    QPushButton* m_speechSettings;
     QLabel* m_translation;
     QLabel* m_alternatives;
     QLabel* m_note;

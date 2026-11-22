@@ -9,6 +9,10 @@
 
 #include <QDateTime>
 #include <QJsonValue>
+#include <QList>
+#include <QLocale>
+
+#include <optional>
 #include <QElapsedTimer>
 #include <QTimer>
 #include <QWidget>
@@ -139,7 +143,16 @@ private:
     core::WordPlace wordPlace(int spine, int start, int end, const QString& sentence) const;
     // A new highlight of a word or short phrase joins the word log (no lookup); returns the word's id or 0.
     int markHighlightedWord(const QString& text, int spine, int start, int end, const QString& sentence);
+    QList<QLocale> speechLocales();
+
+public:
     void speak(const QString& text, const QString& language);
+    // Why the word can't be read aloud in `language` (no voice for it, no speech engine), empty when it can.
+    QString speechProblem(const QString& language, bool* canOpenSettings = nullptr);
+    void setSpeechLocalesForTests(const QList<QLocale>& locales) { m_speechLocalesForTests = locales; }
+
+private:
+    std::optional<QList<QLocale>> m_speechLocalesForTests;
 
     core::BookEngine* m_engine;
     core::Library* m_library;

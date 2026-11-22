@@ -25,7 +25,7 @@ public:
     void setCache(Library* library) { m_cache = library; }
     void setProviders(const std::vector<TranslationProvider*>& inOrder) { m_providers = inOrder; }
     // Answers single words at once (shown while the online answer is on its way).
-    void setInstant(OfflineDictionary* dictionary) { m_instant = dictionary; }
+    void setInstant(const std::vector<OfflineDictionary*>& dictionaries) { m_instant = dictionaries; }
     // Offline only: no provider that sends text over the internet is asked (cached answers still show).
     void setOfflineOnly(bool on) { m_offlineOnly = on; }
     bool offlineOnly() const { return m_offlineOnly; }
@@ -35,7 +35,7 @@ public:
     // The offline dictionary's answer for a word or short phrase, at once and without any lookup online; empty
     // when no dictionary is installed and on, or it doesn't know the word.
     TranslationResult offlineMeaning(const QString& text, const QString& from) const;
-    bool hasOfflineDictionary() const;   // installed (on or off)
+    bool hasOfflineDictionary(const QString& language = QString()) const;   // installed (on or off), for that language
 
     // What happened to each provider on the last lookup that reached it ("Gemini: today's free limit is used up").
     QString lastStatus(const QString& provider) const { return m_status.value(provider); }
@@ -54,7 +54,7 @@ private:
     void finish(const TranslationRequest& request, const TranslationResult& r, const QString& why);
 
     Library* m_cache = nullptr;
-    OfflineDictionary* m_instant = nullptr;
+    std::vector<OfflineDictionary*> m_instant;
     std::vector<TranslationProvider*> m_providers;
     bool m_offlineOnly = false;
     int m_nextId = 1;

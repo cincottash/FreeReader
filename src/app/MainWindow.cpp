@@ -49,10 +49,13 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     m_lmStudio = new core::LmStudioProvider(m_net, this);
     m_translator = new core::TranslationService(this);
     m_translator->setCache(m_library);
+    // The offline dictionaries, when installed: Spanish -> English, and English definitions for English books.
     m_dictionary = new core::OfflineDictionary(this);
-    m_dictionary->open(dictionaryFile(QStringLiteral("es")));   // when installed
-    m_translator->setProviders({m_gemini, m_lmStudio, m_dictionary});
-    m_translator->setInstant(m_dictionary);
+    m_dictionary->open(dictionaryFile(QStringLiteral("es")));
+    m_dictionaryEn = new core::OfflineDictionary(this);
+    m_dictionaryEn->open(dictionaryFile(QStringLiteral("en")));
+    m_translator->setProviders({m_gemini, m_lmStudio, m_dictionary, m_dictionaryEn});
+    m_translator->setInstant({m_dictionary, m_dictionaryEn});
     m_gemini->setKey(core::secrets::read(QStringLiteral("gemini-api-key")));
     m_stack = new QStackedWidget;
     m_start = new LibraryView(m_library, m_settings);
@@ -437,6 +440,8 @@ void MainWindow::applyTranslationSettings()
 {
     m_dictionary->setEnabled(m_settings.useDictionary);
     if (!m_dictionary->info().ok) m_dictionary->open(dictionaryFile(QStringLiteral("es")));
+    m_dictionaryEn->setEnabled(m_settings.useDictionary);
+    if (!m_dictionaryEn->info().ok) m_dictionaryEn->open(dictionaryFile(QStringLiteral("en")));
     m_gemini->setEnabled(m_settings.useGemini);
     m_gemini->setModel(m_settings.geminiModel);
     m_lmStudio->setEnabled(m_settings.useLmStudio);
@@ -473,6 +478,7 @@ void MainWindow::showSettings(int tab)
         for (auto& c : m_commands) list.push_back(c.get());
         m_settingsDialog = new SettingsDialog(m_settings, list, m_gemini, m_lmStudio, m_interactive, this);
         m_settingsDialog->setDictionary(m_dictionary, dictionaryFile(QStringLiteral("es")));
+        m_settingsDialog->setEnglishDictionary(m_dictionaryEn, dictionaryFile(QStringLiteral("en")));
         connect(m_settingsDialog, &SettingsDialog::translationChanged, this, [this] {
             applyTranslationSettings();
             saveSettingsSoon();
