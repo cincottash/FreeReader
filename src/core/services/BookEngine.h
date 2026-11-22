@@ -5,6 +5,7 @@
 #pragma once
 
 #include "BookIndex.h"
+#include "BookSearch.h"
 
 #include "core/format/Book.h"
 #include "core/layout/Layout.h"
@@ -13,6 +14,8 @@
 #include <QObject>
 #include <QSet>
 #include <QThreadPool>
+
+#include <atomic>
 
 #include <memory>
 
@@ -54,17 +57,23 @@ public:
     NoteText noteText(const QString& href) const;      // the text a footnote link points to
     QByteArray resource(const QString& path) const;
 
+    // Searches the whole book on a background thread; searchFinished reports it. A new search cancels the last.
+    int search(const QString& query, const SearchOptions& options);
+    void cancelSearch();
+
 signals:
     void opened();
     void openFailed(const QString& message);
     void indexReady();
     void layoutReady(int spine);
+    void searchFinished(int id, const QList<core::SearchHit>& hits, bool truncated);
 
 private:
     std::shared_ptr<const layout::ChapterFlow> flowFor(int spine);   // from the cache or built now
     void store(int spine, int generation, std::shared_ptr<const layout::ChapterLayout> cl);
 
     QThreadPool m_pool;
+    QThreadPool m_searchPool;   // one search at a time, waited for on close
     std::shared_ptr<Book> m_book;
     std::shared_ptr<const BookIndex> m_index;
     std::shared_ptr<layout::FontResolver> m_fonts;
@@ -75,6 +84,8 @@ private:
     QHash<int, std::shared_ptr<const layout::ChapterLayout>> m_cache;
     QList<int> m_recent;   // most recently used first
     QSet<int> m_pending;
+    int m_searchId = 0;
+    std::shared_ptr<std::atomic<bool>> m_searchCancel;
 };
 
 }  // namespace core

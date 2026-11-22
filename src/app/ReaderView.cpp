@@ -6,6 +6,8 @@
 #include "Popups.h"
 #include "Settings.h"
 #include "TocPanel.h"
+#include "NotebookPanel.h"
+#include "SearchPanel.h"
 #include "TranslationPopup.h"
 
 #include "core/services/BookEngine.h"
@@ -13,6 +15,14 @@
 #include "core/translate/TranslationService.h"
 #include "core/services/BookIndex.h"
 #include "core/services/WordLog.h"
+#include "core/services/Annotations.h"
+
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QListWidget>
+#include <QPlainTextEdit>
+#include <QSaveFile>
+#include <QWidgetAction>
 
 #include <QDesktopServices>
 #include <QHBoxLayout>
@@ -20,7 +30,10 @@
 #include <QJsonObject>
 #include <QApplication>
 #include <QClipboard>
+#include <QFileDialog>
 #include <QLocale>
+#include <QMessageBox>
+#include <QStandardPaths>
 #include <QMenu>
 #include <QUrlQuery>
 #ifdef HAVE_TEXT_TO_SPEECH
@@ -99,6 +112,16 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     m_tocButton->setCheckable(true);
     m_tocButton->setProperty("testId", "tocButton");
     m_fullButton = iconButton("fullscreen", tr("Full screen (F11)"), m_theme);
+    m_searchButton = iconButton("search", tr("Search This Book (Ctrl+F)"), m_theme);
+    m_searchButton->setCheckable(true);
+    m_searchButton->setProperty("testId", "searchButton");
+    m_bookmarkButton = iconButton("bookmark", tr("Bookmark This Page (Ctrl+D)"), m_theme);
+    m_bookmarkButton->setCheckable(true);
+    m_bookmarkButton->setProperty("testId", "bookmarkButton");
+    m_notebookButton = iconButton("panel", tr("Notebook: highlights, notes, bookmarks (Ctrl+Shift+N)"), m_theme);
+    m_notebookButton->setCheckable(true);
+    m_notebookButton->setProperty("testId", "notebookButton");
+    h->addWidget(m_searchButton);
     h->addWidget(m_tocButton);
     m_aaButton = new QToolButton;
     m_aaButton->setObjectName(QStringLiteral("Icon"));
@@ -118,6 +141,8 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     m_themeDots->layout()->setContentsMargins(6, 0, 6, 0);
     m_themeDots->layout()->setSpacing(0);
     h->addWidget(m_themeDots);
+    h->addWidget(m_bookmarkButton);
+    h->addWidget(m_notebookButton);
     h->addWidget(m_fullButton);
     lay->addWidget(bar);
 
@@ -129,8 +154,16 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     m_toc->setFixedWidth(320);
     m_toc->hide();
     body->addWidget(m_toc);
+    m_search = new SearchPanel;
+    m_search->setFixedWidth(320);
+    m_search->hide();
+    body->addWidget(m_search);
     m_pages = new PageView(engine);
     body->addWidget(m_pages, 1);
+    m_notebook = new NotebookPanel;
+    m_notebook->setFixedWidth(340);
+    m_notebook->hide();
+    body->addWidget(m_notebook);
     lay->addLayout(body, 1);
 
     m_footer = new FooterBar;
@@ -194,6 +227,52 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     connect(m_pages, &PageView::imageClicked, this, &ReaderView::imageRequested);
     connect(m_pages, &PageView::pageTurnedByUser, m_note, &QWidget::hide);
     connect(m_pages, &PageView::pageTurnedByUser, m_translate, &QWidget::hide);
+    connect(m_searchButton, &QToolButton::toggled, this, [this](bool on) { on ? openSearch() : closeSearch(); });
+    connect(m_bookmarkButton, &QToolButton::clicked, this, [this] {
+        toggleBookmark();
+        m_pages->setFocus();
+    });
+    connect(m_notebookButton, &QToolButton::toggled, this, [this](bool on) { setNotebookVisible(on); });
+    connect(m_notebook, &NotebookPanel::activated, this, &ReaderView::goToAnnotation);
+    connect(m_notebook, &NotebookPanel::editNoteRequested, this, &ReaderView::editNote);
+    connect(m_notebook, &NotebookPanel::colorRequested, this, [this](int id, const QString& color) {
+        if (!m_notes) return;
+        core::Annotation a = m_notes->get(id);
+        a.color = color;
+        m_notes->update(a);
+        refreshAnnotations();
+    });
+    connect(m_notebook, &NotebookPanel::deleteRequested, this, [this](int id) {
+        if (!m_notes) return;
+        m_notes->remove(id);
+        refreshAnnotations();
+    });
+    connect(m_notebook, &NotebookPanel::exportRequested, this, [this] {
+        if (!m_interactive || !m_bookId) return;
+        const QString name = m_title->text().isEmpty() ? tr("Notebook") : m_title->text();
+        const QString path = QFileDialog::getSaveFileName(this, tr("Export Notebook"),
+                                                          QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + QLatin1Char('/') + name + QStringLiteral(" notes.md"),
+                                                          tr("Markdown (*.md)"));
+        if (path.isEmpty()) return;
+        QString err;
+        if (!exportNotebook(path, &err)) QMessageBox::warning(this, tr("Export Notebook"), tr("Couldn't save the file. %1").arg(err));
+    });
+    connect(m_search, &SearchPanel::searchRequested, this, [this](const QString& q, const core::SearchOptions& o) {
+        m_search->setSearching();
+        m_searchId = m_engine->search(q, o);
+    });
+    connect(m_engine, &core::BookEngine::searchFinished, this, [this](int id, const QList<core::SearchHit>& hits, bool truncated) {
+        if (id != m_searchId) return;
+        QStringList labels;
+        const auto ix = m_engine->index();
+        for (const core::SearchHit& h : hits) labels << (ix ? ix->pageLabel({h.spine, h.start}) : QString());
+        m_search->setResults(hits, labels, truncated);
+    });
+    connect(m_search, &SearchPanel::hitActivated, this, &ReaderView::goToSearchHit);
+    connect(m_search, &SearchPanel::closeRequested, this, [this] {
+        closeSearch();
+        m_pages->setFocus();
+    });
     connect(m_pages, &PageView::selectionCleared, m_translate, &QWidget::hide);
     connect(m_pages, &PageView::resized, m_translate, &QWidget::hide);
     connect(m_pages, &PageView::resized, m_note, &QWidget::hide);
@@ -224,6 +303,10 @@ void ReaderView::setTheme(const Theme& t)
     m_theme = t;
     m_libraryButton->setIcon(icons::icon("back", t.fg));
     m_tocButton->setIcon(icons::icon("toc", t.fg));
+    m_searchButton->setIcon(icons::icon("search", t.fg));
+    m_bookmarkButton->setIcon(icons::icon("bookmark", t.fg));
+    m_notebookButton->setIcon(icons::icon("panel", t.fg));
+    m_notebook->setTheme(t);
     setFullScreenIcon(window() && window()->isFullScreen());
     m_pages->setTheme(t);
     m_translate->setTheme(t);
@@ -358,6 +441,8 @@ void ReaderView::showBook(int bookId, const core::Position& start)
     m_footer->setProgress(0, {});
     m_footer->setMarks({});
     setContentsVisible(m_settings.showContents);
+    setNotebookVisible(m_settings.showNotebook);
+    closeSearch();
     applyReadingOptions();
     m_lastShown = start;
     m_sinceTurn.start();
@@ -375,12 +460,17 @@ void ReaderView::closeBook()
     m_note->hide();
     m_translate->hide();
     m_lookupId = 0;
+    m_engine->cancelSearch();
+    m_search->setResults({}, {}, false);
+    m_notebook->setAnnotations({});
+    m_pages->setHighlights(-1, {});
 }
 
 bool ReaderView::contentsVisible() const { return m_toc->isVisible(); }
 
 void ReaderView::setContentsVisible(bool on)
 {
+    if (on && m_search->isVisible()) closeSearch();
     m_toc->setVisible(on);
     QSignalBlocker block(m_tocButton);
     m_tocButton->setChecked(on);
@@ -475,6 +565,7 @@ void ReaderView::onPositionChanged(const core::Position& p, bool byTurn)
     m_lastScreenChars = end.spine == p.spine ? qMax(0, end.offset - p.offset) : 0;
     updateHeaderAndFooter();
     if (m_bookId) m_saveTimer.start();
+    refreshAnnotations();
 }
 
 void ReaderView::savePosition()
@@ -725,6 +816,49 @@ QMenu* ReaderView::buildSelectionMenu()
     menu->setProperty("testId", "selectionMenu");
     const QString text = m_pages->selectedText().simplified();
     const int words = int(text.split(QLatin1Char(' '), Qt::SkipEmptyParts).size());
+    // Highlight colors in a row at the top, as in Kindle. Inside a highlight, the dot of its color is marked.
+    if (m_notes && m_bookId) {
+        const int current = highlightAtSelection();
+        const QString currentColor = current ? m_notes->get(current).color : QString();
+        auto* row = new QWidget;
+        auto* h = new QHBoxLayout(row);
+        h->setContentsMargins(10, 6, 10, 6);
+        h->setSpacing(10);
+        for (const QString& c : core::Annotations::colors()) {
+            auto* dot = new QToolButton;
+            dot->setObjectName(QStringLiteral("Icon"));
+            dot->setFixedSize(30, 30);
+            dot->setCursor(Qt::PointingHandCursor);
+            dot->setToolTip(tr("Highlight") + QStringLiteral(" (") + c + QLatin1Char(')'));
+            dot->setProperty("testId", (QStringLiteral("hl-") + c).toLatin1().constData());
+            QPixmap pm(44, 44);
+            pm.setDevicePixelRatio(2.0);
+            pm.fill(Qt::transparent);
+            QPainter p(&pm);
+            p.setRenderHint(QPainter::Antialiasing);
+            p.setPen(c == currentColor ? QPen(m_theme.fg, 2) : Qt::NoPen);
+            p.setBrush(core::Annotations::colorValue(c));
+            p.drawEllipse(QRectF(3, 3, 16, 16));
+            p.end();
+            dot->setIcon(QIcon(pm));
+            dot->setIconSize(QSize(22, 22));
+            h->addWidget(dot);
+            connect(dot, &QToolButton::clicked, menu, [this, menu, c] {
+                highlightSelection(c);
+                menu->close();
+            });
+        }
+        h->addStretch(1);
+        auto* wa = new QWidgetAction(menu);
+        wa->setDefaultWidget(row);
+        wa->setProperty("testId", "menuHighlightRow");
+        menu->addAction(wa);
+        if (current) {
+            QAction* remove = menu->addAction(tr("Remove Highlight"), this, [this] { removeHighlightAtSelection(); });
+            remove->setProperty("testId", "menuRemoveHighlight");
+        }
+        menu->addSeparator();
+    }
     QAction* translate = menu->addAction(tr("Translate"), this, [this] { translateSelection(false); });
     translate->setProperty("testId", "menuTranslate");
     QAction* dict = menu->addAction(tr("Look Up in Dictionary"), this, [this] { translateSelection(true); });
@@ -736,7 +870,19 @@ QMenu* ReaderView::buildSelectionMenu()
     });
     copy->setShortcut(QKeySequence::Copy);
     copy->setProperty("testId", "menuCopy");
+    if (m_notes && m_bookId) {
+        const int current = highlightAtSelection();
+        const bool hasNote = current && !m_notes->get(current).note.isEmpty();
+        QAction* note = menu->addAction(hasNote ? tr("Edit Note…") : tr("Add Note…"), this, [this] {
+            int id = highlightAtSelection();
+            if (!id) id = highlightSelection(QStringLiteral("yellow"));
+            if (id) editNote(id);
+        });
+        note->setProperty("testId", "menuNote");
+    }
     menu->addSeparator();
+    QAction* search = menu->addAction(tr("Search This Book"), this, [this] { openSearch(m_pages->selectedText()); });
+    search->setProperty("testId", "menuSearchBook");
     QAction* web = menu->addAction(tr("Search the Web"), this, [this] { searchWeb(false); });
     web->setProperty("testId", "menuWeb");
     QAction* wiki = menu->addAction(tr("Search Wikipedia"), this, [this] { searchWeb(true); });
@@ -781,6 +927,260 @@ void ReaderView::speak(const QString& text, const QString& language)
     Q_UNUSED(text);
     Q_UNUSED(language);
 #endif
+}
+
+// ---------------------------------------------------------------- highlights, notes, bookmarks
+
+int ReaderView::highlightAtSelection() const
+{
+    if (!m_notes || !m_bookId || !m_pages->hasSelection()) return 0;
+    const auto hits = m_notes->highlightsAt(m_bookId, m_pages->selectionSpine(), m_pages->selectionStart(), m_pages->selectionEnd());
+    return hits.isEmpty() ? 0 : hits.first().id;
+}
+
+int ReaderView::highlightSelection(const QString& color)
+{
+    if (!m_notes || !m_bookId || !m_pages->hasSelection() || m_pages->selectedText().trimmed().isEmpty()) return 0;
+    const int spine = m_pages->selectionSpine(), start = m_pages->selectionStart(), end = m_pages->selectionEnd();
+    // Inside an existing highlight: that one changes color (a highlight is never stacked on another).
+    for (core::Annotation a : m_notes->highlightsAt(m_bookId, spine, start, end))
+        if (a.start <= start && a.end >= end) {
+            a.color = color;
+            m_notes->update(a);
+            m_pages->clearSelection();
+            refreshAnnotations();
+            return a.id;
+        }
+    // Whole words, as in Kindle: a selection that starts or ends inside a word takes the whole word.
+    int from = start, to = end;
+    if (const auto layoutNow = m_engine->layout(spine)) {
+        for (const layout::Block& b : layoutNow->flow->blocks) {
+            if (b.kind != layout::Block::Text) continue;
+            auto isWord = [&](int i) { return i >= 0 && i < int(b.text.size()) && (b.text[i].isLetterOrNumber() || b.text[i] == QChar(0x00AD)); };
+            if (from >= b.start && from < b.start + b.length) {
+                int i = from - b.start;
+                while (i > 0 && isWord(i) && isWord(i - 1)) --i;
+                from = b.start + i;
+            }
+            if (to > b.start && to <= b.start + b.length) {
+                int i = to - b.start;
+                while (i < int(b.text.size()) && isWord(i) && isWord(i - 1)) ++i;
+                to = b.start + i;
+            }
+        }
+    }
+    // Overlapping ones are merged into the new highlight, keeping their notes.
+    QStringList notes;
+    for (const core::Annotation& a : m_notes->highlightsAt(m_bookId, spine, from, to)) {
+        from = qMin(from, a.start);
+        to = qMax(to, a.end);
+        if (!a.note.trimmed().isEmpty()) notes << a.note.trimmed();
+        m_notes->remove(a.id);
+    }
+    const auto cl = m_engine->layout(spine);
+    core::Annotation a;
+    a.bookId = m_bookId;
+    a.kind = core::Annotation::Highlight;
+    a.spine = spine;
+    a.start = from;
+    a.end = to;
+    a.text = cl ? cl->flow->textRange(from, to).simplified() : m_pages->selectedText().simplified();
+    a.color = color;
+    a.note = notes.join(QStringLiteral("\n\n"));
+    a.cfi = m_engine->cfiFor({spine, from});
+    if (const auto ix = m_engine->index()) a.pageLabel = ix->pageLabel({spine, from});
+    a.chapter = chapterTitleAt({spine, from});
+    const int id = m_notes->add(a);
+    m_translate->hide();
+    m_pages->clearSelection();
+    refreshAnnotations();
+    return id;
+}
+
+bool ReaderView::removeHighlightAtSelection()
+{
+    const int id = highlightAtSelection();
+    if (!id) return false;
+    m_notes->remove(id);
+    m_pages->clearSelection();
+    refreshAnnotations();
+    return true;
+}
+
+int ReaderView::addNoteToSelection(const QString& note)
+{
+    int id = highlightAtSelection();
+    if (!id) id = highlightSelection(QStringLiteral("yellow"));
+    if (!id) return 0;
+    setNote(id, note);
+    return id;
+}
+
+void ReaderView::setNote(int annotationId, const QString& note)
+{
+    if (!m_notes) return;
+    core::Annotation a = m_notes->get(annotationId);
+    if (a.id == 0) return;
+    a.note = note.trimmed();
+    m_notes->update(a);
+    refreshAnnotations();
+}
+
+void ReaderView::editNote(int annotationId)
+{
+    if (!m_notes || !m_interactive) return;
+    const core::Annotation a = m_notes->get(annotationId);
+    if (a.id == 0) return;
+    QDialog d(this);
+    d.setWindowTitle(a.note.isEmpty() ? tr("Add Note") : tr("Edit Note"));
+    auto* lay = new QVBoxLayout(&d);
+    auto* quote = new QLabel(QStringLiteral("“%1”").arg(a.text.simplified().left(300)));
+    quote->setWordWrap(true);
+    quote->setObjectName(QStringLiteral("Muted"));
+    lay->addWidget(quote);
+    auto* edit = new QPlainTextEdit(a.note);
+    edit->setMinimumSize(420, 160);
+    lay->addWidget(edit);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel);
+    lay->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &d, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &d, &QDialog::reject);
+    edit->setFocus();
+    if (d.exec() == QDialog::Accepted) setNote(annotationId, edit->toPlainText());
+}
+
+bool ReaderView::pageIsBookmarked() const
+{
+    if (!m_notes || !m_bookId) return false;
+    const core::Position a = m_pages->position(), e = m_pages->screenEnd();
+    return m_notes->bookmarkAt(m_bookId, a.spine, a.offset, e.spine == a.spine ? qMax(a.offset, e.offset - 1) : a.offset) != 0;
+}
+
+bool ReaderView::toggleBookmark()
+{
+    if (!m_notes || !m_bookId || !m_engine->isOpen()) return false;
+    const core::Position a = m_pages->position(), e = m_pages->screenEnd();
+    const int existing = m_notes->bookmarkAt(m_bookId, a.spine, a.offset, e.spine == a.spine ? qMax(a.offset, e.offset - 1) : a.offset);
+    if (existing) {
+        m_notes->remove(existing);
+    } else {
+        core::Annotation b;
+        b.bookId = m_bookId;
+        b.kind = core::Annotation::Bookmark;
+        b.spine = a.spine;
+        b.start = b.end = a.offset;
+        if (const auto cl = m_engine->layout(a.spine)) b.text = cl->flow->textRange(a.offset, qMin(cl->flow->length, a.offset + 120)).simplified();
+        b.cfi = m_engine->cfiFor(a);
+        if (const auto ix = m_engine->index()) b.pageLabel = ix->pageLabel(a);
+        b.chapter = chapterTitleAt(a);
+        m_notes->add(b);
+    }
+    refreshAnnotations();
+    return !existing;
+}
+
+void ReaderView::refreshAnnotations()
+{
+    const bool on = m_notes && m_bookId;
+    const QList<core::Annotation> all = on ? m_notes->forBook(m_bookId) : QList<core::Annotation>();
+    const int spine = m_pages->position().spine;
+    std::vector<layout::Overlay> overlays;
+    for (const core::Annotation& a : all) {
+        if (a.kind != core::Annotation::Highlight || a.spine != spine) continue;
+        QColor c = core::Annotations::colorValue(a.color);
+        c.setAlphaF(m_theme.dark ? 0.34f : 0.42f);
+        overlays.push_back({a.start, a.end, c});
+    }
+    m_pages->setHighlights(spine, overlays);
+    m_notebook->setAnnotations(all);
+    const QSignalBlocker b(m_bookmarkButton);
+    m_bookmarkButton->setChecked(pageIsBookmarked());
+    m_bookmarkButton->setToolTip(m_bookmarkButton->isChecked() ? tr("Remove the Bookmark (Ctrl+D)") : tr("Bookmark This Page (Ctrl+D)"));
+}
+
+void ReaderView::goToAnnotation(int annotationId)
+{
+    if (!m_notes) return;
+    const core::Annotation a = m_notes->get(annotationId);
+    if (a.id == 0 || a.bookId != m_bookId) return;
+    core::Position p{a.spine, a.start};
+    if (!a.cfi.isEmpty()) {
+        core::Position fromCfi;
+        if (m_engine->positionForCfi(a.cfi, &fromCfi)) p = fromCfi;
+    }
+    jumpTo(p);
+    if (a.kind == core::Annotation::Highlight) m_pages->selectRange(p, {p.spine, p.offset + (a.end - a.start)});
+    m_pages->setFocus();
+}
+
+bool ReaderView::exportNotebook(const QString& path, QString* error)
+{
+    if (!m_notes || !m_bookId) return false;
+    const core::LibraryBook b = m_library ? m_library->book(m_bookId) : core::LibraryBook();
+    QSaveFile f(path);
+    if (!f.open(QIODevice::WriteOnly)) {
+        if (error) *error = f.errorString();
+        return false;
+    }
+    f.write(m_notes->markdown(m_bookId, b.title.isEmpty() ? m_title->text() : b.title, b.author).toUtf8());
+    if (!f.commit()) {
+        if (error) *error = f.errorString();
+        return false;
+    }
+    return true;
+}
+
+bool ReaderView::notebookVisible() const { return m_notebook->isVisible(); }
+
+void ReaderView::setNotebookVisible(bool on)
+{
+    m_notebook->setVisible(on);
+    const QSignalBlocker b(m_notebookButton);
+    m_notebookButton->setChecked(on);
+    m_settings.showNotebook = on;
+    if (on) refreshAnnotations();
+    emit appearanceChanged();   // the settings file needs saving
+}
+
+// ---------------------------------------------------------------- search
+
+void ReaderView::openSearch(const QString& query)
+{
+    if (!m_engine->isOpen()) return;
+    m_toc->hide();
+    {
+        const QSignalBlocker b(m_tocButton);
+        m_tocButton->setChecked(false);
+    }
+    m_search->show();
+    {
+        const QSignalBlocker b(m_searchButton);
+        m_searchButton->setChecked(true);
+    }
+    if (!query.trimmed().isEmpty()) m_search->setQuery(query);
+    m_search->focusBox();
+}
+
+void ReaderView::closeSearch()
+{
+    m_engine->cancelSearch();
+    m_search->hide();
+    const QSignalBlocker b(m_searchButton);
+    m_searchButton->setChecked(false);
+    if (m_settings.showContents && m_engine->isOpen()) {
+        m_toc->show();
+        const QSignalBlocker b2(m_tocButton);
+        m_tocButton->setChecked(true);
+    }
+}
+
+void ReaderView::goToSearchHit(int index)
+{
+    const QList<core::SearchHit>& hits = m_search->results();
+    if (index < 0 || index >= hits.size()) return;
+    const core::SearchHit& h = hits[index];
+    jumpTo({h.spine, h.start});
+    m_pages->selectRange({h.spine, h.start}, {h.spine, h.end});
 }
 
 void ReaderView::showAppearancePanel()

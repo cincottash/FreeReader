@@ -14,6 +14,7 @@
 #include "core/services/Library.h"
 #include "core/services/Secrets.h"
 #include "core/services/WordLog.h"
+#include "core/services/Annotations.h"
 #include "core/translate/AiProviders.h"
 #include "core/translate/TranslationService.h"
 #include "core/translate/OfflineDictionary.h"
@@ -60,6 +61,8 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     m_reader->setTranslator(m_translator);
     m_words = std::make_unique<core::WordLog>(m_library);
     m_reader->setWordLog(m_words.get());
+    m_annotations = std::make_unique<core::Annotations>(m_library);
+    m_reader->setAnnotations(m_annotations.get());
     m_practice = new PracticeView(m_words.get(), m_settings);
     m_practice->setInteractive(interactive);
     m_stack->addWidget(m_practice);
@@ -235,6 +238,14 @@ void MainWindow::buildCommands()
         m_reader->setBookOffline(!m_reader->bookIsOffline());
     }, [this] { return isReading() && !m_settings.offlineOnly; }, tr("Text from this book is never sent to Gemini."));
     if (Command* c = command(QStringLiteral("book-offline"))) c->action->setCheckable(true);
+    addCommand(QStringLiteral("search-book"), tr("Search This Book…"), QKeySequence(Qt::CTRL | Qt::Key_F), [this] {
+        m_reader->openSearch(m_reader->pages()->hasSelection() ? m_reader->pages()->selectedText() : QString());
+    }, reading, tr("Every place a word or phrase appears, with its page."));
+    addCommand(QStringLiteral("bookmark"), tr("Bookmark This Page"), QKeySequence(Qt::CTRL | Qt::Key_D), [this] { m_reader->toggleBookmark(); },
+               reading, tr("Adds a bookmark, or removes the one on this page."));
+    addCommand(QStringLiteral("notebook"), tr("Show or Hide Notebook"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_N),
+               [this] { m_reader->setNotebookVisible(!m_reader->notebookVisible()); saveSettingsSoon(); }, reading,
+               tr("The book's highlights, notes and bookmarks."));
     addCommand(QStringLiteral("practice"), tr("Practice Words"), QKeySequence(Qt::CTRL | Qt::Key_P), [this] { showPractice(); }, nullptr,
                tr("Flashcards of the words you looked up."));
     addCommand(QStringLiteral("word-list"), tr("Word List"), QKeySequence(), [this] { showPractice(true); }, nullptr,
@@ -280,6 +291,7 @@ void MainWindow::buildMenus()
     QMenu* view = bar->addMenu(tr("&View"));
     view->setProperty("testId", "menuView");
     add(view, "contents");
+    add(view, "notebook");
     add(view, "book-offline");
     view->addSeparator();
     add(view, "larger");
@@ -304,6 +316,9 @@ void MainWindow::buildMenus()
     add(go, "next-chapter");
     add(go, "previous-chapter");
     add(go, "book-start");
+    go->addSeparator();
+    add(go, "search-book");
+    add(go, "bookmark");
     go->addSeparator();
     add(go, "practice");
     add(go, "word-list");

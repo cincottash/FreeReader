@@ -33,6 +33,7 @@ class LmStudioProvider;
 class TranslationService;
 class WordLog;
 class OfflineDictionary;
+class Annotations;
 }
 
 class MainWindow : public QMainWindow {
@@ -51,6 +52,7 @@ public:
     LibraryView* library() const { return m_start; }
     PracticeView* practice() const { return m_practice; }
     core::WordLog* wordLog() const { return m_words.get(); }
+    core::Annotations* annotations() const { return m_annotations.get(); }
     void showPractice(bool wordList = false);
     CommandPalette* palette() const { return m_palette; }
     core::BookEngine* engine() const { return m_engine; }
@@ -114,6 +116,7 @@ private:
     ReaderView* m_reader;
     PracticeView* m_practice;
     std::unique_ptr<core::WordLog> m_words;
+    std::unique_ptr<core::Annotations> m_annotations;
     QWidget* m_beforePractice = nullptr;
     // Show in Book from the word list: where to go once the book is open.
     struct PendingJump { QString cfi; int spine = -1, start = 0, end = 0; } m_pendingJump;

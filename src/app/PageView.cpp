@@ -245,6 +245,7 @@ void PageView::paintEvent(QPaintEvent*)
     }
     const layout::RenderColors colors{m_theme.fg, m_theme.muted, m_theme.accent, m_theme.line, m_theme.surface};
     std::vector<layout::Overlay> overlays;
+    if (m_highlightSpine == m_anchor.spine) overlays = m_highlights;
     if (m_selSpine == m_anchor.spine && hasSelection())
         overlays.push_back({qMin(m_selStart, m_selEnd), qMax(m_selStart, m_selEnd), m_theme.sel});
     const int first = firstPage(*cl);
@@ -490,6 +491,15 @@ void PageView::clearSelection()
     update();
     emit selectionCleared();
 }
+
+void PageView::setHighlights(int spine, const std::vector<layout::Overlay>& overlays)
+{
+    m_highlightSpine = spine;
+    m_highlights = overlays;
+    update();
+}
+
+int PageView::offsetAt(const QPointF& pos) const { return hitAt(pos).charOffset; }
 
 void PageView::selectRange(const core::Position& from, const core::Position& to)
 {

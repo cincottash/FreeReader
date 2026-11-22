@@ -49,6 +49,10 @@ public:
     QString selectedText() const;
     void clearSelection();
     void selectRange(const core::Position& from, const core::Position& to);   // tests
+    // Highlights of one chapter, painted under the selection.
+    void setHighlights(int spine, const std::vector<layout::Overlay>& overlays);
+    const std::vector<layout::Overlay>& highlights() const { return m_highlights; }
+    int offsetAt(const QPointF& pos) const;   // the character under a point, -1 when none
     // Selects the word under a point (widget coordinates); false when there is no text there.
     bool selectWordAt(const QPointF& pos);
     int selectionSpine() const { return m_selSpine; }
@@ -117,4 +121,6 @@ private:
     int m_pressSide = 0;
     int m_hover = 0;
     int m_wheel = 0;
+    int m_highlightSpine = -1;
+    std::vector<layout::Overlay> m_highlights;
 };

@@ -22,6 +22,8 @@ class QLabel;
 class QPushButton;
 class QToolButton;
 class TocPanel;
+class NotebookPanel;
+class SearchPanel;
 class TranslationPopup;
 class QMenu;
 class QTextToSpeech;
@@ -32,6 +34,8 @@ class BookEngine;
 class Library;
 class TranslationService;
 class WordLog;
+class Annotations;
+struct SearchHit;
 struct TranslationResult;
 }
 
@@ -77,6 +81,29 @@ public:
     void setTranslator(core::TranslationService* service);
     void setWordLog(core::WordLog* log) { m_words = log; }
     int bookId() const { return m_bookId; }
+
+    // Highlights, notes, bookmarks (phase 4).
+    void setAnnotations(core::Annotations* a) { m_notes = a; }
+    int highlightSelection(const QString& color);   // the highlight's id; an existing one changes color
+    bool removeHighlightAtSelection();
+    int highlightAtSelection() const;              // the highlight the selection is in, 0 when none
+    int addNoteToSelection(const QString& note);   // highlights it (yellow) when it isn't yet
+    void setNote(int annotationId, const QString& note);
+    void editNote(int annotationId);               // asks for the text (interactive only)
+    bool toggleBookmark();                         // true when the page is bookmarked now
+    bool pageIsBookmarked() const;
+    void goToAnnotation(int annotationId);
+    bool exportNotebook(const QString& path, QString* error);
+    NotebookPanel* notebook() const { return m_notebook; }
+    bool notebookVisible() const;
+    void setNotebookVisible(bool on);
+    void refreshAnnotations();
+
+    // Search This Book.
+    SearchPanel* searchPanel() const { return m_search; }
+    void openSearch(const QString& query = QString());
+    void closeSearch();
+    void goToSearchHit(int index);
     TranslationPopup* translationPopup() const { return m_translate; }
     void translateSelection(bool dictionaryFirst = false);
     QMenu* buildSelectionMenu();          // the menu for the current selection (the caller shows or deletes it)
@@ -141,6 +168,13 @@ private:
     bool m_dictionaryFirst = false;
     QString m_lastUrl;
     QTextToSpeech* m_speech = nullptr;
+    core::Annotations* m_notes = nullptr;
+    NotebookPanel* m_notebook;
+    SearchPanel* m_search;
+    QToolButton* m_searchButton;
+    QToolButton* m_bookmarkButton;
+    QToolButton* m_notebookButton;
+    int m_searchId = 0;
 
     std::vector<core::Position> m_history;
     QTimer m_saveTimer;

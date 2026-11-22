@@ -12,6 +12,7 @@ struct Settings {
     // Window
     QByteArray geometry;
     bool showContents = false;
+    bool showNotebook = false;
 
     // Reading
     Appearance look;                  // All Books; languages and books can override it (library database)

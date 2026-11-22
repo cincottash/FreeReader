@@ -15,6 +15,7 @@ void fields(Settings& s, F&& f)
 {
     f("geometry", s.geometry);
     f("show_contents", s.showContents);
+    f("show_notebook", s.showNotebook);
     f("text_size_pct", s.look.textSizePct);
     f("line_spacing_pct", s.look.lineSpacingPct);
     f("margin_px", s.look.marginPx);

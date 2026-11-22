@@ -15,7 +15,7 @@ namespace core {
 
 namespace {
 
-constexpr int kSchemaVersion = 5;
+constexpr int kSchemaVersion = 6;
 
 QString nowIso() { return QDateTime::currentDateTimeUtc().toString(Qt::ISODate); }
 
@@ -138,6 +138,16 @@ bool Library::open(const QString& databaseFile, QString* error)
                  " id INTEGER PRIMARY KEY, card_id INTEGER NOT NULL REFERENCES cards(id) ON DELETE CASCADE, rating INTEGER NOT NULL,"
                  " state INTEGER NOT NULL, reviewed TEXT NOT NULL, elapsed_days REAL NOT NULL DEFAULT 0)"))
             return false;
+    }
+    if (version < 6) {
+        // Highlights (with a color and an optional note) and bookmarks.
+        if (!run("CREATE TABLE IF NOT EXISTS annotations ("
+                 " id INTEGER PRIMARY KEY, book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE, kind INTEGER NOT NULL,"
+                 " spine INTEGER NOT NULL, sel_start INTEGER NOT NULL, sel_end INTEGER NOT NULL, cfi TEXT NOT NULL DEFAULT '',"
+                 " text TEXT NOT NULL DEFAULT '', color TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '',"
+                 " page_label TEXT NOT NULL DEFAULT '', chapter TEXT NOT NULL DEFAULT '', created TEXT NOT NULL, modified TEXT NOT NULL)"))
+            return false;
+        if (!run("CREATE INDEX IF NOT EXISTS annotations_book ON annotations(book_id, spine, sel_start)")) return false;
     }
     if (version < kSchemaVersion) q.exec(QStringLiteral("PRAGMA user_version=%1").arg(kSchemaVersion));
     m_open = true;

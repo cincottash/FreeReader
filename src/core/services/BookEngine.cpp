@@ -24,10 +24,13 @@ bool isBlockName(const QString& n)
 BookEngine::BookEngine(QObject* parent) : QObject(parent)
 {
     m_pool.setMaxThreadCount(qBound(2, QThread::idealThreadCount() - 1, 4));
+    m_searchPool.setMaxThreadCount(1);
 }
 
 BookEngine::~BookEngine()
 {
+    cancelSearch();
+    m_searchPool.waitForDone();
     m_pool.clear();
     m_pool.waitForDone();
 }
@@ -67,6 +70,8 @@ void BookEngine::close()
 {
     ++m_openToken;
     ++m_generation;
+    cancelSearch();
+    m_searchPool.waitForDone();
     m_pool.clear();
     m_pool.waitForDone();
     m_cache.clear();
@@ -152,6 +157,32 @@ std::shared_ptr<const layout::ChapterLayout> BookEngine::layoutNow(int spine)
     m_cache.insert(spine, cl);
     m_recent.prepend(spine);
     return cl;
+}
+
+int BookEngine::search(const QString& query, const SearchOptions& options)
+{
+    cancelSearch();
+    const int id = ++m_searchId;
+    if (!m_book) return id;
+    auto cancel = std::make_shared<std::atomic<bool>>(false);
+    m_searchCancel = cancel;
+    const auto book = m_book;
+    m_searchPool.start([this, book, query, options, cancel, id] {
+        bool truncated = false;
+        const QList<SearchHit> hits = searchBook(*book, query, options, cancel.get(), &truncated);
+        if (cancel->load()) return;
+        QMetaObject::invokeMethod(this, [this, id, hits, truncated, cancel] {
+            if (cancel->load() || id != m_searchId) return;
+            emit searchFinished(id, hits, truncated);
+        }, Qt::QueuedConnection);
+    });
+    return id;
+}
+
+void BookEngine::cancelSearch()
+{
+    if (m_searchCancel) m_searchCancel->store(true);
+    m_searchCancel.reset();
 }
 
 std::shared_ptr<const layout::ChapterFlow> BookEngine::flowFor(int spine)
