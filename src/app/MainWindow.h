@@ -23,6 +23,7 @@ class QNetworkAccessManager;
 class QStackedWidget;
 class ReaderView;
 class LibraryView;
+class PracticeView;
 
 namespace core {
 class BookEngine;
@@ -30,6 +31,7 @@ class Library;
 class GeminiProvider;
 class LmStudioProvider;
 class TranslationService;
+class WordLog;
 }
 
 class MainWindow : public QMainWindow {
@@ -46,6 +48,9 @@ public:
 
     ReaderView* reader() const { return m_reader; }
     LibraryView* library() const { return m_start; }
+    PracticeView* practice() const { return m_practice; }
+    core::WordLog* wordLog() const { return m_words.get(); }
+    void showPractice(bool wordList = false);
     CommandPalette* palette() const { return m_palette; }
     core::BookEngine* engine() const { return m_engine; }
     Command* command(const QString& id) const;
@@ -84,6 +89,7 @@ private:
     void about();
     void showTheme(const Theme& t, bool preview);
     void applyShortcuts();
+    void applyPendingJump();
 
 public:
     void showSettings(int tab = 0);
@@ -103,6 +109,11 @@ private:
     QStackedWidget* m_stack;
     LibraryView* m_start;   // the library
     ReaderView* m_reader;
+    PracticeView* m_practice;
+    std::unique_ptr<core::WordLog> m_words;
+    QWidget* m_beforePractice = nullptr;
+    // Show in Book from the word list: where to go once the book is open.
+    struct PendingJump { QString cfi; int spine = -1, start = 0, end = 0; } m_pendingJump;
     CommandPalette* m_palette;
     ImageViewer* m_imageViewer;
     ThemePicker* m_themePicker;

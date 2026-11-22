@@ -65,6 +65,9 @@ add_library(freereader_core STATIC
     src/core/services/Importer.cpp
     src/core/services/Library.cpp
     src/core/services/Secrets.cpp
+    src/core/services/WordLog.cpp
+    src/core/practice/Scheduler.cpp
+    src/core/practice/Answer.cpp
     src/core/translate/Translation.cpp
     src/core/translate/AiProviders.cpp
     src/core/translate/TranslationService.cpp

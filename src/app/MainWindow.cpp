@@ -4,6 +4,7 @@
 #include "Popups.h"
 #include "ReaderView.h"
 #include "LibraryView.h"
+#include "PracticeView.h"
 #include "SettingsDialog.h"
 #include "ThemePicker.h"
 
@@ -12,6 +13,7 @@
 #include "core/services/Importer.h"
 #include "core/services/Library.h"
 #include "core/services/Secrets.h"
+#include "core/services/WordLog.h"
 #include "core/translate/AiProviders.h"
 #include "core/translate/TranslationService.h"
 
@@ -52,8 +54,14 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     m_reader = new ReaderView(m_engine, m_library, m_settings);
     m_reader->setInteractive(interactive);
     m_reader->setTranslator(m_translator);
+    m_words = std::make_unique<core::WordLog>(m_library);
+    m_reader->setWordLog(m_words.get());
+    m_practice = new PracticeView(m_words.get(), m_settings);
+    m_practice->setInteractive(interactive);
+    m_stack->addWidget(m_practice);
     m_stack->addWidget(m_start);
     m_stack->addWidget(m_reader);
+    m_stack->setCurrentWidget(m_start);   // the library first, whatever order the screens were added in
     setCentralWidget(m_stack);
     m_palette = new CommandPalette(m_stack);
     m_imageViewer = new ImageViewer(m_stack);
@@ -88,6 +96,29 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     connect(m_reader, &ReaderView::libraryRequested, this, &MainWindow::showLibrary);
     connect(m_reader, &ReaderView::fullScreenRequested, this, &MainWindow::toggleFullScreen);
     connect(m_reader, &ReaderView::translationSettingsRequested, this, [this] { showSettings(SettingsDialog::TranslationTab); });
+    connect(m_start, &LibraryView::practiceRequested, this, [this] { showPractice(); });
+    connect(m_practice, &PracticeView::settingsChanged, this, &MainWindow::saveSettingsSoon);
+    connect(m_practice, &PracticeView::backRequested, this, [this] {
+        QWidget* to = m_beforePractice == m_reader && m_engine->isOpen() ? static_cast<QWidget*>(m_reader) : static_cast<QWidget*>(m_start);
+        m_stack->setCurrentWidget(to);
+        if (to == m_start) m_start->refresh();
+        else m_reader->pages()->setFocus();
+    });
+    connect(m_practice, &PracticeView::showInBookRequested, this, [this](int bookId, const QString& cfi, int spine, int start, int end) {
+        const core::LibraryBook b = m_library ? m_library->book(bookId) : core::LibraryBook();
+        if (b.id == 0 || !QFileInfo::exists(b.path)) {
+            m_start->setMessage(tr("That book's file wasn't found."));
+            m_stack->setCurrentWidget(m_start);
+            return;
+        }
+        m_pendingJump = {cfi, spine, start, end};
+        if (m_engine->isOpen() && m_reader->bookId() == bookId) {
+            m_stack->setCurrentWidget(m_reader);
+            applyPendingJump();
+        } else {
+            openBook(b.path);
+        }
+    });
     connect(m_reader, &ReaderView::imageRequested, this, [this](const QString& path) {
         QImage img;
         img.loadFromData(m_engine->resource(path));
@@ -200,6 +231,10 @@ void MainWindow::buildCommands()
         m_reader->setBookOffline(!m_reader->bookIsOffline());
     }, [this] { return isReading() && !m_settings.offlineOnly; }, tr("Text from this book is never sent to Gemini."));
     if (Command* c = command(QStringLiteral("book-offline"))) c->action->setCheckable(true);
+    addCommand(QStringLiteral("practice"), tr("Practice Words"), QKeySequence(Qt::CTRL | Qt::Key_P), [this] { showPractice(); }, nullptr,
+               tr("Flashcards of the words you looked up."));
+    addCommand(QStringLiteral("word-list"), tr("Word List"), QKeySequence(), [this] { showPractice(true); }, nullptr,
+               tr("Every word you looked up, with its meaning."));
     addCommand(QStringLiteral("translation-settings"), tr("Translation Settings…"), QKeySequence(),
                [this] { showSettings(SettingsDialog::TranslationTab); }, nullptr, tr("Gemini key, LM Studio, offline only."));
     addCommand(QStringLiteral("keyboard-shortcuts"), tr("Keyboard Shortcuts"), QKeySequence(), [this] { showSettings(SettingsDialog::ShortcutsTab); },
@@ -265,6 +300,9 @@ void MainWindow::buildMenus()
     add(go, "next-chapter");
     add(go, "previous-chapter");
     add(go, "book-start");
+    go->addSeparator();
+    add(go, "practice");
+    add(go, "word-list");
     watch(go);
 
     QMenu* settings = bar->addMenu(tr("&Settings"));
@@ -401,7 +439,7 @@ bool MainWindow::isReading() const { return m_stack->currentWidget() == m_reader
 bool MainWindow::isSettled() const
 {
     if (!m_openingPath.isEmpty() || m_start->isImporting()) return false;
-    return m_stack->currentWidget() == m_start || m_reader->isSettled();
+    return m_stack->currentWidget() == m_start || m_stack->currentWidget() == m_practice || m_reader->isSettled();
 }
 
 void MainWindow::chooseBook()
@@ -449,6 +487,7 @@ void MainWindow::onOpened()
     setWindowTitle(book->metadata.title + QStringLiteral(" – ") + QStringLiteral(APP_NAME));
     m_stack->setCurrentWidget(m_reader);
     m_reader->showBook(id, start);
+    if (m_pendingJump.spine >= 0) applyPendingJump();
     emit bookShown();
 }
 
@@ -456,6 +495,7 @@ void MainWindow::onOpenFailed(const QString& message)
 {
     const QString name = QFileInfo(m_openingPath).fileName();
     m_openingPath.clear();
+    m_pendingJump = {};
     m_lastError = message;
     m_stack->setCurrentWidget(m_start);
     m_start->setMessage(tr("Couldn't open %1. %2").arg(name, message));
@@ -569,7 +609,25 @@ void MainWindow::showTheme(const Theme& t, bool preview)
     }
     m_reader->setTheme(t);
     m_start->setTheme(t);
+    m_practice->setTheme(t);
     m_imageViewer->setTheme(t);
+}
+
+void MainWindow::showPractice(bool wordList)
+{
+    if (m_stack->currentWidget() != m_practice) m_beforePractice = m_stack->currentWidget();
+    m_stack->setCurrentWidget(m_practice);
+    wordList ? m_practice->showList() : m_practice->showStart();
+}
+
+void MainWindow::applyPendingJump()
+{
+    const PendingJump j = m_pendingJump;
+    m_pendingJump = {};
+    core::Position p{j.spine, j.start};
+    if (!j.cfi.isEmpty()) m_engine->positionForCfi(j.cfi, &p);
+    m_reader->jumpTo(p);
+    if (j.end > j.start) m_reader->pages()->selectRange({p.spine, p.offset}, {p.spine, p.offset + (j.end - j.start)});
 }
 
 void MainWindow::chooseTheme(const QString& key)

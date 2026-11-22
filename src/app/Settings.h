@@ -32,6 +32,13 @@ struct Settings {
     bool useLmStudio = true;
     QString lmStudioAddress = QStringLiteral("http://localhost:1234");
 
+    // Practice (flashcards)
+    QStringList practiceDirections = {QStringLiteral("recognize"), QStringLiteral("recall")};
+    bool practiceTyped = false;       // type the answer instead of flipping the card
+    bool practiceSentenceFront = false;   // the sentence it came from on the front too
+    bool practicePassages = false;
+    int practiceNewPerDay = 20;
+
     // Files
     QString lastFolder;
     QStringList shortcuts;            // "command-id=Ctrl+X" overrides of the default shortcuts

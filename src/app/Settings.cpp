@@ -35,6 +35,11 @@ void fields(Settings& s, F&& f)
     f("gemini_model", s.geminiModel);
     f("use_lm_studio", s.useLmStudio);
     f("lm_studio_address", s.lmStudioAddress);
+    f("practice_directions", s.practiceDirections);
+    f("practice_typed", s.practiceTyped);
+    f("practice_sentence_front", s.practiceSentenceFront);
+    f("practice_passages", s.practicePassages);
+    f("practice_new_per_day", s.practiceNewPerDay);
     f("last_folder", s.lastFolder);
     f("shortcuts", s.shortcuts);
 }
@@ -70,6 +75,13 @@ bool Settings::load(const QString& path)
     // Keep values sane even if the file was edited by hand.
     look.clamp();
     readingSpeed = qBound(200, readingSpeed, 6000);
+    practiceNewPerDay = qBound(0, practiceNewPerDay, 500);
+    {
+        QStringList keep;
+        for (const QString& d : practiceDirections)
+            if (QStringList{"recognize", "recall", "definition", "cloze"}.contains(d) && !keep.contains(d)) keep << d;
+        practiceDirections = keep.isEmpty() ? QStringList{QStringLiteral("recognize")} : keep;
+    }
     while (recentThemes.size() > 4) recentThemes.removeLast();
     return true;
 }

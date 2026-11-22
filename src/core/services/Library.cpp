@@ -15,7 +15,7 @@ namespace core {
 
 namespace {
 
-constexpr int kSchemaVersion = 4;
+constexpr int kSchemaVersion = 5;
 
 QString nowIso() { return QDateTime::currentDateTimeUtc().toString(Qt::ISODate); }
 
@@ -112,6 +112,31 @@ bool Library::open(const QString& databaseFile, QString* error)
         // Translations already looked up (any provider), so the same lookup never uses an allowance twice.
         if (!run("CREATE TABLE IF NOT EXISTS translation_cache (key TEXT PRIMARY KEY, provider TEXT NOT NULL, json TEXT NOT NULL,"
                  " created TEXT NOT NULL)"))
+            return false;
+    }
+    if (version < 5) {
+        // The word log: every word or passage looked up, one row per word (by its dictionary form), with the last
+        // place it was seen. Practice cards: one per word and direction, with their spaced-repetition state.
+        if (!run("CREATE TABLE IF NOT EXISTS words ("
+                 " id INTEGER PRIMARY KEY, language TEXT NOT NULL, word_key TEXT NOT NULL, text TEXT NOT NULL, lemma TEXT NOT NULL DEFAULT '',"
+                 " passage INTEGER NOT NULL DEFAULT 0, translation TEXT NOT NULL DEFAULT '', alternatives TEXT NOT NULL DEFAULT '[]',"
+                 " part_of_speech TEXT NOT NULL DEFAULT '', definition TEXT NOT NULL DEFAULT '', sentence TEXT NOT NULL DEFAULT '',"
+                 " sentence_translation TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '', user_note TEXT NOT NULL DEFAULT '',"
+                 " edited INTEGER NOT NULL DEFAULT 0, starred INTEGER NOT NULL DEFAULT 0,"
+                 " book_id INTEGER REFERENCES books(id) ON DELETE SET NULL, book_title TEXT NOT NULL DEFAULT '',"
+                 " spine INTEGER NOT NULL DEFAULT -1, sel_start INTEGER NOT NULL DEFAULT 0, sel_end INTEGER NOT NULL DEFAULT 0,"
+                 " cfi TEXT NOT NULL DEFAULT '', page_label TEXT NOT NULL DEFAULT '', chapter TEXT NOT NULL DEFAULT '',"
+                 " lookups INTEGER NOT NULL DEFAULT 1, added TEXT NOT NULL, last_seen TEXT NOT NULL, UNIQUE(language, word_key))"))
+            return false;
+        if (!run("CREATE TABLE IF NOT EXISTS cards ("
+                 " id INTEGER PRIMARY KEY, word_id INTEGER NOT NULL REFERENCES words(id) ON DELETE CASCADE, direction TEXT NOT NULL,"
+                 " state INTEGER NOT NULL DEFAULT 0, step INTEGER NOT NULL DEFAULT 0, due TEXT NOT NULL, stability REAL NOT NULL DEFAULT 0,"
+                 " difficulty REAL NOT NULL DEFAULT 0, reps INTEGER NOT NULL DEFAULT 0, lapses INTEGER NOT NULL DEFAULT 0,"
+                 " last_review TEXT NOT NULL DEFAULT '', suspended INTEGER NOT NULL DEFAULT 0, UNIQUE(word_id, direction))"))
+            return false;
+        if (!run("CREATE TABLE IF NOT EXISTS reviews ("
+                 " id INTEGER PRIMARY KEY, card_id INTEGER NOT NULL REFERENCES cards(id) ON DELETE CASCADE, rating INTEGER NOT NULL,"
+                 " state INTEGER NOT NULL, reviewed TEXT NOT NULL, elapsed_days REAL NOT NULL DEFAULT 0)"))
             return false;
     }
     if (version < kSchemaVersion) q.exec(QStringLiteral("PRAGMA user_version=%1").arg(kSchemaVersion));

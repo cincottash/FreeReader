@@ -31,6 +31,7 @@ namespace core {
 class BookEngine;
 class Library;
 class TranslationService;
+class WordLog;
 struct TranslationResult;
 }
 
@@ -73,6 +74,8 @@ public:
 
     // Translation of the selection (the pop-up), and the right-click menu on the page.
     void setTranslator(core::TranslationService* service);
+    void setWordLog(core::WordLog* log) { m_words = log; }
+    int bookId() const { return m_bookId; }
     TranslationPopup* translationPopup() const { return m_translate; }
     void translateSelection(bool dictionaryFirst = false);
     QMenu* buildSelectionMenu();          // the menu for the current selection (the caller shows or deletes it)
@@ -90,6 +93,7 @@ signals:
     void appearanceChanged();      // the All Books values changed (the settings file needs saving)
     void moreThemesRequested(const QPoint& windowPos);   // below-right corner of the button, window coordinates
     void translationSettingsRequested();
+    void wordLogged();
 
 protected:
     void resizeEvent(QResizeEvent*) override;
@@ -129,6 +133,9 @@ private:
     NotePopup* m_note;
     TranslationPopup* m_translate;
     core::TranslationService* m_translator = nullptr;
+    core::WordLog* m_words = nullptr;
+    int m_lookupSpine = -1, m_lookupStart = 0, m_lookupEnd = 0;
+    QString m_lookupSentence;
     int m_lookupId = 0;
     bool m_dictionaryFirst = false;
     QString m_lastUrl;

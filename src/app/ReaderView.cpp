@@ -11,6 +11,8 @@
 #include "core/services/BookEngine.h"
 #include "core/services/Library.h"
 #include "core/translate/TranslationService.h"
+#include "core/services/BookIndex.h"
+#include "core/services/WordLog.h"
 
 #include <QDesktopServices>
 #include <QHBoxLayout>
@@ -670,6 +672,10 @@ void ReaderView::translateSelection(bool dictionaryFirst)
     if (r.sentence.size() > 600 || r.sentence == r.text) r.sentence.clear();
     r.from = languageCode();
     m_dictionaryFirst = dictionaryFirst;
+    m_lookupSpine = m_pages->selectionSpine();
+    m_lookupStart = m_pages->selectionStart();
+    m_lookupEnd = m_pages->selectionEnd();
+    m_lookupSentence = r.sentence.isEmpty() ? r.text : r.sentence;
     m_translator->setOfflineOnly(bookIsOffline());
     m_lookupId = m_translator->translate(r);
 }
@@ -683,6 +689,23 @@ void ReaderView::onTranslated(int id, const core::TranslationResult& r, const QS
         m_translate->showNothing(text);
     } else {
         m_translate->showResult(r, m_dictionaryFirst);
+        // Every lookup goes to the word log, with the place it was seen.
+        if (m_words && m_bookId) {
+            core::WordPlace place;
+            place.bookId = m_bookId;
+            place.bookTitle = m_title->text();
+            place.language = languageCode();
+            place.spine = m_lookupSpine;
+            place.start = m_lookupStart;
+            place.end = m_lookupEnd;
+            place.sentence = m_lookupSentence;
+            const core::Position at{m_lookupSpine, m_lookupStart};
+            place.cfi = m_engine->cfiFor(at);
+            if (const auto ix = m_engine->index()) place.pageLabel = ix->pageLabel(at);
+            place.chapter = chapterTitleAt(at);
+            m_words->record(r, place);
+            emit wordLogged();
+        }
     }
 }
 

@@ -384,6 +384,13 @@ LibraryView::LibraryView(core::Library* library, Settings& settings, QWidget* pa
     m_notKept->hide();
     h->addWidget(m_notKept);
     h->addStretch(1);
+    m_practice = new QPushButton(tr("Practice"));
+    m_practice->setObjectName(QStringLiteral("Chip"));
+    m_practice->setCursor(Qt::PointingHandCursor);
+    m_practice->setToolTip(tr("Flashcards of the words you looked up (Ctrl+P)"));
+    m_practice->setProperty("testId", "libraryPractice");
+    h->addWidget(m_practice);
+    connect(m_practice, &QPushButton::clicked, this, &LibraryView::practiceRequested);
     m_search = new QLineEdit;
     m_search->setPlaceholderText(tr("Search Title or Author"));
     m_search->setClearButtonEnabled(true);

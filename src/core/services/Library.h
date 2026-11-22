@@ -87,6 +87,7 @@ public:
     int cachedTranslationCount() const;
 
     static QString canonicalPath(const QString& path);
+    QString connectionName() const { return m_connection; }   // for the word log, which shares the database
 
 private:
     QString m_connection;
