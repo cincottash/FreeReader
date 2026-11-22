@@ -3,11 +3,12 @@
 #include "AppData.h"
 #include "Popups.h"
 #include "ReaderView.h"
-#include "StartView.h"
+#include "LibraryView.h"
 #include "ThemePicker.h"
 
 #include "core/format/FormatPlugin.h"
 #include "core/services/BookEngine.h"
+#include "core/services/Importer.h"
 #include "core/services/Library.h"
 
 #include <QAction>
@@ -31,7 +32,7 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     setAcceptDrops(true);
     m_engine = new core::BookEngine(this);
     m_stack = new QStackedWidget;
-    m_start = new StartView;
+    m_start = new LibraryView(m_library, m_settings);
     m_reader = new ReaderView(m_engine, m_library, m_settings);
     m_reader->setInteractive(interactive);
     m_stack->addWidget(m_start);
@@ -57,11 +58,18 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
 
     connect(m_engine, &core::BookEngine::opened, this, &MainWindow::onOpened);
     connect(m_engine, &core::BookEngine::openFailed, this, &MainWindow::onOpenFailed);
-    connect(m_start, &StartView::openRequested, this, &MainWindow::chooseBook);
-    connect(m_start, &StartView::bookRequested, this, &MainWindow::openBook);
-    connect(m_start, &StartView::settingsLinkClicked, this, &MainWindow::changeDataFolder);
+    connect(m_start, &LibraryView::openRequested, this, &MainWindow::openBook);
+    connect(m_start, &LibraryView::settingsLinkClicked, this, &MainWindow::changeDataFolder);
+    connect(m_start, &LibraryView::commandsRequested, this, [this] { runCommand(QStringLiteral("commands")); });
+    m_start->setPrompt([this](const QString& title, const QString& placeholder, std::function<QString(const QString&)> accept) {
+        m_palette->showPrompt(title, placeholder, std::move(accept));
+    });
+    m_start->setConfirm([this](const QString& title, const QString& text) {
+        // Tests and the screenshot mode never show a dialog.
+        return !m_interactive || QMessageBox::question(this, title, text) == QMessageBox::Yes;
+    });
     connect(m_reader, &ReaderView::settingsLinkClicked, this, &MainWindow::changeDataFolder);
-    connect(m_reader, &ReaderView::libraryRequested, this, &MainWindow::showStart);
+    connect(m_reader, &ReaderView::libraryRequested, this, &MainWindow::showLibrary);
     connect(m_reader, &ReaderView::commandsRequested, this, [this] { runCommand(QStringLiteral("commands")); });
     connect(m_reader, &ReaderView::fullScreenRequested, this, &MainWindow::toggleFullScreen);
     connect(m_reader, &ReaderView::imageRequested, this, [this](const QString& path) {
@@ -72,7 +80,6 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
 
     m_start->setSettingsNotKept(appdata::isTemporary());
     m_reader->setSettingsNotKept(appdata::isTemporary());
-    if (m_library) m_start->setRecent(m_library->recentBooks(8));
 
     buildCommands();
     showTheme(Theme::forChoice(m_settings.theme), false);
@@ -122,7 +129,19 @@ void MainWindow::buildCommands()
         m_palette->showCommands();
     });
     addCommand(QStringLiteral("open"), tr("Open Book…"), QKeySequence::Open, [this] { chooseBook(); });
-    addCommand(QStringLiteral("start"), tr("Go to Start Screen"), QKeySequence(Qt::CTRL | Qt::Key_L), [this] { showStart(); }, reading);
+    addCommand(QStringLiteral("library"), tr("Go to Library"), QKeySequence(Qt::CTRL | Qt::Key_L), [this] { showLibrary(); }, reading);
+    auto inLibrary = [this] { return m_stack->currentWidget() == m_start; };
+    addCommand(QStringLiteral("add-books"), tr("Add Books…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_O), [this] {
+        showLibrary();
+        if (m_interactive) m_start->chooseFilesToAdd();
+    }, nullptr, tr("Add EPUB files to the library. They stay where they are."));
+    addCommand(QStringLiteral("add-folder"), tr("Add Folder…"), QKeySequence(), [this] {
+        showLibrary();
+        if (m_interactive) m_start->chooseFolderToAdd();
+    }, nullptr, tr("Add every EPUB file in a folder and its subfolders."));
+    addCommand(QStringLiteral("new-collection"), tr("New Collection…"), QKeySequence(), [this] { m_start->newCollection(); }, inLibrary);
+    addCommand(QStringLiteral("library-grid"), tr("Show Covers"), QKeySequence(), [this] { m_start->setListMode(false); saveSettingsSoon(); }, inLibrary);
+    addCommand(QStringLiteral("library-list"), tr("Show List"), QKeySequence(), [this] { m_start->setListMode(true); saveSettingsSoon(); }, inLibrary);
     addCommand(QStringLiteral("contents"), tr("Show or Hide Contents"), QKeySequence(Qt::CTRL | Qt::Key_T),
                [this] { m_reader->setContentsVisible(!m_reader->contentsVisible()); saveSettingsSoon(); }, reading);
     addCommand(QStringLiteral("goto"), tr("Go to Page or Percent…"), QKeySequence(Qt::CTRL | Qt::Key_G), [this] {
@@ -182,7 +201,7 @@ bool MainWindow::isReading() const { return m_stack->currentWidget() == m_reader
 
 bool MainWindow::isSettled() const
 {
-    if (!m_openingPath.isEmpty()) return false;
+    if (!m_openingPath.isEmpty() || m_start->isImporting()) return false;
     return m_stack->currentWidget() == m_start || m_reader->isSettled();
 }
 
@@ -216,6 +235,11 @@ void MainWindow::onOpened()
     m_openingPath.clear();
     m_start->setMessage(QString());
     int id = m_library ? m_library->touchBook(path, book->metadata) : 0;
+    // A book opened directly (not added through the library) gets its cover thumbnail now.
+    if (m_library && id && !m_library->book(id).hasCover) {
+        const QByteArray cover = core::Importer::thumbnail(*book);
+        if (!cover.isEmpty()) m_library->addBook(path, book->metadata, cover);
+    }
     core::Position start;
     core::SavedPosition saved;
     if (m_library && m_library->loadPosition(id, &saved)) {
@@ -239,13 +263,15 @@ void MainWindow::onOpenFailed(const QString& message)
     emit bookFailed(message);
 }
 
-void MainWindow::showStart()
+void MainWindow::showLibrary()
 {
-    m_reader->closeBook();
-    m_engine->close();
-    setWindowTitle(QStringLiteral(APP_NAME));
-    if (m_library) m_start->setRecent(m_library->recentBooks(8));
-    m_stack->setCurrentWidget(m_start);
+    if (m_stack->currentWidget() != m_start) {
+        m_reader->closeBook();
+        m_engine->close();
+        setWindowTitle(QStringLiteral(APP_NAME));
+        m_stack->setCurrentWidget(m_start);
+    }
+    m_start->refresh();
 }
 
 void MainWindow::changeTextSize(int delta)
@@ -342,6 +368,7 @@ void MainWindow::showTheme(const Theme& t, bool preview)
         m_theme = t;
     }
     m_reader->setTheme(t);
+    m_start->setTheme(t);
     m_imageViewer->setTheme(t);
 }
 
@@ -367,6 +394,7 @@ void MainWindow::previewTheme(const QString& key)
         if (!m_stack->styleSheet().isEmpty()) {
             clearThemeFrom(m_stack);
             m_reader->setTheme(m_theme);
+            m_start->setTheme(m_theme);
             m_imageViewer->setTheme(m_theme);
         }
         return;

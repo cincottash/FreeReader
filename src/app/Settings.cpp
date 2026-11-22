@@ -26,6 +26,8 @@ void fields(Settings& s, F&& f)
     f("theme", s.theme);
     f("recent_themes", s.recentThemes);
     f("reading_speed", s.readingSpeed);
+    f("library_list", s.libraryList);
+    f("library_sort", s.librarySort);
     f("last_folder", s.lastFolder);
     f("shortcuts", s.shortcuts);
 }

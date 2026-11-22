@@ -60,6 +60,7 @@ add_library(freereader_core STATIC
     src/core/position/Position.cpp
     src/core/services/BookIndex.cpp
     src/core/services/BookEngine.cpp
+    src/core/services/Importer.cpp
     src/core/services/Library.cpp
 )
 target_include_directories(freereader_core PUBLIC src)

@@ -19,6 +19,10 @@ struct Settings {
     QStringList recentThemes;                        // most recent first; shown as dots in the reader's header
     int readingSpeed = 1100;          // characters per minute, learned from page turns
 
+    // Library
+    bool libraryList = false;         // list view instead of covers
+    QString librarySort = QStringLiteral("recent");
+
     // Files
     QString lastFolder;
     QStringList shortcuts;            // "command-id=Ctrl+X" overrides of the default shortcuts

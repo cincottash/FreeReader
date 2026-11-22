@@ -64,7 +64,7 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     auto* h = new QHBoxLayout(bar);
     h->setContentsMargins(8, 4, 8, 4);
     h->setSpacing(6);
-    m_libraryButton = iconButton("back", tr("Back to the start screen"), m_theme);
+    m_libraryButton = iconButton("back", tr("Back to the library (Ctrl+L)"), m_theme);
     h->addWidget(m_libraryButton);
     auto* titles = new QVBoxLayout;
     titles->setSpacing(1);
@@ -416,7 +416,7 @@ void ReaderView::updateHeaderAndFooter()
     const double fraction = ix->fraction(pos);
     QStringList stats;
     stats << tr("Page %1 of %2").arg(ix->pageLabel(pos), ix->lastPageLabel());
-    stats << QLocale().toString(int(std::floor(fraction * 100))) + QStringLiteral("%");
+    stats << QLocale().toString(int(std::floor(fraction * 100 + 1e-6))) + QStringLiteral("%");
     // Time left in the chapter, from the reading speed learned from page turns.
     const qint64 g = ix->global(pos);
     qint64 next = ix->total;
@@ -452,6 +452,10 @@ void ReaderView::savePosition()
     s.cfi = m_engine->cfiFor(s.position);
     const auto ix = m_engine->index();
     s.progress = ix ? ix->fraction(s.position) : 0;
+    if (ix) {
+        s.pageLabel = ix->pageLabel(s.position);
+        s.pageCount = ix->lastPageLabel();
+    }
     m_library->savePosition(m_bookId, s);
 }
 
@@ -551,7 +555,8 @@ QString ReaderView::goToPageOrPercent(const QString& raw)
     if (m.hasMatch()) {
         const double v = QString(m.captured(1)).replace(QLatin1Char(','), QLatin1Char('.')).toDouble();
         if (v < 0 || v > 100) return usage;
-        jumpTo(ix->fromGlobal(qint64(v / 100.0 * double(ix->total))));
+        // Rounded up to the next character, so "30%" shows as 30 % (not 29.99…).
+        jumpTo(ix->fromGlobal(qint64(std::ceil(v / 100.0 * double(ix->total)))));
         return {};
     }
     // Printed page labels ("xii") when the book has them.

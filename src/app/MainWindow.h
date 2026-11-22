@@ -18,7 +18,7 @@ class ThemePicker;
 class ImageViewer;
 class QStackedWidget;
 class ReaderView;
-class StartView;
+class LibraryView;
 
 namespace core {
 class BookEngine;
@@ -38,7 +38,7 @@ public:
     QString lastError() const { return m_lastError; }
 
     ReaderView* reader() const { return m_reader; }
-    StartView* start() const { return m_start; }
+    LibraryView* library() const { return m_start; }
     CommandPalette* palette() const { return m_palette; }
     core::BookEngine* engine() const { return m_engine; }
     Command* command(const QString& id) const;
@@ -64,7 +64,7 @@ private:
     void buildCommands();
     void addCommand(const QString& id, const QString& label, const QKeySequence& key, std::function<void()> run,
                     std::function<bool()> enabled = nullptr, const QString& hint = QString());
-    void showStart();
+    void showLibrary();
     void chooseBook();
     void onOpened();
     void onOpenFailed(const QString& message);
@@ -81,7 +81,7 @@ private:
     Theme m_theme = Theme::midnight();
     core::BookEngine* m_engine;
     QStackedWidget* m_stack;
-    StartView* m_start;
+    LibraryView* m_start;   // the library
     ReaderView* m_reader;
     CommandPalette* m_palette;
     ImageViewer* m_imageViewer;

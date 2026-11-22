@@ -1,6 +1,7 @@
 #include "AppData.h"
 #include "Appearance.h"
 #include "Commands.h"
+#include "LibraryView.h"
 #include "MainWindow.h"
 #include "ReaderView.h"
 #include "Settings.h"
@@ -83,6 +84,14 @@ static int screenshot(QCommandLineParser& cli, const QString& out)
     }
     w.resize(size);
     w.show();
+    if (cli.isSet(QStringLiteral("add-books"))) {
+        w.library()->addBooks({cli.value(QStringLiteral("add-books"))});
+        if (!waitFor([&] { return !w.library()->isImporting(); }, 60000)) {
+            fprintf(stderr, "Adding books didn't finish in time.\n");
+            return 3;
+        }
+    }
+    if (cli.isSet(QStringLiteral("list-view"))) w.library()->setListMode(true);
     const QStringList args = cli.positionalArguments();
     if (!args.isEmpty()) {
         const QString book = args.first();
@@ -164,6 +173,8 @@ int main(int argc, char* argv[])
     cli.addOption({QStringLiteral("palette"), QStringLiteral("With --screenshot: show the command palette.")});
     cli.addOption({QStringLiteral("theme"), QStringLiteral("With --screenshot: use this theme (a key such as midnight, paper, nord)."), QStringLiteral("key")});
     cli.addOption({QStringLiteral("theme-list"), QStringLiteral("With --screenshot: show the theme list.")});
+    cli.addOption({QStringLiteral("add-books"), QStringLiteral("With --screenshot: add the books in this folder to the library first."), QStringLiteral("folder")});
+    cli.addOption({QStringLiteral("list-view"), QStringLiteral("With --screenshot: show the library as a list.")});
     cli.addOption({QStringLiteral("appearance"), QStringLiteral("With --screenshot: show the text and layout panel.")});
     cli.addOption({QStringLiteral("font"), QStringLiteral("With --screenshot: use this font for the text."), QStringLiteral("family")});
     cli.process(app);
