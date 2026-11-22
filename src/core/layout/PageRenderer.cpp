@@ -100,11 +100,12 @@ void visitPage(const ChapterLayout& cl, int page, const Visitor& v)
 bool lineSpan(const LineRef& r, int start, int end, qreal* x1, qreal* x2)
 {
     const QTextLine line = r.lines->ui().lineAt(r.line);
-    const int ls = line.textStart(), le = ls + line.textLength();
+    // In the book's offsets; the line's own positions may include inserted soft hyphens.
+    const int ls = r.lines->F(line.textStart()), le = r.lines->F(line.textStart() + line.textLength());
     const int s = qMax(start - r.block->start, ls), e = qMin(end - r.block->start, le);
     if (e <= s) return false;
-    *x1 = line.cursorToX(s) + r.off.x();
-    *x2 = line.cursorToX(e) + r.off.x();
+    *x1 = line.cursorToX(r.lines->L(s)) + r.off.x();
+    *x2 = line.cursorToX(r.lines->L(e)) + r.off.x();
     if (*x2 < *x1) std::swap(*x1, *x2);
     // A selection that continues on the next line reaches the end of this one.
     if (end - r.block->start > le && e == le) *x2 = qMax(*x2, line.x() + line.naturalTextWidth() + r.off.x());
@@ -171,8 +172,9 @@ void paintPage(QPainter& p, const ChapterLayout& cl, int page, const QPointF& or
         p.setPen(colors.text);
         line.draw(&p, r.off);
         for (const InlineImage& im : r.block->inlineImages) {
-            if (im.index < line.textStart() || im.index >= line.textStart() + line.textLength() || im.image.isNull()) continue;
-            const qreal x = line.cursorToX(im.index) + r.off.x() + 1;
+            const int at = r.lines->L(im.index);
+            if (at < line.textStart() || at >= line.textStart() + line.textLength() || im.image.isNull()) continue;
+            const qreal x = line.cursorToX(at) + r.off.x() + 1;
             const qreal baseline = r.off.y() + line.y() + line.ascent();
             p.drawImage(QRectF(x, baseline - im.size.height(), im.size.width(), im.size.height()), im.image);
         }
@@ -246,11 +248,11 @@ Hit hitTest(const ChapterLayout& cl, int page, const QPointF& pos)
     if (!best) return hit;
     const QTextLine line = best->lines->ui().lineAt(best->line);
     const qreal x = pos.x() - best->off.x();
-    const int cursor = line.xToCursor(x, QTextLine::CursorBetweenCharacters);
+    const int cursor = best->lines->F(line.xToCursor(x, QTextLine::CursorBetweenCharacters));
     hit.offset = best->block->start + cursor;
     const bool onText = bestDist == 0 && x >= line.x() && x <= line.x() + line.naturalTextWidth();
     if (onText) {
-        const int c = qBound(line.textStart(), line.xToCursor(x, QTextLine::CursorOnCharacter), line.textStart() + qMax(0, line.textLength() - 1));
+        const int c = best->lines->F(qBound(line.textStart(), line.xToCursor(x, QTextLine::CursorOnCharacter), line.textStart() + qMax(0, line.textLength() - 1)));
         hit.charOffset = best->block->start + c;
         for (const InlineImage& im : best->block->inlineImages)
             if (im.index == c) {

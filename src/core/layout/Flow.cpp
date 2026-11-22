@@ -120,6 +120,9 @@ public:
         const auto doc = dom::parse(data);
         const dom::Node* html = doc->documentElement();
         if (!html) return m_flow;
+        m_lang = html->attr("xml:lang");
+        if (m_lang.isEmpty()) m_lang = html->attr("lang");
+        if (m_lang.isEmpty()) m_lang = m_book.metadata.language;
 
         std::vector<std::shared_ptr<const css::StyleSheet>> sheets;
         if (const dom::Node* head = doc->head()) {
@@ -350,6 +353,8 @@ private:
         b.fontPx = p.style.fontSize * scale();
         b.font = fontFor(p.style, p.style.fontSize);
         b.avoidInside = p.style.avoidBreakInside;
+        b.hyphenate = p.style.hyphens;
+        b.lang = m_lang;
         fillBox(b);
         m_ctx.out->push_back(std::move(b));
         m_offset = p.start + int(p.text.size()) + 1;
@@ -671,6 +676,7 @@ private:
     int m_spine;
     FlowOptions m_o;
     QString m_dir;
+    QString m_lang;
     std::unique_ptr<css::StyleResolver> m_resolver;
     std::shared_ptr<ChapterFlow> m_flow;
     int m_offset = 0;

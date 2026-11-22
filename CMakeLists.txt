@@ -53,17 +53,22 @@ add_library(freereader_core STATIC
     src/core/format/Book.cpp
     src/core/format/epub/EpubFormat.cpp
     src/core/layout/Fonts.cpp
+    src/core/layout/Hyphenator.cpp
     src/core/layout/Flow.cpp
     src/core/layout/Layout.cpp
     src/core/layout/PageRenderer.cpp
     src/core/position/Position.cpp
     src/core/services/BookIndex.cpp
     src/core/services/BookEngine.cpp
+    src/core/services/Importer.cpp
     src/core/services/Library.cpp
 )
 target_include_directories(freereader_core PUBLIC src)
 target_compile_definitions(freereader_core PUBLIC APP_NAME="${APP_NAME}" APP_ORG="${APP_ORG}" APP_VERSION="${APP_VERSION}")
 target_link_libraries(freereader_core PUBLIC Qt6::Gui Qt6::Sql Qt6::Concurrent ZLIB::ZLIB)
+# Hyphenation patterns (hyph-utf8: MIT, BSD, LPPL; each file's license header sits next to it).
+file(GLOB HYPH_FILES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/resources/hyphenation/*.txt)
+qt_add_resources(freereader_core hyphenation PREFIX "/" BASE resources FILES ${HYPH_FILES})
 
 # The screens (everything but main.cpp), in a library so local whole-app tests can link them.
 file(GLOB UI_SOURCES CONFIGURE_DEPENDS src/app/*.cpp)
@@ -99,7 +104,9 @@ if(STATIC_BUILD)
     endif()
 endif()
 
-qt_add_resources(app resources PREFIX "/" BASE resources FILES resources/icon.svg)
+# The icon and the bundled fonts (SIL Open Font License; the license texts sit next to the fonts).
+file(GLOB FONT_FILES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/resources/fonts/*.ttf)
+qt_add_resources(freereader_ui resources PREFIX "/" BASE resources FILES resources/icon.svg ${FONT_FILES})
 
 if(WIN32)
     target_compile_definitions(app PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)

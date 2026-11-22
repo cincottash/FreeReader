@@ -1,5 +1,7 @@
 #include "AppData.h"
+#include "Appearance.h"
 #include "Commands.h"
+#include "LibraryView.h"
 #include "MainWindow.h"
 #include "ReaderView.h"
 #include "Settings.h"
@@ -62,9 +64,11 @@ static int screenshot(QCommandLineParser& cli, const QString& out)
         return 2;
     }
     Settings settings;
-    if (cli.isSet(QStringLiteral("columns"))) settings.columns = cli.value(QStringLiteral("columns"));
-    if (cli.isSet(QStringLiteral("text-size"))) settings.textSizePct = qBound(60, cli.value(QStringLiteral("text-size")).toInt(), 300);
+    if (cli.isSet(QStringLiteral("columns"))) settings.look.columns = cli.value(QStringLiteral("columns"));
+    if (cli.isSet(QStringLiteral("text-size"))) settings.look.textSizePct = qBound(60, cli.value(QStringLiteral("text-size")).toInt(), 300);
+    if (cli.isSet(QStringLiteral("font"))) settings.look.font = cli.value(QStringLiteral("font"));
     settings.showContents = cli.isSet(QStringLiteral("contents"));
+    if (cli.isSet(QStringLiteral("theme"))) settings.theme = cli.value(QStringLiteral("theme"));
     core::Library library;
     QString err;
     if (!library.open(QDir(appdata::folder()).filePath(QStringLiteral("library.sqlite")), &err)) {
@@ -80,6 +84,15 @@ static int screenshot(QCommandLineParser& cli, const QString& out)
     }
     w.resize(size);
     w.show();
+    if (cli.isSet(QStringLiteral("add-books"))) {
+        w.library()->addBooks({cli.value(QStringLiteral("add-books"))});
+        if (!waitFor([&] { return !w.library()->isImporting(); }, 60000)) {
+            fprintf(stderr, "Adding books didn't finish in time.\n");
+            return 3;
+        }
+        w.library()->setMessage(QString());   // pictures show the library, not the import report
+    }
+    if (cli.isSet(QStringLiteral("list-view"))) w.library()->setListMode(true);
     const QStringList args = cli.positionalArguments();
     if (!args.isEmpty()) {
         const QString book = args.first();
@@ -113,6 +126,8 @@ static int screenshot(QCommandLineParser& cli, const QString& out)
         }
     }
     if (cli.isSet(QStringLiteral("palette"))) w.runCommand(QStringLiteral("commands"));
+    if (cli.isSet(QStringLiteral("theme-list"))) w.runCommand(QStringLiteral("themes"));
+    if (cli.isSet(QStringLiteral("appearance"))) w.runCommand(QStringLiteral("appearance"));
     QCoreApplication::processEvents();
     QElapsedTimer settle;
     settle.start();
@@ -139,6 +154,7 @@ int main(int argc, char* argv[])
     ui.setPointSize(10);
     QApplication::setFont(ui);
     core::registerBuiltInFormats();
+    registerBundledFonts();
     applyTheme(app, Theme::midnight());
 
     QCommandLineParser cli;
@@ -156,6 +172,12 @@ int main(int argc, char* argv[])
     cli.addOption({QStringLiteral("text-size"), QStringLiteral("With --screenshot: text size in percent."), QStringLiteral("percent")});
     cli.addOption({QStringLiteral("contents"), QStringLiteral("With --screenshot: show the contents panel.")});
     cli.addOption({QStringLiteral("palette"), QStringLiteral("With --screenshot: show the command palette.")});
+    cli.addOption({QStringLiteral("theme"), QStringLiteral("With --screenshot: use this theme (a key such as midnight, paper, nord)."), QStringLiteral("key")});
+    cli.addOption({QStringLiteral("theme-list"), QStringLiteral("With --screenshot: show the theme list.")});
+    cli.addOption({QStringLiteral("add-books"), QStringLiteral("With --screenshot: add the books in this folder to the library first."), QStringLiteral("folder")});
+    cli.addOption({QStringLiteral("list-view"), QStringLiteral("With --screenshot: show the library as a list.")});
+    cli.addOption({QStringLiteral("appearance"), QStringLiteral("With --screenshot: show the text and layout panel.")});
+    cli.addOption({QStringLiteral("font"), QStringLiteral("With --screenshot: use this font for the text."), QStringLiteral("family")});
     cli.process(app);
 
     if (cli.isSet(QStringLiteral("screenshot"))) return screenshot(cli, cli.value(QStringLiteral("screenshot")));

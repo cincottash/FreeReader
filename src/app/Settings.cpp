@@ -15,11 +15,19 @@ void fields(Settings& s, F&& f)
 {
     f("geometry", s.geometry);
     f("show_contents", s.showContents);
-    f("text_size_pct", s.textSizePct);
-    f("line_spacing_pct", s.lineSpacingPct);
-    f("columns", s.columns);
+    f("text_size_pct", s.look.textSizePct);
+    f("line_spacing_pct", s.look.lineSpacingPct);
+    f("margin_px", s.look.marginPx);
+    f("page_width_em", s.look.pageWidthEm);
+    f("columns", s.look.columns);
+    f("justify", s.look.justify);
+    f("hyphenate", s.look.hyphenate);
+    f("font", s.look.font);
     f("theme", s.theme);
+    f("recent_themes", s.recentThemes);
     f("reading_speed", s.readingSpeed);
+    f("library_list", s.libraryList);
+    f("library_sort", s.librarySort);
     f("last_folder", s.lastFolder);
     f("shortcuts", s.shortcuts);
 }
@@ -53,10 +61,9 @@ bool Settings::load(const QString& path)
     const QJsonObject o = QJsonDocument::fromJson(f.readAll()).object();
     fields(*this, [&](const char* k, auto& v) { get(o, k, v); });
     // Keep values sane even if the file was edited by hand.
-    textSizePct = qBound(60, textSizePct, 300);
-    lineSpacingPct = qBound(100, lineSpacingPct, 250);
+    look.clamp();
     readingSpeed = qBound(200, readingSpeed, 6000);
-    if (columns != QLatin1String("one") && columns != QLatin1String("two")) columns = QStringLiteral("auto");
+    while (recentThemes.size() > 4) recentThemes.removeLast();
     return true;
 }
 

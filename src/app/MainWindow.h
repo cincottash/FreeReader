@@ -9,15 +9,18 @@
 #include "core/position/Position.h"
 
 #include <QMainWindow>
+#include <QPointer>
 
 #include <memory>
 #include <vector>
 
 class CommandPalette;
+class SettingsDialog;
+class ThemePicker;
 class ImageViewer;
 class QStackedWidget;
 class ReaderView;
-class StartView;
+class LibraryView;
 
 namespace core {
 class BookEngine;
@@ -37,13 +40,17 @@ public:
     QString lastError() const { return m_lastError; }
 
     ReaderView* reader() const { return m_reader; }
-    StartView* start() const { return m_start; }
+    LibraryView* library() const { return m_start; }
     CommandPalette* palette() const { return m_palette; }
     core::BookEngine* engine() const { return m_engine; }
     Command* command(const QString& id) const;
     void runCommand(const QString& id);
     void saveSettingsSoon();
     void saveSettingsNow();
+    void chooseTheme(const QString& key);       // saves it, restyles the whole app
+    void previewTheme(const QString& key);      // empty: the saved theme again
+    ThemePicker* themePicker() const { return m_themePicker; }
+    const Theme& theme() const { return m_theme; }
 
 signals:
     void bookShown();
@@ -59,7 +66,7 @@ private:
     void buildCommands();
     void addCommand(const QString& id, const QString& label, const QKeySequence& key, std::function<void()> run,
                     std::function<bool()> enabled = nullptr, const QString& hint = QString());
-    void showStart();
+    void showLibrary();
     void chooseBook();
     void onOpened();
     void onOpenFailed(const QString& message);
@@ -68,6 +75,14 @@ private:
     void toggleFullScreen();
     void changeDataFolder();
     void about();
+    void showTheme(const Theme& t, bool preview);
+    void applyShortcuts();
+
+public:
+    void showSettings();
+    SettingsDialog* settingsDialog() const;
+
+private:
 
     Settings& m_settings;
     core::Library* m_library;
@@ -75,10 +90,13 @@ private:
     Theme m_theme = Theme::midnight();
     core::BookEngine* m_engine;
     QStackedWidget* m_stack;
-    StartView* m_start;
+    LibraryView* m_start;   // the library
     ReaderView* m_reader;
     CommandPalette* m_palette;
     ImageViewer* m_imageViewer;
+    ThemePicker* m_themePicker;
+    QString m_previewKey;
+    QPointer<SettingsDialog> m_settingsDialog;
     std::vector<std::unique_ptr<Command>> m_commands;
     QString m_openingPath;
     QString m_lastError;

@@ -68,6 +68,7 @@ private:
     std::shared_ptr<Book> m_book;
     std::shared_ptr<const BookIndex> m_index;
     std::shared_ptr<layout::FontResolver> m_fonts;
+    QStringList m_bodyFamilies;
     layout::LayoutParams m_params;
     int m_generation = 0;
     int m_openToken = 0;

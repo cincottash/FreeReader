@@ -18,7 +18,8 @@ struct Command {
     QString id;
     QString label;          // Title Case
     QString hint;           // sentence shown under the label in the palette (optional)
-    QKeySequence shortcut;
+    QKeySequence shortcut;          // in effect (the default, or the one set in Settings)
+    QKeySequence defaultShortcut;
     std::function<void()> run;
     std::function<bool()> enabled;   // null = always
     QAction* action = nullptr;

@@ -3,10 +3,13 @@
 #include "AppData.h"
 #include "Popups.h"
 #include "ReaderView.h"
-#include "StartView.h"
+#include "LibraryView.h"
+#include "SettingsDialog.h"
+#include "ThemePicker.h"
 
 #include "core/format/FormatPlugin.h"
 #include "core/services/BookEngine.h"
+#include "core/services/Importer.h"
 #include "core/services/Library.h"
 
 #include <QAction>
@@ -20,6 +23,7 @@
 #include <QMimeData>
 #include <QScreen>
 #include <QStackedWidget>
+#include <QStyleHints>
 #include <QTimer>
 
 MainWindow::MainWindow(Settings& settings, core::Library* library, bool interactive, QWidget* parent)
@@ -29,7 +33,7 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     setAcceptDrops(true);
     m_engine = new core::BookEngine(this);
     m_stack = new QStackedWidget;
-    m_start = new StartView;
+    m_start = new LibraryView(m_library, m_settings);
     m_reader = new ReaderView(m_engine, m_library, m_settings);
     m_reader->setInteractive(interactive);
     m_stack->addWidget(m_start);
@@ -37,6 +41,16 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     setCentralWidget(m_stack);
     m_palette = new CommandPalette(m_stack);
     m_imageViewer = new ImageViewer(m_stack);
+    // The theme list belongs to the window, not to its body: previews restyle the body only, never the list.
+    m_themePicker = new ThemePicker(this);
+    connect(m_themePicker, &ThemePicker::previewRequested, this, &MainWindow::previewTheme);
+    connect(m_themePicker, &ThemePicker::chosen, this, &MainWindow::chooseTheme);
+    connect(m_reader, &ReaderView::themeChosen, this, &MainWindow::chooseTheme);
+    connect(m_reader, &ReaderView::appearanceChanged, this, &MainWindow::saveSettingsSoon);
+    connect(m_reader, &ReaderView::moreThemesRequested, this, [this](const QPoint& p) { m_themePicker->showFor(m_settings.theme, p); });
+    connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this, [this] {
+        if (m_settings.theme == QLatin1String("system")) showTheme(Theme::forChoice(QStringLiteral("system")), false);
+    });
 
     m_settingsTimer = new QTimer(this);
     m_settingsTimer->setSingleShot(true);
@@ -45,11 +59,18 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
 
     connect(m_engine, &core::BookEngine::opened, this, &MainWindow::onOpened);
     connect(m_engine, &core::BookEngine::openFailed, this, &MainWindow::onOpenFailed);
-    connect(m_start, &StartView::openRequested, this, &MainWindow::chooseBook);
-    connect(m_start, &StartView::bookRequested, this, &MainWindow::openBook);
-    connect(m_start, &StartView::settingsLinkClicked, this, &MainWindow::changeDataFolder);
+    connect(m_start, &LibraryView::openRequested, this, &MainWindow::openBook);
+    connect(m_start, &LibraryView::settingsLinkClicked, this, &MainWindow::changeDataFolder);
+    connect(m_start, &LibraryView::commandsRequested, this, [this] { runCommand(QStringLiteral("commands")); });
+    m_start->setPrompt([this](const QString& title, const QString& placeholder, std::function<QString(const QString&)> accept) {
+        m_palette->showPrompt(title, placeholder, std::move(accept));
+    });
+    m_start->setConfirm([this](const QString& title, const QString& text) {
+        // Tests and the screenshot mode never show a dialog.
+        return !m_interactive || QMessageBox::question(this, title, text) == QMessageBox::Yes;
+    });
     connect(m_reader, &ReaderView::settingsLinkClicked, this, &MainWindow::changeDataFolder);
-    connect(m_reader, &ReaderView::libraryRequested, this, &MainWindow::showStart);
+    connect(m_reader, &ReaderView::libraryRequested, this, &MainWindow::showLibrary);
     connect(m_reader, &ReaderView::commandsRequested, this, [this] { runCommand(QStringLiteral("commands")); });
     connect(m_reader, &ReaderView::fullScreenRequested, this, &MainWindow::toggleFullScreen);
     connect(m_reader, &ReaderView::imageRequested, this, [this](const QString& path) {
@@ -60,9 +81,9 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
 
     m_start->setSettingsNotKept(appdata::isTemporary());
     m_reader->setSettingsNotKept(appdata::isTemporary());
-    if (m_library) m_start->setRecent(m_library->recentBooks(8));
 
     buildCommands();
+    showTheme(Theme::forChoice(m_settings.theme), false);
 
     if (!m_settings.geometry.isEmpty()) {
         restoreGeometry(m_settings.geometry);
@@ -82,9 +103,8 @@ void MainWindow::addCommand(const QString& id, const QString& label, const QKeyS
     c->label = label;
     c->hint = hint;
     c->shortcut = key;
-    // Shortcut overrides from the settings ("id=Ctrl+X").
-    for (const QString& o : m_settings.shortcuts)
-        if (o.section(QLatin1Char('='), 0, 0) == id) c->shortcut = QKeySequence(o.section(QLatin1Char('='), 1), QKeySequence::PortableText);
+    c->defaultShortcut = key;
+
     c->run = std::move(run);
     c->enabled = std::move(enabled);
     c->action = new QAction(label, this);
@@ -109,7 +129,19 @@ void MainWindow::buildCommands()
         m_palette->showCommands();
     });
     addCommand(QStringLiteral("open"), tr("Open Book…"), QKeySequence::Open, [this] { chooseBook(); });
-    addCommand(QStringLiteral("start"), tr("Go to Start Screen"), QKeySequence(Qt::CTRL | Qt::Key_L), [this] { showStart(); }, reading);
+    addCommand(QStringLiteral("library"), tr("Go to Library"), QKeySequence(Qt::CTRL | Qt::Key_L), [this] { showLibrary(); }, reading);
+    auto inLibrary = [this] { return m_stack->currentWidget() == m_start; };
+    addCommand(QStringLiteral("add-books"), tr("Add Books…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_O), [this] {
+        showLibrary();
+        if (m_interactive) m_start->chooseFilesToAdd();
+    }, nullptr, tr("Add EPUB files to the library. They stay where they are."));
+    addCommand(QStringLiteral("add-folder"), tr("Add Folder…"), QKeySequence(), [this] {
+        showLibrary();
+        if (m_interactive) m_start->chooseFolderToAdd();
+    }, nullptr, tr("Add every EPUB file in a folder and its subfolders."));
+    addCommand(QStringLiteral("new-collection"), tr("New Collection…"), QKeySequence(), [this] { m_start->newCollection(); }, inLibrary);
+    addCommand(QStringLiteral("library-grid"), tr("Show Covers"), QKeySequence(), [this] { m_start->setListMode(false); saveSettingsSoon(); }, inLibrary);
+    addCommand(QStringLiteral("library-list"), tr("Show List"), QKeySequence(), [this] { m_start->setListMode(true); saveSettingsSoon(); }, inLibrary);
     addCommand(QStringLiteral("contents"), tr("Show or Hide Contents"), QKeySequence(Qt::CTRL | Qt::Key_T),
                [this] { m_reader->setContentsVisible(!m_reader->contentsVisible()); saveSettingsSoon(); }, reading);
     addCommand(QStringLiteral("goto"), tr("Go to Page or Percent…"), QKeySequence(Qt::CTRL | Qt::Key_G), [this] {
@@ -134,17 +166,68 @@ void MainWindow::buildCommands()
     addCommand(QStringLiteral("columns-two"), tr("Two Columns"), QKeySequence(), [this] { setColumns(QStringLiteral("two")); });
     addCommand(QStringLiteral("columns-auto"), tr("Automatic Columns"), QKeySequence(), [this] { setColumns(QStringLiteral("auto")); },
                nullptr, tr("Two columns when the window is wide enough."));
+    addCommand(QStringLiteral("appearance"), tr("Text and Layout…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_A), [this] { m_reader->showAppearancePanel(); },
+               reading, tr("Font, text size, spacing, margins, page width, columns."));
+    addCommand(QStringLiteral("themes"), tr("Choose Theme…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_T), [this] {
+        m_themePicker->showFor(m_settings.theme, QPoint(width() - 8, 56));
+    });
     addCommand(QStringLiteral("fullscreen"), tr("Full Screen"), QKeySequence(Qt::Key_F11), [this] { toggleFullScreen(); });
     addCommand(QStringLiteral("data-folder"), tr("Change App Data Folder…"), QKeySequence(), [this] { changeDataFolder(); });
     addCommand(QStringLiteral("about"), tr("About FreeReader"), QKeySequence(), [this] { about(); });
     addCommand(QStringLiteral("quit"), tr("Quit"), QKeySequence(Qt::CTRL | Qt::Key_Q), [this] { close(); });
-    // Second shortcuts people expect for the palette.
-    if (Command* c = command(QStringLiteral("commands")))
-        c->action->setShortcuts({QKeySequence(Qt::CTRL | Qt::Key_K), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_P), QKeySequence(Qt::Key_F1)});
-    if (Command* c = command(QStringLiteral("larger")))
-        c->action->setShortcuts({QKeySequence(Qt::CTRL | Qt::Key_Equal), QKeySequence(Qt::CTRL | Qt::Key_Plus)});
-    if (Command* c = command(QStringLiteral("back")))
-        c->action->setShortcuts({QKeySequence(Qt::ALT | Qt::Key_Left), QKeySequence(Qt::Key_Backspace)});
+    addCommand(QStringLiteral("settings"), tr("Settings…"), QKeySequence(Qt::CTRL | Qt::Key_Comma), [this] { showSettings(); }, nullptr,
+               tr("App data folder, keyboard shortcuts, resets."));
+    applyShortcuts();
+}
+
+void MainWindow::applyShortcuts()
+{
+    // Second keys people expect, used while the command keeps its default.
+    static const QHash<QString, QList<QKeySequence>> extra = {
+        {QStringLiteral("commands"), {QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_P), QKeySequence(Qt::Key_F1)}},
+        {QStringLiteral("larger"), {QKeySequence(Qt::CTRL | Qt::Key_Plus)}},
+        {QStringLiteral("back"), {QKeySequence(Qt::Key_Backspace)}},
+    };
+    for (auto& c : m_commands) {
+        QKeySequence keys = c->defaultShortcut;
+        bool changed = false;
+        // Changes from Settings: "id=Ctrl+X" ("id=" for none).
+        for (const QString& o : m_settings.shortcuts)
+            if (o.section(QLatin1Char('='), 0, 0) == c->id) {
+                keys = QKeySequence(o.section(QLatin1Char('='), 1), QKeySequence::PortableText);
+                changed = true;
+            }
+        c->shortcut = keys;
+        QList<QKeySequence> all;
+        if (!keys.isEmpty()) all << keys;
+        if (!changed) all << extra.value(c->id);
+        c->action->setShortcuts(all);
+    }
+}
+
+void MainWindow::showSettings()
+{
+    if (!m_settingsDialog) {
+        std::vector<Command*> list;
+        for (auto& c : m_commands) list.push_back(c.get());
+        m_settingsDialog = new SettingsDialog(m_settings, list, this);
+        connect(m_settingsDialog, &SettingsDialog::shortcutsChanged, this, [this] {
+            applyShortcuts();
+            saveSettingsSoon();
+        });
+        connect(m_settingsDialog, &SettingsDialog::resetTextAndLayoutRequested, this, [this] {
+            m_settings.look = Appearance();
+            if (isReading()) m_reader->applyReadingOptions();
+            saveSettingsSoon();
+        });
+        connect(m_settingsDialog, &SettingsDialog::changeDataFolderRequested, this, [this] {
+            changeDataFolder();
+            m_settingsDialog->setDataFolder(appdata::folder(), appdata::isTemporary());
+        });
+    }
+    m_settingsDialog->setDataFolder(appdata::folder(), appdata::isTemporary());
+    m_settingsDialog->show();
+    m_settingsDialog->raise();
 }
 
 Command* MainWindow::command(const QString& id) const
@@ -164,7 +247,7 @@ bool MainWindow::isReading() const { return m_stack->currentWidget() == m_reader
 
 bool MainWindow::isSettled() const
 {
-    if (!m_openingPath.isEmpty()) return false;
+    if (!m_openingPath.isEmpty() || m_start->isImporting()) return false;
     return m_stack->currentWidget() == m_start || m_reader->isSettled();
 }
 
@@ -198,6 +281,11 @@ void MainWindow::onOpened()
     m_openingPath.clear();
     m_start->setMessage(QString());
     int id = m_library ? m_library->touchBook(path, book->metadata) : 0;
+    // A book opened directly (not added through the library) gets its cover thumbnail now.
+    if (m_library && id && !m_library->book(id).hasCover) {
+        const QByteArray cover = core::Importer::thumbnail(*book);
+        if (!cover.isEmpty()) m_library->addBook(path, book->metadata, cover);
+    }
     core::Position start;
     core::SavedPosition saved;
     if (m_library && m_library->loadPosition(id, &saved)) {
@@ -221,28 +309,24 @@ void MainWindow::onOpenFailed(const QString& message)
     emit bookFailed(message);
 }
 
-void MainWindow::showStart()
+void MainWindow::showLibrary()
 {
-    m_reader->closeBook();
-    m_engine->close();
-    setWindowTitle(QStringLiteral(APP_NAME));
-    if (m_library) m_start->setRecent(m_library->recentBooks(8));
-    m_stack->setCurrentWidget(m_start);
+    if (m_stack->currentWidget() != m_start) {
+        m_reader->closeBook();
+        m_engine->close();
+        setWindowTitle(QStringLiteral(APP_NAME));
+        m_stack->setCurrentWidget(m_start);
+    }
+    m_start->refresh();
 }
 
 void MainWindow::changeTextSize(int delta)
 {
-    m_settings.textSizePct = delta == 0 ? 100 : qBound(60, m_settings.textSizePct + delta, 300);
-    m_reader->applyReadingOptions();
-    saveSettingsSoon();
+    const int now = m_reader->effectiveAppearance().textSizePct;
+    m_reader->changeAppearance(QStringLiteral("text_size_pct"), delta == 0 ? 100 : qBound(60, now + delta, 300));
 }
 
-void MainWindow::setColumns(const QString& mode)
-{
-    m_settings.columns = mode;
-    m_reader->applyReadingOptions();
-    saveSettingsSoon();
-}
+void MainWindow::setColumns(const QString& mode) { m_reader->changeAppearance(QStringLiteral("columns"), mode); }
 
 void MainWindow::toggleFullScreen()
 {
@@ -319,3 +403,49 @@ void MainWindow::resizeEvent(QResizeEvent* e)
     if (m_imageViewer->isVisible()) m_imageViewer->setGeometry(m_stack->rect());
     saveSettingsSoon();
 }
+
+void MainWindow::showTheme(const Theme& t, bool preview)
+{
+    if (preview) {
+        applyThemeTo(m_stack, t);
+    } else {
+        clearThemeFrom(m_stack);
+        applyTheme(*qApp, t);
+        m_theme = t;
+    }
+    m_reader->setTheme(t);
+    m_start->setTheme(t);
+    m_imageViewer->setTheme(t);
+}
+
+void MainWindow::chooseTheme(const QString& key)
+{
+    m_previewKey.clear();
+    // The theme being left stays one click away as a dot.
+    if (!m_settings.recentThemes.contains(m_settings.theme)) m_settings.recentThemes.prepend(m_settings.theme);
+    m_settings.theme = key;
+    m_settings.recentThemes.removeAll(key);
+    m_settings.recentThemes.prepend(key);
+    while (m_settings.recentThemes.size() > 4) m_settings.recentThemes.removeLast();
+    showTheme(Theme::forChoice(key), false);
+    saveSettingsSoon();
+}
+
+void MainWindow::previewTheme(const QString& key)
+{
+    if (key == m_previewKey) return;
+    m_previewKey = key;
+    if (key.isEmpty() || key == m_settings.theme) {
+        // Back to the saved theme (only if a preview was showing).
+        if (!m_stack->styleSheet().isEmpty()) {
+            clearThemeFrom(m_stack);
+            m_reader->setTheme(m_theme);
+            m_start->setTheme(m_theme);
+            m_imageViewer->setTheme(m_theme);
+        }
+        return;
+    }
+    showTheme(Theme::forChoice(key), true);
+}
+
+SettingsDialog* MainWindow::settingsDialog() const { return m_settingsDialog.data(); }

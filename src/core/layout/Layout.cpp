@@ -1,5 +1,7 @@
 #include "Layout.h"
 
+#include "Hyphenator.h"
+
 #include "core/format/Book.h"
 
 #include <QBuffer>
@@ -270,7 +272,7 @@ std::unique_ptr<TableLayout> layoutTable(const Block& tb, const core::Book& book
 int textOffsetAtLine(const ChapterLayout& cl, int block, int line)
 {
     const TextLines& tl = cl.text[size_t(block)];
-    return cl.flow->blocks[size_t(block)].start + tl.layout->lineAt(line).textStart();
+    return cl.flow->blocks[size_t(block)].start + tl.F(tl.layout->lineAt(line).textStart());
 }
 
 }  // namespace
@@ -316,12 +318,27 @@ TextLines layoutText(const Block& b, float width, const LayoutParams& p)
     out.block = &b;
     out.width = width;
     out.params = p;
-    out.layout = std::make_unique<QTextLayout>(b.text, b.font);
+    const Hyphenator* hyph = p.hyphenate && b.hyphenate ? Hyphenator::forLanguage(b.lang) : nullptr;
+    if (hyph) {
+        const QString text = hyph->hyphenate(b.text, &out.toLayout, &out.toFlow);
+        out.layout = std::make_unique<QTextLayout>(text, b.font);
+        QList<QTextLayout::FormatRange> formats = b.formats;
+        for (auto& r : formats) {
+            const int s = out.L(r.start), e = out.L(r.start + r.length);
+            r.start = s;
+            r.length = e - s;
+        }
+        out.layout->setFormats(formats);
+    } else {
+        out.layout = std::make_unique<QTextLayout>(b.text, b.font);
+        out.layout->setFormats(b.formats);
+    }
     QTextLayout& tl = *out.layout;
-    tl.setFormats(b.formats);
     tl.setCacheEnabled(true);
     QTextOption o;
-    o.setAlignment(qtAlign(b.align, p.defaultAlign));
+    css::Align align = b.align;
+    if (!p.justify && (align == css::Align::Justify || align == css::Align::Start)) align = css::Align::Left;
+    o.setAlignment(qtAlign(align, p.defaultAlign));
     o.setWrapMode(wrapMode());
     o.setUseDesignMetrics(true);
     tl.setTextOption(o);
@@ -458,7 +475,7 @@ std::shared_ptr<ChapterLayout> layoutChapter(const std::shared_ptr<const Chapter
                 empty = false;
                 li += fit;
                 const QTextLine last = tl.layout->lineAt(li - 1);
-                cur.end = b.start + last.textStart() + last.textLength();
+                cur.end = b.start + tl.F(last.textStart() + last.textLength());
                 if (li < lines) newPage();
             }
         } else if (b.kind == Block::Image) {

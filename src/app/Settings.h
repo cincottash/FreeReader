@@ -2,6 +2,8 @@
 // annotations live in the library database instead.
 #pragma once
 
+#include "Appearance.h"
+
 #include <QByteArray>
 #include <QString>
 #include <QStringList>
@@ -12,11 +14,14 @@ struct Settings {
     bool showContents = false;
 
     // Reading
-    int textSizePct = 100;            // 100 % = 20 px body text
-    int lineSpacingPct = 160;         // line height in % of the text size
-    QString columns = QStringLiteral("auto");   // auto / one / two
-    QString theme = QStringLiteral("midnight");
+    Appearance look;                  // All Books; languages and books can override it (library database)
+    QString theme = QStringLiteral("midnight");     // a theme key or "system"
+    QStringList recentThemes;                        // most recent first; shown as dots in the reader's header
     int readingSpeed = 1100;          // characters per minute, learned from page turns
+
+    // Library
+    bool libraryList = false;         // list view instead of covers
+    QString librarySort = QStringLiteral("recent");
 
     // Files
     QString lastFolder;

@@ -47,6 +47,7 @@ void BookEngine::open(const QString& path)
             }
             m_book = book;
             m_fonts = std::make_shared<layout::FontResolver>();
+            m_fonts->setBodyFamilies(m_bodyFamilies);
             emit opened();
             // The index (chapter lengths, ids, table of contents positions) is built in the background.
             const int t = m_openToken;
@@ -88,6 +89,8 @@ void BookEngine::setParams(const layout::LayoutParams& p)
 
 void BookEngine::setBodyFont(const QStringList& families)
 {
+    if (families == m_bodyFamilies) return;
+    m_bodyFamilies = families;
     if (m_fonts) m_fonts->setBodyFamilies(families);
     ++m_generation;
     m_cache.clear();

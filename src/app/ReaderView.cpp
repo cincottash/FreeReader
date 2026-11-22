@@ -1,5 +1,6 @@
 #include "ReaderView.h"
 
+#include "AppearancePanel.h"
 #include "FooterBar.h"
 #include "Icons.h"
 #include "Popups.h"
@@ -12,7 +13,9 @@
 #include <QDesktopServices>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QJsonObject>
 #include <QLocale>
+#include <QPainter>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QToolButton>
@@ -61,7 +64,7 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     auto* h = new QHBoxLayout(bar);
     h->setContentsMargins(8, 4, 8, 4);
     h->setSpacing(6);
-    m_libraryButton = iconButton("back", tr("Back to the start screen"), m_theme);
+    m_libraryButton = iconButton("back", tr("Back to the library (Ctrl+L)"), m_theme);
     h->addWidget(m_libraryButton);
     auto* titles = new QVBoxLayout;
     titles->setSpacing(1);
@@ -87,6 +90,24 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     m_commandsButton = iconButton("commands", tr("Commands (Ctrl+K)"), m_theme);
     m_fullButton = iconButton("fullscreen", tr("Full screen (F11)"), m_theme);
     h->addWidget(m_tocButton);
+    m_aaButton = new QToolButton;
+    m_aaButton->setObjectName(QStringLiteral("Icon"));
+    m_aaButton->setText(QStringLiteral("Aa"));
+    QFont aa(QStringLiteral("Literata"));
+    aa.setPixelSize(17);
+    aa.setWeight(QFont::DemiBold);
+    m_aaButton->setFont(aa);
+    m_aaButton->setFixedSize(40, 40);
+    m_aaButton->setCursor(Qt::PointingHandCursor);
+    m_aaButton->setFocusPolicy(Qt::NoFocus);
+    m_aaButton->setToolTip(tr("Text and layout: font, size, spacing, margins, columns"));
+    m_aaButton->setProperty("testId", "aaButton");
+    h->addWidget(m_aaButton);    // Recently used themes as dots (as in the mock-up), then the full theme list.
+    m_themeDots = new QWidget;
+    m_themeDots->setLayout(new QHBoxLayout);
+    m_themeDots->layout()->setContentsMargins(6, 0, 6, 0);
+    m_themeDots->layout()->setSpacing(0);
+    h->addWidget(m_themeDots);
     h->addWidget(m_commandsButton);
     h->addWidget(m_fullButton);
     lay->addWidget(bar);
@@ -113,7 +134,30 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     m_backChip->hide();
     m_backChip->setProperty("testId", "backChip");
     m_note = new NotePopup(m_pages);
-
+    m_panel = new AppearancePanel(this);
+    m_lookTimer.setSingleShot(true);
+    m_lookTimer.setInterval(60);   // sliders move in many small steps; lay out once they pause
+    connect(&m_lookTimer, &QTimer::timeout, this, &ReaderView::applyReadingOptions);
+    connect(m_aaButton, &QToolButton::clicked, this, [this] {
+        if (m_panel->isVisible()) {
+            m_panel->hide();
+            return;
+        }
+        applyReadingOptions();
+        m_panel->showBelow(m_aaButton->mapTo(this, QPoint(m_aaButton->width() + 140, m_aaButton->height() + 4)));
+    });
+    connect(m_panel, &AppearancePanel::valueChanged, this, &ReaderView::changeAppearance);
+    connect(m_panel, &AppearancePanel::themesRequested, this, [this] {
+        m_panel->hide();
+        emit moreThemesRequested(m_aaButton->mapTo(window(), QPoint(m_aaButton->width() + 140, m_aaButton->height())));
+    });
+    connect(m_panel, &AppearancePanel::resetRequested, this, [this](int scope) {
+        if (!m_library) return;
+        if (scope == AppearancePanel::ThisBook && m_bookId) m_library->setAppearanceLayer(QStringLiteral("book:%1").arg(m_bookId), {});
+        if (scope == AppearancePanel::Language && !languageCode().isEmpty())
+            m_library->setAppearanceLayer(QStringLiteral("lang:") + languageCode(), {});
+        applyReadingOptions();
+    });
     m_saveTimer.setSingleShot(true);
     m_saveTimer.setInterval(800);
     connect(&m_saveTimer, &QTimer::timeout, this, &ReaderView::savePosition);
@@ -144,9 +188,131 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
 
 void ReaderView::setSettingsNotKept(bool on) { m_notKept->setVisible(on); }
 
+void ReaderView::setTheme(const Theme& t)
+{
+    m_theme = t;
+    m_libraryButton->setIcon(icons::icon("back", t.fg));
+    m_tocButton->setIcon(icons::icon("toc", t.fg));
+    m_commandsButton->setIcon(icons::icon("commands", t.fg));
+    setFullScreenIcon(window() && window()->isFullScreen());
+    m_pages->setTheme(t);
+    m_footer->setTheme(t);
+    m_toc->setTheme(t);
+    updateThemeDots();
+}
+
+void ReaderView::updateThemeDots()
+{
+    QLayout* lay = m_themeDots->layout();
+    while (QLayoutItem* it = lay->takeAt(0)) {
+        delete it->widget();
+        delete it;
+    }
+    QStringList keys = m_settings.recentThemes;
+    if (!keys.contains(m_settings.theme)) keys.prepend(m_settings.theme);
+    while (keys.size() > 4) keys.removeLast();
+    for (const QString& key : keys) {
+        const Theme t = Theme::forChoice(key);
+        auto* b = new QToolButton;
+        b->setObjectName(QStringLiteral("Icon"));
+        b->setFixedSize(32, 40);
+        b->setCursor(Qt::PointingHandCursor);
+        b->setFocusPolicy(Qt::NoFocus);
+        b->setToolTip(key == QLatin1String("system") ? tr("Match Operating System") : t.name);
+        b->setProperty("testId", QStringLiteral("themeDot-") + key);
+        QPixmap pm(QSize(22, 22) * 2);
+        pm.setDevicePixelRatio(2);
+        pm.fill(Qt::transparent);
+        QPainter p(&pm);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setPen(QPen(key == m_settings.theme ? m_theme.accent : m_theme.muted, 2));
+        p.setBrush(t.bg);
+        p.drawEllipse(QRectF(2, 2, 18, 18));
+        p.end();
+        b->setIcon(QIcon(pm));
+        b->setIconSize(QSize(22, 22));
+        connect(b, &QToolButton::clicked, this, [this, key] { emit themeChosen(key); });
+        lay->addWidget(b);
+    }
+    auto* more = new QToolButton;
+    more->setObjectName(QStringLiteral("Icon"));
+    more->setFixedSize(32, 40);
+    more->setCursor(Qt::PointingHandCursor);
+    more->setFocusPolicy(Qt::NoFocus);
+    more->setIcon(icons::icon("more", m_theme.fg));
+    more->setToolTip(tr("All themes (Ctrl+Shift+T)"));
+    more->setProperty("testId", "moreThemes");
+    connect(more, &QToolButton::clicked, this, [this, more] {
+        emit moreThemesRequested(more->mapTo(window(), QPoint(more->width(), more->height())));
+    });
+    lay->addWidget(more);
+}
+
+QString ReaderView::languageCode() const
+{
+    const core::Book* book = m_engine->book();
+    if (!book || book->metadata.language.isEmpty()) return {};
+    return book->metadata.language.section(QLatin1Char('-'), 0, 0).section(QLatin1Char('_'), 0, 0).toLower();
+}
+
+QString ReaderView::languageName() const
+{
+    const QString code = languageCode();
+    if (code.isEmpty()) return {};
+    const QLocale loc(code);
+    return loc.language() == QLocale::C ? QString() : QLocale::languageToString(loc.language());
+}
+
+Appearance ReaderView::effectiveAppearance() const
+{
+    Appearance a = m_settings.look;
+    if (m_library) {
+        if (!languageCode().isEmpty()) a.merge(m_library->appearanceLayer(QStringLiteral("lang:") + languageCode()));
+        if (m_bookId) a.merge(m_library->appearanceLayer(QStringLiteral("book:%1").arg(m_bookId)));
+    }
+    return a;
+}
+
 void ReaderView::applyReadingOptions()
 {
-    m_pages->setReadingOptions(m_settings.textSizePct, m_settings.lineSpacingPct, m_settings.columns);
+    const Appearance a = effectiveAppearance();
+    m_pages->setAppearance(a);
+    const bool langOwn = m_library && !languageCode().isEmpty() && !m_library->appearanceLayer(QStringLiteral("lang:") + languageCode()).isEmpty();
+    const bool bookOwn = m_library && m_bookId && !m_library->appearanceLayer(QStringLiteral("book:%1").arg(m_bookId)).isEmpty();
+    m_panel->setValues(a, m_settings.theme == QLatin1String("system") ? tr("Match Operating System") : m_theme.name, languageName(), langOwn, bookOwn);
+}
+
+void ReaderView::changeAppearance(const QString& key, const QJsonValue& value)
+{
+    const QString langScope = languageCode().isEmpty() ? QString() : QStringLiteral("lang:") + languageCode();
+    const QString bookScope = m_bookId ? QStringLiteral("book:%1").arg(m_bookId) : QString();
+    auto setIn = [&](const QString& scope, bool set) {
+        if (scope.isEmpty() || !m_library) return;
+        QJsonObject layer = m_library->appearanceLayer(scope);
+        if (set) layer[key] = value;
+        else layer.remove(key);
+        m_library->setAppearanceLayer(scope, layer);
+    };
+    switch (m_panel->scope()) {
+    case AppearancePanel::AllBooks: {
+        // Written to All Books, and taken out of this book's and this language's own settings so it shows.
+        QJsonObject o = m_settings.look.toJson();
+        o[key] = value;
+        m_settings.look.merge(o);
+        setIn(langScope, false);
+        setIn(bookScope, false);
+        emit appearanceChanged();
+        break;
+    }
+    case AppearancePanel::Language:
+        setIn(langScope, true);
+        setIn(bookScope, false);
+        break;
+    case AppearancePanel::ThisBook:
+        setIn(bookScope, true);
+        break;
+    }
+    m_lookTimer.start();
 }
 
 void ReaderView::showBook(int bookId, const core::Position& start)
@@ -188,7 +354,10 @@ void ReaderView::setContentsVisible(bool on)
     m_settings.showContents = on;
 }
 
-bool ReaderView::isSettled() const { return m_engine->isOpen() && m_engine->index() && m_pages->isReady(); }
+bool ReaderView::isSettled() const
+{
+    return m_engine->isOpen() && m_engine->index() && !m_lookTimer.isActive() && m_pages->isReady();
+}
 
 void ReaderView::setFullScreenIcon(bool fullScreen)
 {
@@ -247,7 +416,7 @@ void ReaderView::updateHeaderAndFooter()
     const double fraction = ix->fraction(pos);
     QStringList stats;
     stats << tr("Page %1 of %2").arg(ix->pageLabel(pos), ix->lastPageLabel());
-    stats << QLocale().toString(int(std::floor(fraction * 100))) + QStringLiteral("%");
+    stats << QLocale().toString(int(std::floor(fraction * 100 + 1e-6))) + QStringLiteral("%");
     // Time left in the chapter, from the reading speed learned from page turns.
     const qint64 g = ix->global(pos);
     qint64 next = ix->total;
@@ -283,6 +452,10 @@ void ReaderView::savePosition()
     s.cfi = m_engine->cfiFor(s.position);
     const auto ix = m_engine->index();
     s.progress = ix ? ix->fraction(s.position) : 0;
+    if (ix) {
+        s.pageLabel = ix->pageLabel(s.position);
+        s.pageCount = ix->lastPageLabel();
+    }
     m_library->savePosition(m_bookId, s);
 }
 
@@ -382,7 +555,8 @@ QString ReaderView::goToPageOrPercent(const QString& raw)
     if (m.hasMatch()) {
         const double v = QString(m.captured(1)).replace(QLatin1Char(','), QLatin1Char('.')).toDouble();
         if (v < 0 || v > 100) return usage;
-        jumpTo(ix->fromGlobal(qint64(v / 100.0 * double(ix->total))));
+        // Rounded up to the next character, so "30%" shows as 30 % (not 29.99…).
+        jumpTo(ix->fromGlobal(qint64(std::ceil(v / 100.0 * double(ix->total)))));
         return {};
     }
     // Printed page labels ("xii") when the book has them.
@@ -419,4 +593,9 @@ void ReaderView::onLink(const LinkClick& link, const QPoint& globalPos)
         return;
     }
     jumpTo(target);
+}
+
+void ReaderView::showAppearancePanel()
+{
+    if (!m_panel->isVisible()) m_aaButton->click();
 }

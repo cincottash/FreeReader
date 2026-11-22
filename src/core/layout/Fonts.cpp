@@ -71,7 +71,8 @@ QStringList FontResolver::resolve(const QStringList& cssFamilies) const
             out << (it != m_embedded.cend() ? *it : f);
         }
     }
-    if (cssFamilies.isEmpty() && !m_body.isEmpty()) return m_body + m_serif;
+    // The reader's own font replaces the book's fonts for all text but code.
+    if (!m_body.isEmpty() && !(out.size() >= m_mono.size() && out.mid(0, m_mono.size()) == m_mono)) return m_body + m_serif;
     if (!generic) out << tail;
     return out;
 }
