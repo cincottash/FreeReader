@@ -638,6 +638,10 @@ void ReaderView::setTranslator(core::TranslationService* service)
         connect(service, &core::TranslationService::asking, this, [this](int id, const QString& provider) {
             if (id == m_lookupId) m_translate->showAsking(provider);
         });
+    if (service)
+        connect(service, &core::TranslationService::interim, this, [this](int id, const core::TranslationResult& r) {
+            if (id == m_lookupId) m_translate->showResult(r, m_dictionaryFirst, true);
+        });
 }
 
 bool ReaderView::bookIsOffline() const

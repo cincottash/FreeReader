@@ -32,6 +32,7 @@ class GeminiProvider;
 class LmStudioProvider;
 class TranslationService;
 class WordLog;
+class OfflineDictionary;
 }
 
 class MainWindow : public QMainWindow {
@@ -97,6 +98,8 @@ public:
     core::TranslationService* translator() const { return m_translator; }
     core::GeminiProvider* gemini() const { return m_gemini; }
     core::LmStudioProvider* lmStudio() const { return m_lmStudio; }
+    core::OfflineDictionary* dictionary() const { return m_dictionary; }
+    static QString dictionaryFile(const QString& language);   // <data folder>/dictionaries/<language>-en.sqlite
     SettingsDialog* settingsDialog() const;
 
 private:
@@ -124,6 +127,7 @@ private:
     core::GeminiProvider* m_gemini;
     core::LmStudioProvider* m_lmStudio;
     core::TranslationService* m_translator;
+    core::OfflineDictionary* m_dictionary;
     std::vector<std::unique_ptr<Command>> m_commands;
     QString m_openingPath;
     QString m_lastError;

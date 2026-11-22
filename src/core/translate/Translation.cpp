@@ -68,6 +68,7 @@ QString failureText(TranslationFailure f)
     case TranslationFailure::RateLimit: return QCoreApplication::translate("Translation", "too many lookups this minute");
     case TranslationFailure::BadKey: return QCoreApplication::translate("Translation", "the key was refused");
     case TranslationFailure::NoModel: return QCoreApplication::translate("Translation", "no model loaded");
+    case TranslationFailure::NotFound: return QCoreApplication::translate("Translation", "not in the dictionary");
     case TranslationFailure::Failed: return QCoreApplication::translate("Translation", "no usable answer");
     }
     return {};

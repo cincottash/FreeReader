@@ -4,6 +4,11 @@
 
 #include "core/services/Secrets.h"
 #include "core/translate/AiProviders.h"
+#include "core/translate/OfflineDictionary.h"
+
+#include <QFile>
+#include <QFileDialog>
+#include <QFileInfo>
 
 #include <QAction>
 #include <QCheckBox>
@@ -19,6 +24,7 @@
 #include <QLocale>
 #include <QPointer>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QTabWidget>
 #include <QTreeWidget>
 #include <QUrl>
@@ -65,7 +71,12 @@ SettingsDialog::SettingsDialog(Settings& settings, const std::vector<Command*>& 
     lay->setSpacing(8);
     m_tabs = new QTabWidget;
     m_tabs->setProperty("testId", "settingsTabs");
-    m_tabs->addTab(buildTranslationTab(), tr("Translation"));
+    // The Translation tab scrolls when the window is short.
+    auto* scroll = new QScrollArea;
+    scroll->setWidget(buildTranslationTab());
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    m_tabs->addTab(scroll, tr("Translation"));
     m_tabs->addTab(buildShortcutsTab(), tr("Keyboard Shortcuts"));
     m_tabs->addTab(buildGeneralTab(), tr("General"));
     lay->addWidget(m_tabs, 1);
@@ -168,6 +179,38 @@ QWidget* SettingsDialog::buildTranslationTab()
     m_lmResult->setProperty("testId", "lmResult");
     lay->addWidget(m_lmResult);
 
+    lay->addWidget(sectionTitle(tr("OFFLINE DICTIONARY")));
+    lay->addWidget(muted(tr("Answers single words at once, before Gemini's answer arrives, and on its own when nothing else can. "
+                            "It finds verb forms and plurals (“tenía” → “tener”).")));
+    m_useDict = new QCheckBox(tr("Use the Offline Dictionary"));
+    m_useDict->setProperty("testId", "useDictionary");
+    lay->addWidget(m_useDict);
+    auto* dictRow = new QHBoxLayout;
+    m_dictStatus = new QLabel;
+    m_dictStatus->setWordWrap(true);
+    m_dictStatus->setProperty("testId", "dictionaryStatus");
+    dictRow->addWidget(m_dictStatus, 1);
+    auto* addDict = new QPushButton(tr("Add Dictionary File…"));
+    addDict->setProperty("testId", "addDictionary");
+    m_removeDict = new QPushButton(tr("Remove"));
+    m_removeDict->setProperty("testId", "removeDictionary");
+    dictRow->addWidget(addDict);
+    dictRow->addWidget(m_removeDict);
+    lay->addLayout(dictRow);
+    connect(m_useDict, &QCheckBox::toggled, this, [this](bool on) {
+        m_settings.useDictionary = on;
+        emit translationChanged();
+    });
+    connect(addDict, &QPushButton::clicked, this, [this] {
+        if (!m_interactive) return;
+        const QString f = QFileDialog::getOpenFileName(this, tr("Add Dictionary File"), QString(), tr("FreeReader dictionaries (*.sqlite)"));
+        if (f.isEmpty()) return;
+        const QString err = installDictionary(f);
+        m_message->setText(err.isEmpty() ? tr("The dictionary is installed.") : err);
+        m_message->show();
+    });
+    connect(m_removeDict, &QPushButton::clicked, this, &SettingsDialog::removeDictionary);
+
     lay->addWidget(sectionTitle(tr("WHILE READING")));
     m_auto = new QCheckBox(tr("Translate Selected Text Right Away"));
     m_auto->setToolTip(tr("Off: right-click the selection and choose Translate."));
@@ -231,6 +274,18 @@ void SettingsDialog::refreshTranslation()
     m_offline->setChecked(m_settings.offlineOnly);
     m_model->setCurrentText(m_settings.geminiModel.isEmpty() ? QString::fromLatin1(core::GeminiProvider::kDefaultModel) : m_settings.geminiModel);
     m_lmAddress->setText(m_settings.lmStudioAddress);
+    {
+        const QSignalBlocker b6(m_useDict);
+        m_useDict->setChecked(m_settings.useDictionary);
+    }
+    if (m_dict && m_dict->info().ok) {
+        const core::DictionaryInfo& i = m_dict->info();
+        m_dictStatus->setText(tr("%1 → English: %2 words. %3 (%4).")
+                                  .arg(QLocale::languageToString(QLocale(i.language).language()), QLocale().toString(i.entries), i.source, i.license));
+    } else {
+        m_dictStatus->setText(tr("Not installed."));
+    }
+    m_removeDict->setEnabled(m_dict && m_dict->info().ok);
     const bool has = m_gemini && m_gemini->hasKey();
     m_keyStatus->setText(has ? tr("A key is saved in %1.").arg(storeName()) : tr("No key yet."));
     m_removeKey->setEnabled(has);
@@ -248,6 +303,46 @@ QString SettingsDialog::saveGeminiKey(const QString& key)
     refreshTranslation();
     emit translationChanged();
     return ok ? QString() : err;
+}
+
+void SettingsDialog::setDictionary(core::OfflineDictionary* dictionary, const QString& installPath)
+{
+    m_dict = dictionary;
+    m_dictPath = installPath;
+    refreshTranslation();
+}
+
+QString SettingsDialog::installDictionary(const QString& file)
+{
+    if (!m_dict) return tr("No dictionary support.");
+    const core::DictionaryInfo info = core::OfflineDictionary::inspect(file);
+    if (!info.ok) return tr("That file can't be used: %1").arg(info.error);
+    if (info.language != QLatin1String("es")) return tr("That dictionary is for another language (%1).").arg(info.language);
+    if (QFileInfo(file).absoluteFilePath() == QFileInfo(m_dictPath).absoluteFilePath()) return {};
+    QDir().mkpath(QFileInfo(m_dictPath).absolutePath());
+    // The app's own copy is replaced; the chosen file is never touched.
+    m_dict->close();
+    const QString temp = m_dictPath + QStringLiteral(".new");
+    QFile::remove(temp);
+    if (!QFile::copy(file, temp)) {
+        m_dict->open(m_dictPath);
+        return tr("The file couldn't be copied into the app data folder.");
+    }
+    QFile::remove(m_dictPath);
+    QFile::rename(temp, m_dictPath);
+    m_dict->open(m_dictPath);
+    refreshTranslation();
+    emit translationChanged();
+    return m_dict->info().ok ? QString() : tr("The copy can't be opened: %1").arg(m_dict->info().error);
+}
+
+void SettingsDialog::removeDictionary()
+{
+    if (!m_dict) return;
+    m_dict->close();
+    QFile::remove(m_dictPath);   // the app's own copy in its data folder
+    refreshTranslation();
+    emit translationChanged();
 }
 
 void SettingsDialog::removeGeminiKey()

@@ -71,6 +71,7 @@ add_library(freereader_core STATIC
     src/core/translate/Translation.cpp
     src/core/translate/AiProviders.cpp
     src/core/translate/TranslationService.cpp
+    src/core/translate/OfflineDictionary.cpp
 )
 target_include_directories(freereader_core PUBLIC src)
 target_compile_definitions(freereader_core PUBLIC APP_NAME="${APP_NAME}" APP_ORG="${APP_ORG}" APP_VERSION="${APP_VERSION}")

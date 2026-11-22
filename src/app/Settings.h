@@ -31,6 +31,7 @@ struct Settings {
     QString geminiModel;              // empty: the default (latest Flash-Lite)
     bool useLmStudio = true;
     QString lmStudioAddress = QStringLiteral("http://localhost:1234");
+    bool useDictionary = true;        // the offline dictionary, when one is installed
 
     // Practice (flashcards)
     QStringList practiceDirections = {QStringLiteral("recognize"), QStringLiteral("recall")};

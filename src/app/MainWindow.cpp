@@ -16,6 +16,7 @@
 #include "core/services/WordLog.h"
 #include "core/translate/AiProviders.h"
 #include "core/translate/TranslationService.h"
+#include "core/translate/OfflineDictionary.h"
 
 #include <QAction>
 #include <QApplication>
@@ -47,7 +48,10 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     m_lmStudio = new core::LmStudioProvider(m_net, this);
     m_translator = new core::TranslationService(this);
     m_translator->setCache(m_library);
-    m_translator->setProviders({m_gemini, m_lmStudio});
+    m_dictionary = new core::OfflineDictionary(this);
+    m_dictionary->open(dictionaryFile(QStringLiteral("es")));   // when installed
+    m_translator->setProviders({m_gemini, m_lmStudio, m_dictionary});
+    m_translator->setInstant(m_dictionary);
     m_gemini->setKey(core::secrets::read(QStringLiteral("gemini-api-key")));
     m_stack = new QStackedWidget;
     m_start = new LibraryView(m_library, m_settings);
@@ -381,8 +385,15 @@ void MainWindow::applyShortcuts()
     }
 }
 
+QString MainWindow::dictionaryFile(const QString& language)
+{
+    return QDir(appdata::folder()).filePath(QStringLiteral("dictionaries/%1-en.sqlite").arg(language));
+}
+
 void MainWindow::applyTranslationSettings()
 {
+    m_dictionary->setEnabled(m_settings.useDictionary);
+    if (!m_dictionary->info().ok) m_dictionary->open(dictionaryFile(QStringLiteral("es")));
     m_gemini->setEnabled(m_settings.useGemini);
     m_gemini->setModel(m_settings.geminiModel);
     m_lmStudio->setEnabled(m_settings.useLmStudio);
@@ -396,6 +407,7 @@ void MainWindow::showSettings(int tab)
         std::vector<Command*> list;
         for (auto& c : m_commands) list.push_back(c.get());
         m_settingsDialog = new SettingsDialog(m_settings, list, m_gemini, m_lmStudio, m_interactive, this);
+        m_settingsDialog->setDictionary(m_dictionary, dictionaryFile(QStringLiteral("es")));
         connect(m_settingsDialog, &SettingsDialog::translationChanged, this, [this] {
             applyTranslationSettings();
             saveSettingsSoon();

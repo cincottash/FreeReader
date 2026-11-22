@@ -35,6 +35,7 @@ void fields(Settings& s, F&& f)
     f("gemini_model", s.geminiModel);
     f("use_lm_studio", s.useLmStudio);
     f("lm_studio_address", s.lmStudioAddress);
+    f("use_dictionary", s.useDictionary);
     f("practice_directions", s.practiceDirections);
     f("practice_typed", s.practiceTyped);
     f("practice_sentence_front", s.practiceSentenceFront);

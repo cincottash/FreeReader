@@ -47,6 +47,7 @@ enum class TranslationFailure {
     RateLimit,       // too many requests this minute
     BadKey,          // the key was refused
     NoModel,         // LM Studio is running but has no model loaded
+    NotFound,        // not in the offline dictionary
     Failed,          // anything else (bad answer, server error)
 };
 

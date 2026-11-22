@@ -25,6 +25,7 @@ struct Settings;
 namespace core {
 class GeminiProvider;
 class LmStudioProvider;
+class OfflineDictionary;
 }
 
 class SettingsDialog : public QDialog {
@@ -48,6 +49,9 @@ public:
     void testGemini();
     void checkLmStudio();
     void refreshTranslation();
+    void setDictionary(core::OfflineDictionary* dictionary, const QString& installPath);
+    QString installDictionary(const QString& file);   // empty when installed, else why not
+    void removeDictionary();
 
 signals:
     void changeDataFolderRequested();
@@ -82,5 +86,10 @@ private:
     QLineEdit* m_lmAddress;
     QLabel* m_lmResult;
     QCheckBox* m_offline;
+    core::OfflineDictionary* m_dict = nullptr;
+    QString m_dictPath;
+    QLabel* m_dictStatus;
+    QCheckBox* m_useDict;
+    QPushButton* m_removeDict;
     QCheckBox* m_auto;
 };

@@ -188,14 +188,16 @@ void TranslationPopup::showLoading(const QString& text, const QString& language,
 void TranslationPopup::showAsking(const QString& provider)
 {
     if (!m_loading || !isVisible()) return;   // closed meanwhile (page turned, Esc): stays closed
+    if (!m_result.translation.isEmpty()) return;   // an offline answer is showing; it says it's still asking
     m_source->setText(tr("Asking %1…").arg(provider));
     m_source->show();
     place();
 }
 
-void TranslationPopup::showResult(const core::TranslationResult& r, bool dictionaryFirst)
+void TranslationPopup::showResult(const core::TranslationResult& r, bool dictionaryFirst, bool interim)
 {
-    m_loading = false;
+    if (interim && (!m_loading || !isVisible())) return;
+    m_loading = interim;
     m_result = r;
     const bool word = !m_text.contains(QLatin1Char(' ')) && m_text.size() <= 40;
     QString detail = r.partOfSpeech;
@@ -243,6 +245,7 @@ void TranslationPopup::showResult(const core::TranslationResult& r, bool diction
     m_settings->hide();
     QString source = tr("Source: %1").arg(r.provider.isEmpty() ? tr("unknown") : r.provider);
     if (r.fromCache) source += tr(" (looked up before)");
+    if (interim) source += tr(" · asking online…");
     m_source->setText(source);
     m_source->show();
     place();

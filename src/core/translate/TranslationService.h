@@ -15,6 +15,7 @@
 namespace core {
 
 class Library;
+class OfflineDictionary;
 
 class TranslationService : public QObject {
     Q_OBJECT
@@ -23,6 +24,8 @@ public:
 
     void setCache(Library* library) { m_cache = library; }
     void setProviders(const std::vector<TranslationProvider*>& inOrder) { m_providers = inOrder; }
+    // Answers single words at once (shown while the online answer is on its way).
+    void setInstant(OfflineDictionary* dictionary) { m_instant = dictionary; }
     // Offline only: no provider that sends text over the internet is asked (cached answers still show).
     void setOfflineOnly(bool on) { m_offlineOnly = on; }
     bool offlineOnly() const { return m_offlineOnly; }
@@ -38,6 +41,7 @@ public:
 
 signals:
     void asking(int id, const QString& provider);
+    void interim(int id, const core::TranslationResult& result);   // the offline dictionary's answer, before the final one
     // `result.isEmpty()` when nobody could answer; `why` then says what each provider reported.
     void finished(int id, const core::TranslationResult& result, const QString& why);
 
@@ -46,6 +50,7 @@ private:
     void finish(const TranslationRequest& request, const TranslationResult& r, const QString& why);
 
     Library* m_cache = nullptr;
+    OfflineDictionary* m_instant = nullptr;
     std::vector<TranslationProvider*> m_providers;
     bool m_offlineOnly = false;
     int m_nextId = 1;

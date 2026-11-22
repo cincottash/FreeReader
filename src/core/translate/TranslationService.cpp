@@ -1,6 +1,7 @@
 #include "TranslationService.h"
 
 #include "core/services/Library.h"
+#include "OfflineDictionary.h"
 
 #include <QTimeZone>
 #include <QTimer>
@@ -41,6 +42,10 @@ int TranslationService::translate(const TranslationRequest& request)
         return id;
     }
     m_inFlight.insert(key, {id});
+    if (m_instant && m_instant->isSetUp() && request.isWord()) {
+        const TranslationResult quick = m_instant->lookUp(request.text, request.from);
+        if (!quick.translation.isEmpty()) QTimer::singleShot(0, this, [this, id, quick] { emit interim(id, quick); });
+    }
     QTimer::singleShot(0, this, [this, id, request] { next(id, request, 0, {}); });
     return id;
 }
