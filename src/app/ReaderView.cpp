@@ -193,8 +193,15 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     connect(m_pages, &PageView::pageTurnedByUser, m_note, &QWidget::hide);
     connect(m_pages, &PageView::pageTurnedByUser, m_translate, &QWidget::hide);
     connect(m_pages, &PageView::selectionCleared, m_translate, &QWidget::hide);
+    connect(m_pages, &PageView::resized, m_translate, &QWidget::hide);
+    connect(m_pages, &PageView::resized, m_note, &QWidget::hide);
     connect(m_pages, &PageView::selectionMade, this, [this] {
-        if (m_settings.autoTranslate) translateSelection();
+        // A slip of the mouse that selects a letter or two, or only punctuation, isn't worth a lookup.
+        const QString t = m_pages->selectedText();
+        int letters = 0;
+        for (const QChar c : t)
+            if (c.isLetter()) ++letters;
+        if (m_settings.autoTranslate && letters >= 2) translateSelection();
     });
     connect(m_pages, &PageView::selectionMenuRequested, this, [this](const QPoint& at) {
         QMenu* menu = buildSelectionMenu();

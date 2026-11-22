@@ -35,6 +35,12 @@ int TranslationService::translate(const TranslationRequest& request)
             return id;
         }
     }
+    const QString key = request.cacheKey();
+    if (m_inFlight.contains(key)) {
+        m_inFlight[key] << id;
+        return id;
+    }
+    m_inFlight.insert(key, {id});
     QTimer::singleShot(0, this, [this, id, request] { next(id, request, 0, {}); });
     return id;
 }
@@ -58,7 +64,7 @@ void TranslationService::next(int id, const TranslationRequest& request, size_t 
             if (f == TranslationFailure::None && !r.isEmpty()) {
                 self->m_status.remove(name);
                 if (self->m_cache) self->m_cache->cacheTranslation(request.cacheKey(), name, r.toJson());
-                emit self->finished(id, r, {});
+                self->finish(request, r, {});
                 return;
             }
             const QString text = failureText(f == TranslationFailure::None ? TranslationFailure::Failed : f);
@@ -73,7 +79,14 @@ void TranslationService::next(int id, const TranslationRequest& request, size_t 
         });
         return;
     }
-    emit finished(id, {}, why.join(QLatin1Char('\n')));
+    Q_UNUSED(id);
+    finish(request, {}, why.join(QLatin1Char('\n')));
+}
+
+void TranslationService::finish(const TranslationRequest& request, const TranslationResult& r, const QString& why)
+{
+    const QList<int> ids = m_inFlight.take(request.cacheKey());
+    for (int id : ids) emit finished(id, r, why);
 }
 
 }  // namespace core

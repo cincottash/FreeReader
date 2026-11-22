@@ -187,7 +187,7 @@ void TranslationPopup::showLoading(const QString& text, const QString& language,
 
 void TranslationPopup::showAsking(const QString& provider)
 {
-    if (!m_loading) return;
+    if (!m_loading || !isVisible()) return;   // closed meanwhile (page turned, Esc): stays closed
     m_source->setText(tr("Asking %1…").arg(provider));
     m_source->show();
     place();

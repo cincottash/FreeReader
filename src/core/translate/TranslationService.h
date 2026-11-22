@@ -43,6 +43,7 @@ signals:
 
 private:
     void next(int id, const TranslationRequest& request, size_t from, QStringList why);
+    void finish(const TranslationRequest& request, const TranslationResult& r, const QString& why);
 
     Library* m_cache = nullptr;
     std::vector<TranslationProvider*> m_providers;
@@ -50,6 +51,9 @@ private:
     int m_nextId = 1;
     QHash<QString, QString> m_status;
     QHash<QString, QDateTime> m_pausedUntil;
+    // Lookups on their way, by cache key: the same lookup asked again meanwhile (a double double-click) waits
+    // for the first answer instead of using the allowance twice.
+    QHash<QString, QList<int>> m_inFlight;
 };
 
 // The next midnight in Pacific time (when Gemini's daily allowance renews), in UTC.

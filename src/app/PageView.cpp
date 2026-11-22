@@ -92,6 +92,7 @@ void PageView::applyParams()
 
 void PageView::resizeEvent(QResizeEvent*)
 {
+    emit resized();   // pop-ups placed next to text would point at the wrong place
     if (m_geo.columnWidth <= 0 || !m_engine->isOpen()) {
         applyParams();
         return;
@@ -338,6 +339,11 @@ void PageView::mouseDoubleClickEvent(QMouseEvent* e)
 {
     if (e->button() != Qt::LeftButton) return;
     m_pressed = false;
+    // Clicking an arrow quickly twice turns two pages; it never selects a word under the arrow.
+    if (const int side = hoverSide(e->position())) {
+        side < 0 ? previousScreen() : nextScreen();
+        return;
+    }
     if (selectWordAt(e->position()) && !selectedText().trimmed().isEmpty()) emit selectionMade();
 }
 

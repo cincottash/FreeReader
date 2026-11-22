@@ -68,6 +68,7 @@ signals:
     void pageTurnedByUser();
     void selectionMade();                              // a word or passage was selected with the mouse
     void selectionCleared();
+    void resized();
     void selectionMenuRequested(const QPoint& globalPos);   // right-click on text
 
 protected:
