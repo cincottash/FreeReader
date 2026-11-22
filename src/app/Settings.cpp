@@ -1,0 +1,71 @@
+#include "Settings.h"
+
+#include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QSaveFile>
+
+namespace {
+
+// One table drives load and save, so the two never disagree. Unknown keys in the file are ignored and missing
+// keys keep their defaults, so old or newer settings files never stop the app from starting.
+template <typename F>
+void fields(Settings& s, F&& f)
+{
+    f("geometry", s.geometry);
+    f("show_contents", s.showContents);
+    f("text_size_pct", s.textSizePct);
+    f("line_spacing_pct", s.lineSpacingPct);
+    f("columns", s.columns);
+    f("theme", s.theme);
+    f("reading_speed", s.readingSpeed);
+    f("last_folder", s.lastFolder);
+    f("shortcuts", s.shortcuts);
+}
+
+void get(const QJsonObject& o, const char* k, QString& v) { if (o.value(QLatin1String(k)).isString()) v = o.value(QLatin1String(k)).toString(); }
+void get(const QJsonObject& o, const char* k, bool& v) { if (o.value(QLatin1String(k)).isBool()) v = o.value(QLatin1String(k)).toBool(); }
+void get(const QJsonObject& o, const char* k, int& v) { if (o.value(QLatin1String(k)).isDouble()) v = o.value(QLatin1String(k)).toInt(); }
+void get(const QJsonObject& o, const char* k, QByteArray& v)
+{
+    if (o.value(QLatin1String(k)).isString()) v = QByteArray::fromBase64(o.value(QLatin1String(k)).toString().toLatin1());
+}
+void get(const QJsonObject& o, const char* k, QStringList& v)
+{
+    if (!o.value(QLatin1String(k)).isArray()) return;
+    v.clear();
+    for (const QJsonValue& x : o.value(QLatin1String(k)).toArray()) v << x.toString();
+}
+
+void put(QJsonObject& o, const char* k, const QString& v) { o[QLatin1String(k)] = v; }
+void put(QJsonObject& o, const char* k, bool v) { o[QLatin1String(k)] = v; }
+void put(QJsonObject& o, const char* k, int v) { o[QLatin1String(k)] = v; }
+void put(QJsonObject& o, const char* k, const QByteArray& v) { o[QLatin1String(k)] = QString::fromLatin1(v.toBase64()); }
+void put(QJsonObject& o, const char* k, const QStringList& v) { o[QLatin1String(k)] = QJsonArray::fromStringList(v); }
+
+}  // namespace
+
+bool Settings::load(const QString& path)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) return false;
+    const QJsonObject o = QJsonDocument::fromJson(f.readAll()).object();
+    fields(*this, [&](const char* k, auto& v) { get(o, k, v); });
+    // Keep values sane even if the file was edited by hand.
+    textSizePct = qBound(60, textSizePct, 300);
+    lineSpacingPct = qBound(100, lineSpacingPct, 250);
+    readingSpeed = qBound(200, readingSpeed, 6000);
+    if (columns != QLatin1String("one") && columns != QLatin1String("two")) columns = QStringLiteral("auto");
+    return true;
+}
+
+bool Settings::save(const QString& path) const
+{
+    QJsonObject o;
+    fields(const_cast<Settings&>(*this), [&](const char* k, auto& v) { put(o, k, v); });
+    QSaveFile f(path);
+    if (!f.open(QIODevice::WriteOnly)) return false;
+    f.write(QJsonDocument(o).toJson(QJsonDocument::Indented));
+    return f.commit();
+}

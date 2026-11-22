@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=FreeReader
+Comment=Read DRM-free e-books
+Exec=FreeReader %f
+Icon=FreeReader
+Categories=Office;Viewer;Education;
+MimeType=application/epub+zip;
+Terminal=false
