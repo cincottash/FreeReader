@@ -6,8 +6,8 @@ up is saved, ready to practise as flashcards.
 
 ![FreeReader showing Don Quijote with the contents panel open](.github/screenshot.png)
 
-**Status:** early development (phase 3 of 7). The library, reading, themes, text settings, translation, the word
-log and flashcard practice work. Highlights, notes and search come next.
+**Status:** early development (phase 4 of 7). The library, reading, themes, text settings, translation, the word
+log, flashcard practice, highlights, notes, bookmarks and search work. A Linux release and more formats come next.
 
 ## Download
 
@@ -60,6 +60,20 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 - **Word List:** every word with its meaning, book and page. Search, change a meaning, star, **Show in Book**,
   and **Export…** a file Anki can import.
 
+## Highlights, notes and search
+
+![Highlights on the page and the Notebook](.github/readme/notebook.png)
+
+- **Highlight** in pink, orange, yellow or blue from the dots at the top of the right-click menu. Highlights cover
+  whole words; right-click one to change its color, add a note or remove it.
+- **Bookmark This Page** (Ctrl+D, or the bookmark button).
+- **Notebook** (Ctrl+Shift+N): the book's highlights, notes and bookmarks in reading order, filtered by kind or
+  color. Click one to go there; **Export…** saves them as Markdown.
+- **Search This Book** (Ctrl+F): every place a word or phrase appears, with its page. Accents and capitals don't
+  matter unless you ask ("razon" finds "razón").
+
+FreeReader never changes your book files: highlights and notes live in its own database.
+
 ## Reading
 
 - **Turn pages:** arrow keys, Page Up and Page Down, Space, the mouse wheel, or the arrows at the edges of the page.
@@ -107,6 +121,9 @@ Every shortcut can be changed in **Settings** (Ctrl+,).
 | Choose Theme… | Ctrl+Shift+T |
 | Go to Page or Percent… | Ctrl+G |
 | Translate Selection | Ctrl+E |
+| Search This Book… | Ctrl+F |
+| Bookmark This Page | Ctrl+D |
+| Show or Hide Notebook | Ctrl+Shift+N |
 | Practice Words | Ctrl+P |
 | Back | Alt+Left, Backspace |
 | Next Chapter / Previous Chapter | Ctrl+Page Down / Ctrl+Page Up |
@@ -173,7 +190,7 @@ cmake --build build
   Liang's algorithm) and drawn with QPainter. No browser engine is used.
 - `src/core/position`: positions as EPUB CFI, which keep working when the text size or window changes.
 - `src/core/services`: the book engine (opening, layout cache), the library database (SQLite), adding books, the
-  word log and the system key store.
+  word log, highlights and notes, book search and the system key store.
 - `src/core/translate`: translation providers (Gemini, LM Studio, the offline dictionary) and the service that
   tries them in order and caches answers.
 - `src/core/practice`: the FSRS scheduler and typed-answer checking for flashcards.
