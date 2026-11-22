@@ -25,6 +25,17 @@ DictionaryDownload::Source DictionaryDownload::spanishEnglish()
     return s;
 }
 
+DictionaryDownload::Source DictionaryDownload::englishDefinitions()
+{
+    Source s;
+    s.url = QUrl(QStringLiteral("https://github.com/cincottash/FreeReader/releases/download/dictionary-en-1/FreeReader-dictionary-en.zip"));
+    s.sha256 = "366715a7a32a4061914d6a47c91678d188a42c6d62ff662a86e5feb95fd113e3";
+    s.size = 10820423;
+    s.entry = QStringLiteral("en-en.sqlite");
+    s.unpackedSize = 27758592;
+    return s;
+}
+
 DictionaryDownload::DictionaryDownload(QObject* parent) : QObject(parent), m_net(new QNetworkAccessManager(this)) {}
 
 DictionaryDownload::~DictionaryDownload()

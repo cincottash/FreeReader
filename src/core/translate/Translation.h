@@ -62,6 +62,8 @@ public:
     virtual bool isSetUp() const = 0;
     // True when the selected text leaves the computer (skipped in offline-only mode).
     virtual bool sendsTextOnline() const { return false; }
+    // False when this provider can't take the request at all (another language's dictionary): skipped quietly.
+    virtual bool handles(const TranslationRequest&) const { return true; }
     // Calls `done` exactly once, later (never from inside this call).
     virtual void translate(const TranslationRequest& request, Done done) = 0;
 };

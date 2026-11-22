@@ -53,13 +53,17 @@ public:
     void testLmStudio();
     void refreshTranslation();
     void setDictionary(core::OfflineDictionary* dictionary, const QString& installPath);
-    QString installDictionary(const QString& file);   // empty when installed, else why not
-    void removeDictionary();
-    // Download Dictionary: from FreeReader's GitHub releases (tests point it at a local server).
-    void downloadDictionary();
-    void cancelDictionaryDownload();
-    bool isDownloadingDictionary() const;
-    void setDictionarySource(const core::DictionaryDownload::Source& s) { m_dictSource = s; }
+    void setEnglishDictionary(core::OfflineDictionary* dictionary, const QString& installPath);
+    // Installs a dictionary file (Spanish -> English or English definitions, as the file says). Empty when
+    // installed, else why not.
+    QString installDictionary(const QString& file);
+    // `language`: "es" (Spanish -> English) or "en" (English definitions).
+    void removeDictionary(const QString& language = QStringLiteral("es"));
+    // Download: from FreeReader's GitHub releases (tests point it at a local server).
+    void downloadDictionary(const QString& language = QStringLiteral("es"));
+    void cancelDictionaryDownload(const QString& language = QStringLiteral("es"));
+    bool isDownloadingDictionary(const QString& language = QString()) const;   // empty: either
+    void setDictionarySource(const core::DictionaryDownload::Source& s, const QString& language = QStringLiteral("es"));
     QString lastMessage() const;
 
 signals:
@@ -97,16 +101,22 @@ private:
     QComboBox* m_lmModel;
     QLabel* m_lmResult;
     QCheckBox* m_offline;
-    core::OfflineDictionary* m_dict = nullptr;
-    QString m_dictPath;
-    QLabel* m_dictStatus;
+    struct DictRow {
+        QString language;   // "es": Spanish -> English; "en": English definitions
+        core::OfflineDictionary* dict = nullptr;
+        QString path;
+        core::DictionaryDownload::Source source;
+        QLabel* status = nullptr;
+        QPushButton* download = nullptr;
+        QPushButton* add = nullptr;
+        QPushButton* remove = nullptr;
+        class QProgressBar* progress = nullptr;
+        core::DictionaryDownload* downloader = nullptr;
+    };
+    DictRow m_rows[2];
+    DictRow* row(const QString& language);
+    const DictRow* row(const QString& language) const;
+    void installDownloaded(const QString& language, const QString& file, const QString& error);
     QCheckBox* m_useDict;
-    QPushButton* m_removeDict;
-    QPushButton* m_addDict;
-    QPushButton* m_downloadDict;
-    class QProgressBar* m_dictProgress;
-    core::DictionaryDownload* m_downloader = nullptr;
-    core::DictionaryDownload::Source m_dictSource = core::DictionaryDownload::spanishEnglish();
-    void installDownloaded(const QString& file, const QString& error);
     QCheckBox* m_auto;
 };

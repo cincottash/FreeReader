@@ -42,8 +42,8 @@ int TranslationService::translate(const TranslationRequest& request)
         return id;
     }
     m_inFlight.insert(key, {id});
-    if (m_instant && m_instant->isSetUp() && request.isWord()) {
-        const TranslationResult quick = m_instant->lookUp(request.text, request.from);
+    if (request.isWord()) {
+        const TranslationResult quick = offlineMeaning(request.text, request.from);
         if (!quick.translation.isEmpty()) QTimer::singleShot(0, this, [this, id, quick] { emit interim(id, quick); });
     }
     QTimer::singleShot(0, this, [this, id, request] { next(id, request, 0, {}); });
@@ -52,18 +52,30 @@ int TranslationService::translate(const TranslationRequest& request)
 
 TranslationResult TranslationService::offlineMeaning(const QString& text, const QString& from) const
 {
-    if (!m_instant || !m_instant->isSetUp()) return {};
-    return m_instant->lookUp(text, from);
+    TranslationRequest r;
+    r.text = text;
+    r.from = from;
+    for (OfflineDictionary* d : m_instant)
+        if (d && d->isSetUp() && d->handles(r)) {
+            const TranslationResult res = d->lookUp(text, from);
+            if (!res.translation.isEmpty()) return res;
+        }
+    return {};
 }
 
-bool TranslationService::hasOfflineDictionary() const { return m_instant && m_instant->info().ok; }
+bool TranslationService::hasOfflineDictionary(const QString& language) const
+{
+    for (OfflineDictionary* d : m_instant)
+        if (d && d->info().ok && (language.isEmpty() || d->info().language == language)) return true;
+    return false;
+}
 
 void TranslationService::next(int id, const TranslationRequest& request, size_t from, QStringList why)
 {
     for (size_t i = from; i < m_providers.size(); ++i) {
         TranslationProvider* p = m_providers[i];
         if (!p) continue;
-        if (!p->isSetUp()) continue;
+        if (!p->isSetUp() || !p->handles(request)) continue;
         if (m_offlineOnly && p->sendsTextOnline()) continue;
         if (const QDateTime until = pausedUntil(p->name()); until.isValid()) {
             why << QStringLiteral("%1: %2").arg(p->name(), m_status.value(p->name()));

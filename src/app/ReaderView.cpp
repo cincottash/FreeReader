@@ -795,7 +795,8 @@ void ReaderView::onTranslated(int id, const core::TranslationResult& r, const QS
                               : why.isEmpty() ? tr("No translation engine is set up yet.") : why;
         if (bookIsOffline()) text += QLatin1Char('\n') + tr("This book is kept offline, so Gemini isn't asked.");
         // Nothing answered, and the free offline dictionary would have for a word: say where to get it.
-        if (!allOff && m_translator && !m_translator->hasOfflineDictionary() && languageCode() == QLatin1String("es"))
+        if (!allOff && m_translator && !m_translator->hasOfflineDictionary(languageCode()) &&
+            (languageCode() == QLatin1String("es") || languageCode() == QLatin1String("en")))
             text += QLatin1Char('\n') + tr("Tip: the offline dictionary answers words without the internet. Download it in "
                                            "Settings > Translation > Translation Settings….");
         m_translate->showNothing(text);

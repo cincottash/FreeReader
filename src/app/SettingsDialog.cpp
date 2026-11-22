@@ -199,53 +199,65 @@ QWidget* SettingsDialog::buildTranslationTab()
     m_lmResult->setProperty("testId", "lmResult");
     lay->addWidget(m_lmResult);
 
-    lay->addWidget(sectionTitle(tr("OFFLINE DICTIONARY")));
-    lay->addWidget(muted(tr("Answers single words at once, before Gemini's answer arrives, and on its own when nothing else can. "
-                            "It finds verb forms and plurals (“tenía” → “tener”).")));
-    m_useDict = new QCheckBox(tr("Use the Offline Dictionary"));
+    lay->addWidget(sectionTitle(tr("OFFLINE DICTIONARIES")));
+    lay->addWidget(muted(tr("Answers single words at once, before Gemini's answer arrives, and on its own when nothing else can, "
+                            "with no internet. Spanish → English finds verb forms and plurals (“tenía” → “tener”); English "
+                            "definitions are for English books. Each is an optional download.")));
+    m_useDict = new QCheckBox(tr("Use the Offline Dictionaries"));
     m_useDict->setProperty("testId", "useDictionary");
     lay->addWidget(m_useDict);
-    auto* dictRow = new QHBoxLayout;
-    m_dictStatus = new QLabel;
-    m_dictStatus->setWordWrap(true);
-    m_dictStatus->setProperty("testId", "dictionaryStatus");
-    dictRow->addWidget(m_dictStatus, 1);
-    m_downloadDict = new QPushButton;
-    m_downloadDict->setProperty("testId", "downloadDictionary");
-    m_downloadDict->setObjectName(QStringLiteral("Suggested"));
-    m_downloadDict->setToolTip(tr("Downloads the Spanish → English dictionary made from Wiktionary (CC BY-SA 4.0) from "
-                                  "FreeReader's page on GitHub, once. Nothing else is sent."));
-    auto* addDict = new QPushButton(tr("Add Dictionary File…"));
-    addDict->setProperty("testId", "addDictionary");
-    m_addDict = addDict;
-    m_removeDict = new QPushButton(tr("Remove"));
-    m_removeDict->setProperty("testId", "removeDictionary");
-    dictRow->addWidget(m_downloadDict);
-    dictRow->addWidget(addDict);
-    dictRow->addWidget(m_removeDict);
-    lay->addLayout(dictRow);
-    m_dictProgress = new QProgressBar;
-    m_dictProgress->setProperty("testId", "dictionaryProgress");
-    m_dictProgress->setTextVisible(true);
-    m_dictProgress->hide();
-    lay->addWidget(m_dictProgress);
-    connect(m_downloadDict, &QPushButton::clicked, this, [this] {
-        if (isDownloadingDictionary()) cancelDictionaryDownload();
-        else downloadDictionary();
-    });
     connect(m_useDict, &QCheckBox::toggled, this, [this](bool on) {
         m_settings.useDictionary = on;
         emit translationChanged();
     });
-    connect(addDict, &QPushButton::clicked, this, [this] {
-        if (!m_interactive) return;
-        const QString f = QFileDialog::getOpenFileName(this, tr("Add Dictionary File"), QString(), tr("FreeReader dictionaries (*.sqlite)"));
-        if (f.isEmpty()) return;
-        const QString err = installDictionary(f);
-        m_message->setText(err.isEmpty() ? tr("The dictionary is installed.") : err);
-        m_message->show();
-    });
-    connect(m_removeDict, &QPushButton::clicked, this, &SettingsDialog::removeDictionary);
+    m_rows[0].language = QStringLiteral("es");
+    m_rows[0].source = core::DictionaryDownload::spanishEnglish();
+    m_rows[1].language = QStringLiteral("en");
+    m_rows[1].source = core::DictionaryDownload::englishDefinitions();
+    for (DictRow& d : m_rows) {
+        const QByteArray suffix = d.language == QLatin1String("es") ? QByteArray() : QByteArray("-en");
+        auto* rowLay = new QHBoxLayout;
+        d.status = new QLabel;
+        d.status->setWordWrap(true);
+        d.status->setProperty("testId", ("dictionaryStatus" + suffix).constData());
+        rowLay->addWidget(d.status, 1);
+        d.download = new QPushButton;
+        d.download->setProperty("testId", ("downloadDictionary" + suffix).constData());
+        d.download->setObjectName(QStringLiteral("Suggested"));
+        d.download->setToolTip(d.language == QLatin1String("es")
+                                   ? tr("Downloads the Spanish → English dictionary made from Wiktionary (CC BY-SA 4.0) from "
+                                        "FreeReader's page on GitHub, once. Nothing else is sent.")
+                                   : tr("Downloads the English dictionary made from Open English WordNet (CC BY 4.0) from "
+                                        "FreeReader's page on GitHub, once. Nothing else is sent."));
+        d.add = new QPushButton(tr("Add File…"));
+        d.add->setToolTip(tr("Install a FreeReader dictionary file (.sqlite) from this computer."));
+        d.add->setProperty("testId", ("addDictionary" + suffix).constData());
+        d.remove = new QPushButton(tr("Remove"));
+        d.remove->setProperty("testId", ("removeDictionary" + suffix).constData());
+        rowLay->addWidget(d.download);
+        rowLay->addWidget(d.add);
+        rowLay->addWidget(d.remove);
+        lay->addLayout(rowLay);
+        d.progress = new QProgressBar;
+        d.progress->setProperty("testId", ("dictionaryProgress" + suffix).constData());
+        d.progress->setTextVisible(true);
+        d.progress->hide();
+        lay->addWidget(d.progress);
+        const QString language = d.language;
+        connect(d.download, &QPushButton::clicked, this, [this, language] {
+            if (isDownloadingDictionary(language)) cancelDictionaryDownload(language);
+            else downloadDictionary(language);
+        });
+        connect(d.add, &QPushButton::clicked, this, [this] {
+            if (!m_interactive) return;
+            const QString f = QFileDialog::getOpenFileName(this, tr("Add Dictionary File"), QString(), tr("FreeReader dictionaries (*.sqlite)"));
+            if (f.isEmpty()) return;
+            const QString err = installDictionary(f);
+            m_message->setText(err.isEmpty() ? tr("The dictionary is installed.") : err);
+            m_message->show();
+        });
+        connect(d.remove, &QPushButton::clicked, this, [this, language] { removeDictionary(language); });
+    }
 
     lay->addWidget(sectionTitle(tr("WHILE READING")));
     m_auto = new QCheckBox(tr("Translate When Text Is Selected"));
@@ -315,21 +327,23 @@ void SettingsDialog::refreshTranslation()
         const QSignalBlocker b6(m_useDict);
         m_useDict->setChecked(m_settings.useDictionary);
     }
-    if (m_dict && m_dict->info().ok) {
-        const core::DictionaryInfo& i = m_dict->info();
-        m_dictStatus->setText(tr("%1 → English: %2 words. %3 (%4).")
-                                  .arg(QLocale::languageToString(QLocale(i.language).language()), QLocale().toString(i.entries), i.source, i.license));
-    } else {
-        m_dictStatus->setText(tr("Not installed."));
+    for (DictRow& d : m_rows) {
+        const QString title = d.language == QLatin1String("es") ? tr("Spanish → English") : tr("English definitions");
+        const bool installed = d.dict && d.dict->info().ok;
+        if (installed) {
+            const core::DictionaryInfo& i = d.dict->info();
+            d.status->setText(tr("%1: %2 words. %3 (%4).").arg(title, QLocale().toString(i.entries), i.source, i.license));
+        } else {
+            d.status->setText(tr("%1: not installed.").arg(title));
+        }
+        const bool downloading = isDownloadingDictionary(d.language);
+        d.remove->setEnabled(installed && !downloading);
+        // Download is offered while it isn't installed (and becomes Cancel while it runs).
+        d.download->setVisible(d.dict && (downloading || !installed));
+        d.download->setText(downloading ? tr("Cancel Download") : tr("Download (%1 MB)").arg((d.source.size + 500000) / 1000000));
+        d.add->setEnabled(d.dict && !downloading);
+        d.progress->setVisible(downloading);
     }
-    m_removeDict->setEnabled(m_dict && m_dict->info().ok && !isDownloadingDictionary());
-    // Download is offered while no dictionary is installed (and becomes Cancel while it runs).
-    const bool downloading = isDownloadingDictionary();
-    m_downloadDict->setVisible(downloading || !(m_dict && m_dict->info().ok));
-    m_downloadDict->setText(downloading ? tr("Cancel Download")
-                                        : tr("Download Dictionary (%1 MB)").arg((m_dictSource.size + 500000) / 1000000));
-    m_addDict->setEnabled(!downloading);
-    m_dictProgress->setVisible(downloading);
     const bool has = m_gemini && m_gemini->hasKey();
     m_keyStatus->setText(has ? tr("A key is saved in %1.").arg(storeName()) : tr("No key yet."));
     m_removeKey->setEnabled(has);
@@ -349,69 +363,109 @@ QString SettingsDialog::saveGeminiKey(const QString& key)
     return ok ? QString() : err;
 }
 
+SettingsDialog::DictRow* SettingsDialog::row(const QString& language)
+{
+    for (DictRow& d : m_rows)
+        if (d.language == language) return &d;
+    return nullptr;
+}
+
+const SettingsDialog::DictRow* SettingsDialog::row(const QString& language) const
+{
+    for (const DictRow& d : m_rows)
+        if (d.language == language) return &d;
+    return nullptr;
+}
+
 void SettingsDialog::setDictionary(core::OfflineDictionary* dictionary, const QString& installPath)
 {
-    m_dict = dictionary;
-    m_dictPath = installPath;
+    m_rows[0].dict = dictionary;
+    m_rows[0].path = installPath;
+    refreshTranslation();
+}
+
+void SettingsDialog::setEnglishDictionary(core::OfflineDictionary* dictionary, const QString& installPath)
+{
+    m_rows[1].dict = dictionary;
+    m_rows[1].path = installPath;
+    refreshTranslation();
+}
+
+void SettingsDialog::setDictionarySource(const core::DictionaryDownload::Source& s, const QString& language)
+{
+    if (DictRow* d = row(language)) d->source = s;
     refreshTranslation();
 }
 
 QString SettingsDialog::installDictionary(const QString& file)
 {
-    if (!m_dict) return tr("No dictionary support.");
     const core::DictionaryInfo info = core::OfflineDictionary::inspect(file);
     if (!info.ok) return tr("That file can't be used: %1").arg(info.error);
-    if (info.language != QLatin1String("es")) return tr("That dictionary is for another language (%1).").arg(info.language);
-    if (QFileInfo(file).absoluteFilePath() == QFileInfo(m_dictPath).absoluteFilePath()) return {};
-    QDir().mkpath(QFileInfo(m_dictPath).absolutePath());
+    // The file says which dictionary it is: Spanish -> English, or English definitions.
+    DictRow* d = row(info.language);
+    if (!d || (d->language == QLatin1String("en") && info.target != QLatin1String("en")) ||
+        (d->language == QLatin1String("es") && info.target != QLatin1String("en")))
+        return tr("That dictionary is for another language (%1).").arg(info.language + (info.target.isEmpty() ? QString() : QStringLiteral(" → ") + info.target));
+    if (!d->dict) return tr("No dictionary support.");
+    if (QFileInfo(file).absoluteFilePath() == QFileInfo(d->path).absoluteFilePath()) return {};
+    QDir().mkpath(QFileInfo(d->path).absolutePath());
     // The app's own copy is replaced; the chosen file is never touched.
-    m_dict->close();
-    const QString temp = m_dictPath + QStringLiteral(".new");
+    d->dict->close();
+    const QString temp = d->path + QStringLiteral(".new");
     QFile::remove(temp);
     if (!QFile::copy(file, temp)) {
-        m_dict->open(m_dictPath);
+        d->dict->open(d->path);
         return tr("The file couldn't be copied into the app data folder.");
     }
-    QFile::remove(m_dictPath);
-    QFile::rename(temp, m_dictPath);
-    m_dict->open(m_dictPath);
+    QFile::remove(d->path);
+    QFile::rename(temp, d->path);
+    d->dict->open(d->path);
     refreshTranslation();
     emit translationChanged();
-    return m_dict->info().ok ? QString() : tr("The copy can't be opened: %1").arg(m_dict->info().error);
+    return d->dict->info().ok ? QString() : tr("The copy can't be opened: %1").arg(d->dict->info().error);
 }
 
-bool SettingsDialog::isDownloadingDictionary() const { return m_downloader && m_downloader->isRunning(); }
+bool SettingsDialog::isDownloadingDictionary(const QString& language) const
+{
+    for (const DictRow& d : m_rows)
+        if ((language.isEmpty() || d.language == language) && d.downloader && d.downloader->isRunning()) return true;
+    return false;
+}
 
 QString SettingsDialog::lastMessage() const { return m_message->isVisible() || !m_message->text().isEmpty() ? m_message->text() : QString(); }
 
-void SettingsDialog::downloadDictionary()
+void SettingsDialog::downloadDictionary(const QString& language)
 {
-    if (!m_dict || isDownloadingDictionary()) return;
-    if (!m_downloader) {
-        m_downloader = new core::DictionaryDownload(this);
-        connect(m_downloader, &core::DictionaryDownload::progress, this, [this](qint64 got, qint64 total) {
-            m_dictProgress->setRange(0, 1000);
-            m_dictProgress->setValue(total > 0 ? int(qMin<qint64>(1000, got * 1000 / total)) : 0);
-            m_dictProgress->setFormat(tr("%1 of %2 MB").arg(QLocale().toString(double(got) / 1e6, 'f', 1),
-                                                            QLocale().toString(double(total) / 1e6, 'f', 1)));
+    DictRow* d = row(language);
+    if (!d || !d->dict || isDownloadingDictionary(language)) return;
+    if (!d->downloader) {
+        d->downloader = new core::DictionaryDownload(this);
+        QProgressBar* bar = d->progress;
+        connect(d->downloader, &core::DictionaryDownload::progress, this, [bar](qint64 got, qint64 total) {
+            bar->setRange(0, 1000);
+            bar->setValue(total > 0 ? int(qMin<qint64>(1000, got * 1000 / total)) : 0);
+            bar->setFormat(tr("%1 of %2 MB").arg(QLocale().toString(double(got) / 1e6, 'f', 1), QLocale().toString(double(total) / 1e6, 'f', 1)));
         });
-        connect(m_downloader, &core::DictionaryDownload::finished, this, &SettingsDialog::installDownloaded);
+        connect(d->downloader, &core::DictionaryDownload::finished, this,
+                [this, language](const QString& file, const QString& error) { installDownloaded(language, file, error); });
     }
-    m_dictProgress->setRange(0, 0);   // busy until the first bytes arrive
-    m_dictProgress->setFormat(tr("Connecting…"));
+    d->progress->setRange(0, 0);   // busy until the first bytes arrive
+    d->progress->setFormat(tr("Connecting…"));
     m_message->setText(tr("Downloading the dictionary…"));
     m_message->show();
-    m_downloader->start(m_dictSource, m_dictPath + QStringLiteral(".download"));
+    d->downloader->start(d->source, d->path + QStringLiteral(".download"));
     refreshTranslation();
 }
 
-void SettingsDialog::cancelDictionaryDownload()
+void SettingsDialog::cancelDictionaryDownload(const QString& language)
 {
-    if (m_downloader) m_downloader->cancel();
+    if (DictRow* d = row(language); d && d->downloader) d->downloader->cancel();
 }
 
-void SettingsDialog::installDownloaded(const QString& file, const QString& error)
+void SettingsDialog::installDownloaded(const QString& language, const QString& file, const QString& error)
 {
+    DictRow* d = row(language);
+    if (!d) return;
     if (!error.isEmpty()) {
         QFile::remove(file);
         m_message->setText(error);
@@ -420,7 +474,7 @@ void SettingsDialog::installDownloaded(const QString& file, const QString& error
         return;
     }
     const core::DictionaryInfo info = core::OfflineDictionary::inspect(file);
-    if (!info.ok || info.language != QLatin1String("es")) {
+    if (!info.ok || info.language != language) {
         QFile::remove(file);
         m_message->setText(tr("The downloaded dictionary can't be used: %1").arg(info.ok ? info.language : info.error));
         m_message->show();
@@ -428,26 +482,27 @@ void SettingsDialog::installDownloaded(const QString& file, const QString& error
         return;
     }
     // Into place (a dictionary added meanwhile is replaced).
-    m_dict->close();
-    QFile::remove(m_dictPath);
-    if (!QFile::rename(file, m_dictPath)) {
+    d->dict->close();
+    QFile::remove(d->path);
+    if (!QFile::rename(file, d->path)) {
         QFile::remove(file);
         m_message->setText(tr("The dictionary couldn't be put in the app data folder."));
     } else {
-        m_dict->open(m_dictPath);
-        m_message->setText(m_dict->info().ok ? tr("The dictionary is installed: %1 words.").arg(QLocale().toString(m_dict->info().entries))
-                                             : tr("The dictionary can't be opened: %1").arg(m_dict->info().error));
+        d->dict->open(d->path);
+        m_message->setText(d->dict->info().ok ? tr("The dictionary is installed: %1 words.").arg(QLocale().toString(d->dict->info().entries))
+                                              : tr("The dictionary can't be opened: %1").arg(d->dict->info().error));
     }
     m_message->show();
     refreshTranslation();
     emit translationChanged();
 }
 
-void SettingsDialog::removeDictionary()
+void SettingsDialog::removeDictionary(const QString& language)
 {
-    if (!m_dict) return;
-    m_dict->close();
-    QFile::remove(m_dictPath);   // the app's own copy in its data folder
+    DictRow* d = row(language);
+    if (!d || !d->dict) return;
+    d->dict->close();
+    QFile::remove(d->path);   // the app's own copy in its data folder
     refreshTranslation();
     emit translationChanged();
 }

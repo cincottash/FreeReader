@@ -28,6 +28,8 @@ public:
     };
     // The Spanish -> English dictionary (release "dictionary-es-en-1", built 2026-11-22 from kaikki.org data).
     static Source spanishEnglish();
+    // English definitions for English books (release "dictionary-en-1", from Open English WordNet 2025 plus).
+    static Source englishDefinitions();
 
     explicit DictionaryDownload(QObject* parent = nullptr);
     ~DictionaryDownload() override;

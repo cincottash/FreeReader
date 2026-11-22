@@ -103,6 +103,7 @@ public:
     core::GeminiProvider* gemini() const { return m_gemini; }
     core::LmStudioProvider* lmStudio() const { return m_lmStudio; }
     core::OfflineDictionary* dictionary() const { return m_dictionary; }
+    core::OfflineDictionary* englishDictionary() const { return m_dictionaryEn; }
     static QString dictionaryFile(const QString& language);   // <data folder>/dictionaries/<language>-en.sqlite
     SettingsDialog* settingsDialog() const;
 
@@ -133,6 +134,7 @@ private:
     core::LmStudioProvider* m_lmStudio;
     core::TranslationService* m_translator;
     core::OfflineDictionary* m_dictionary;
+    core::OfflineDictionary* m_dictionaryEn;
     std::vector<std::unique_ptr<Command>> m_commands;
     QString m_openingPath;
     QString m_lastError;
