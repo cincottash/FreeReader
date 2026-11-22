@@ -13,6 +13,8 @@
 #include <QList>
 #include <QLocale>
 
+#include <functional>
+#include <memory>
 #include <optional>
 #include <QElapsedTimer>
 #include <QTimer>
@@ -43,12 +45,14 @@ class Annotations;
 struct SearchHit;
 struct TranslationResult;
 struct WordPlace;
+class ReadingLog;
 }
 
 class ReaderView : public QWidget {
     Q_OBJECT
 public:
     ReaderView(core::BookEngine* engine, core::Library* library, Settings& settings, QWidget* parent = nullptr);
+    ~ReaderView() override;
 
     void showBook(int bookId, const core::Position& start);
     void closeBook();            // saves the position
@@ -153,6 +157,17 @@ public:
     // Why the word can't be read aloud in `language` (no voice for it, no speech engine), empty when it can.
     QString speechProblem(const QString& language, bool* canOpenSettings = nullptr);
     void setSpeechLocalesForTests(const QList<QLocale>& locales) { m_speechLocalesForTests = locales; }
+    // Reading statistics: the clock (milliseconds) reading time is measured with (tests use their own).
+    void setReadingClockForTests(std::function<qint64()> clock) { m_readingClock = std::move(clock); }
+    void flushReading();   // writes the reading time and pages counted so far
+
+private:
+    qint64 readingNow() const;
+    void creditReading(bool forwardTurn, int chars);
+    std::function<qint64()> m_readingClock;
+    std::unique_ptr<core::ReadingLog> m_readingLog;
+    qint64 m_readingMark = 0, m_pendingReadMs = 0, m_pendingChars = 0;
+    int m_pendingPages = 0;
 
 private:
     std::optional<QList<QLocale>> m_speechLocalesForTests;

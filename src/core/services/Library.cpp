@@ -15,7 +15,7 @@ namespace core {
 
 namespace {
 
-constexpr int kSchemaVersion = 6;
+constexpr int kSchemaVersion = 7;
 
 QString nowIso() { return QDateTime::currentDateTimeUtc().toString(Qt::ISODate); }
 
@@ -148,6 +148,14 @@ bool Library::open(const QString& databaseFile, QString* error)
                  " page_label TEXT NOT NULL DEFAULT '', chapter TEXT NOT NULL DEFAULT '', created TEXT NOT NULL, modified TEXT NOT NULL)"))
             return false;
         if (!run("CREATE INDEX IF NOT EXISTS annotations_book ON annotations(book_id, spine, sel_start)")) return false;
+    }
+    if (version < 7) {
+        // Reading time for the statistics: per book and local day, seconds read (gaps capped), pages turned forward
+        // and characters read.
+        if (!run("CREATE TABLE IF NOT EXISTS reading_log (book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,"
+                 " day TEXT NOT NULL, seconds INTEGER NOT NULL DEFAULT 0, pages INTEGER NOT NULL DEFAULT 0, chars INTEGER NOT NULL DEFAULT 0,"
+                 " PRIMARY KEY (book_id, day))"))
+            return false;
     }
     if (version < kSchemaVersion) q.exec(QStringLiteral("PRAGMA user_version=%1").arg(kSchemaVersion));
     m_open = true;

@@ -6,6 +6,7 @@
 #include "LibraryView.h"
 #include "PracticeView.h"
 #include "LibrarySearchView.h"
+#include "StatisticsView.h"
 
 #include <QLineEdit>
 #include "SettingsDialog.h"
@@ -77,6 +78,8 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     m_stack->addWidget(m_reader);
     m_librarySearch = new LibrarySearchView(m_library);
     m_stack->addWidget(m_librarySearch);
+    m_statistics = new StatisticsView(m_library);
+    m_stack->addWidget(m_statistics);
     m_stack->setCurrentWidget(m_start);   // the library first, whatever order the screens were added in
     setCentralWidget(m_stack);
     m_palette = new CommandPalette(m_stack);
@@ -119,6 +122,16 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
         m_stack->setCurrentWidget(to);
         if (to == m_start) m_start->refresh();
         else m_reader->pages()->setFocus();
+    });
+    connect(m_statistics, &StatisticsView::backRequested, this, [this] {
+        QWidget* to = m_beforeStatistics == m_reader && m_engine->isOpen() ? static_cast<QWidget*>(m_reader) : static_cast<QWidget*>(m_start);
+        m_stack->setCurrentWidget(to);
+        if (to == m_start) m_start->refresh();
+        else m_reader->pages()->setFocus();
+    });
+    connect(m_statistics, &StatisticsView::openBookRequested, this, [this](int bookId) {
+        const core::LibraryBook b = m_library ? m_library->book(bookId) : core::LibraryBook();
+        if (b.id && QFileInfo::exists(b.path)) openBook(b.path);
     });
     connect(m_librarySearch, &LibrarySearchView::openRequested, this, [this](int bookId, const QString& path, int spine, int start, int end) {
         m_pendingJump = {QString(), spine, start, end};
@@ -280,6 +293,8 @@ void MainWindow::buildCommands()
                tr("The book's highlights, notes and bookmarks."));
     addCommand(QStringLiteral("practice"), tr("Practice Words"), QKeySequence(Qt::CTRL | Qt::Key_P), [this] { showPractice(); }, nullptr,
                tr("Flashcards of the words you looked up."));
+    addCommand(QStringLiteral("statistics"), tr("Statistics"), QKeySequence(), [this] { showStatistics(); }, nullptr,
+               tr("Time read, days in a row, books finished, words and reviews."));
     addCommand(QStringLiteral("word-list"), tr("Word List"), QKeySequence(), [this] { showPractice(true); }, nullptr,
                tr("Every word you looked up, with its meaning."));
     addCommand(QStringLiteral("translation-settings"), tr("Translation Settings…"), QKeySequence(),
@@ -368,6 +383,7 @@ void MainWindow::buildMenus()
     add(go, "bookmark");
     go->addSeparator();
     add(go, "practice");
+    add(go, "statistics");
     add(go, "word-list");
     watch(go);
 
@@ -551,6 +567,7 @@ bool MainWindow::isSettled() const
 {
     if (!m_openingPath.isEmpty() || m_start->isImporting()) return false;
     return m_stack->currentWidget() == m_start || m_stack->currentWidget() == m_practice || m_stack->currentWidget() == m_librarySearch ||
+           m_stack->currentWidget() == m_statistics ||
            m_reader->isSettled();
 }
 
@@ -723,6 +740,7 @@ void MainWindow::showTheme(const Theme& t, bool preview)
     m_start->setTheme(t);
     m_practice->setTheme(t);
     m_librarySearch->setTheme(t);
+    m_statistics->setTheme(t);
     m_imageViewer->setTheme(t);
 }
 
@@ -731,6 +749,16 @@ void MainWindow::showPractice(bool wordList)
     if (m_stack->currentWidget() != m_practice) m_beforePractice = m_stack->currentWidget();
     m_stack->setCurrentWidget(m_practice);
     wordList ? m_practice->showList() : m_practice->showStart();
+}
+
+void MainWindow::showStatistics()
+{
+    if (m_stack->currentWidget() != m_statistics) m_beforeStatistics = m_stack->currentWidget();
+    // The reading time so far counts too.
+    if (isReading()) m_reader->flushReading();
+    m_statistics->refresh();
+    m_stack->setCurrentWidget(m_statistics);
+    m_statistics->setFocus();
 }
 
 void MainWindow::showLibrarySearch(const QString& query)

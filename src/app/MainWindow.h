@@ -25,6 +25,7 @@ class ReaderView;
 class LibraryView;
 class PracticeView;
 class LibrarySearchView;
+class StatisticsView;
 
 namespace core {
 class BookEngine;
@@ -53,6 +54,8 @@ public:
     LibraryView* library() const { return m_start; }
     PracticeView* practice() const { return m_practice; }
     LibrarySearchView* librarySearch() const { return m_librarySearch; }
+    StatisticsView* statistics() const { return m_statistics; }
+    void showStatistics();
     void showLibrarySearch(const QString& query = QString());
     core::WordLog* wordLog() const { return m_words.get(); }
     core::Annotations* annotations() const { return m_annotations.get(); }
@@ -126,6 +129,8 @@ private:
     QWidget* m_beforePractice = nullptr;
     LibrarySearchView* m_librarySearch = nullptr;
     QWidget* m_beforeLibrarySearch = nullptr;
+    StatisticsView* m_statistics = nullptr;
+    QWidget* m_beforeStatistics = nullptr;
     // Show in Book from the word list: where to go once the book is open.
     struct PendingJump { QString cfi; int spine = -1, start = 0, end = 0; } m_pendingJump;
     CommandPalette* m_palette;

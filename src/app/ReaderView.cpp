@@ -15,6 +15,7 @@
 #include "core/translate/TranslationService.h"
 #include "core/services/BookIndex.h"
 #include "core/services/WordLog.h"
+#include "core/services/Statistics.h"
 #include "core/services/Annotations.h"
 
 #include <QDialog>
@@ -436,7 +437,16 @@ void ReaderView::changeAppearance(const QString& key, const QJsonValue& value)
 
 void ReaderView::showBook(int bookId, const core::Position& start)
 {
+    if (m_bookId && m_bookId != bookId) {
+        creditReading(false, 0);
+        flushReading();
+    }
     m_bookId = bookId;
+    // Reading time starts now (counted at each page turn, in gaps of at most 5 minutes).
+    m_readingMark = readingNow();
+    m_pendingReadMs = 0;
+    m_pendingPages = 0;
+    m_pendingChars = 0;
     m_history.clear();
     m_backChip->hide();
     m_note->hide();
@@ -459,7 +469,11 @@ void ReaderView::showBook(int bookId, const core::Position& start)
 
 void ReaderView::closeBook()
 {
-    if (m_bookId) savePosition();
+    if (m_bookId) {
+        creditReading(false, 0);
+        savePosition();   // writes the reading time too
+    }
+    m_readingMark = 0;
     m_saveTimer.stop();
     m_bookId = 0;
     m_note->hide();
@@ -564,6 +578,8 @@ void ReaderView::onPositionChanged(const core::Position& p, bool byTurn)
             m_settings.readingSpeed = qBound(200, int(0.85 * m_settings.readingSpeed + 0.15 * cpm), 6000);
         }
     }
+    // Reading statistics: the time on the page just left, and a page read when it was a forward turn.
+    creditReading(byTurn && m_lastShown < p, m_lastScreenChars);
     m_sinceTurn.restart();
     m_lastShown = p;
     const core::Position end = m_pages->screenEnd();
@@ -573,8 +589,37 @@ void ReaderView::onPositionChanged(const core::Position& p, bool byTurn)
     refreshAnnotations();
 }
 
+ReaderView::~ReaderView() = default;
+
+qint64 ReaderView::readingNow() const { return m_readingClock ? m_readingClock() : QDateTime::currentMSecsSinceEpoch(); }
+
+void ReaderView::creditReading(bool forwardTurn, int chars)
+{
+    if (!m_bookId) return;
+    const qint64 now = readingNow();
+    // The time since the last turn, while the book was on screen; a long pause (the reader away) counts 5 minutes.
+    if (m_readingMark > 0 && now > m_readingMark && isVisible()) m_pendingReadMs += qMin<qint64>(now - m_readingMark, 5 * 60 * 1000);
+    m_readingMark = now;
+    if (forwardTurn) {
+        ++m_pendingPages;
+        m_pendingChars += qMax(0, chars);
+    }
+}
+
+void ReaderView::flushReading()
+{
+    if (!m_bookId || !m_library || (m_pendingReadMs < 1000 && m_pendingPages == 0)) return;
+    if (!m_readingLog) m_readingLog = std::make_unique<core::ReadingLog>(m_library);
+    const int seconds = int(m_pendingReadMs / 1000);
+    m_readingLog->add(m_bookId, QDate::currentDate(), seconds, m_pendingPages, m_pendingChars);
+    m_pendingReadMs -= qint64(seconds) * 1000;
+    m_pendingPages = 0;
+    m_pendingChars = 0;
+}
+
 void ReaderView::savePosition()
 {
+    flushReading();
     if (!m_bookId || !m_library) return;
     core::SavedPosition s;
     s.position = m_pages->position();
