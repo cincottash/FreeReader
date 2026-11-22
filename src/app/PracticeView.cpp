@@ -390,7 +390,8 @@ QWidget* PracticeView::buildCard()
     back->setContentsMargins(0, 8, 0, 0);
     back->setSpacing(6);
     auto* rule = new QFrame;
-    rule->setFrameShape(QFrame::HLine);
+    rule->setObjectName(QStringLiteral("Rule"));
+    rule->setFixedHeight(1);
     back->addWidget(rule);
     m_backMain = wrapLabel("cardBack");
     m_backMain->setAlignment(Qt::AlignCenter);
@@ -440,6 +441,7 @@ QWidget* PracticeView::buildCard()
     bottom->addWidget(end);
     bottom->addStretch(1);
     auto* keys = wrapLabel("cardKeys", "Muted");
+    keys->setWordWrap(false);
     keys->setText(tr("Space shows the answer · 1 to 4 rate it · Esc ends"));
     bottom->addWidget(keys);
     outer->addLayout(bottom);
@@ -588,9 +590,14 @@ void PracticeView::revealAnswer()
     m_backDetail->setVisible(!detail.isEmpty());
     QString sentence;
     if (!m_word.sentence.isEmpty() && !m_word.passage) {
-        sentence = withBold(m_word.sentence, m_word.text);
-        if (!m_word.sentenceTranslation.isEmpty())
-            sentence += QStringLiteral("<br><span style='color:%1'>%2</span>").arg(m_theme.muted.name(), m_word.sentenceTranslation.toHtmlEscaped());
+        // What the front already showed isn't repeated.
+        const bool frontHasSpanish = !m_frontSentence->isHidden() && d == QLatin1String("recognize");
+        const bool frontHasEnglish = !m_frontSentence->isHidden() && d == QLatin1String("recall");
+        if (!frontHasSpanish && d != QLatin1String("cloze")) sentence = withBold(m_word.sentence, m_word.text);
+        if (d == QLatin1String("cloze")) sentence = withBold(m_word.sentence, m_word.text);
+        if (!m_word.sentenceTranslation.isEmpty() && !frontHasEnglish)
+            sentence += (sentence.isEmpty() ? QString() : QStringLiteral("<br>")) +
+                        QStringLiteral("<span style='color:%1'>%2</span>").arg(m_theme.muted.name(), m_word.sentenceTranslation.toHtmlEscaped());
     }
     m_backSentence->setText(sentence);
     m_backSentence->setVisible(!sentence.isEmpty());
@@ -614,7 +621,7 @@ void PracticeView::updateRateButtons()
         const QDateTime due = m_scheduler.preview(m_card.memory, Rating(i + 1), t);
         m_rateWhen[i]->setText(core::practice::Scheduler::describeInterval(t, due));
         const bool suggested = Rating(i + 1) == m_suggested;
-        m_rate[i]->setObjectName(suggested ? QStringLiteral("Primary") : QString());
+        m_rate[i]->setObjectName(suggested ? QStringLiteral("Suggested") : QString());
         m_rate[i]->style()->polish(m_rate[i]);
     }
 }

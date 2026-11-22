@@ -128,7 +128,7 @@ endif()
 
 # The icon and the bundled fonts (SIL Open Font License; the license texts sit next to the fonts).
 file(GLOB FONT_FILES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/resources/fonts/*.ttf)
-qt_add_resources(freereader_ui resources PREFIX "/" BASE resources FILES resources/icon.svg ${FONT_FILES})
+qt_add_resources(freereader_ui resources PREFIX "/" BASE resources FILES resources/icon.svg resources/check-light.svg resources/check-dark.svg ${FONT_FILES})
 
 if(WIN32)
     target_compile_definitions(app PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
