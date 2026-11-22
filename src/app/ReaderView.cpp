@@ -504,6 +504,12 @@ void ReaderView::jumpTo(const core::Position& p)
     placeBackChip();
 }
 
+void ReaderView::forgetHistory()
+{
+    m_history.clear();
+    placeBackChip();
+}
+
 void ReaderView::goBack()
 {
     if (m_history.empty()) return;

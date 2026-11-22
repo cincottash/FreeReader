@@ -67,6 +67,7 @@ public:
     void jumpTo(const core::Position& p);   // remembers where it came from (Back)
     bool canGoBack() const { return !m_history.empty(); }
     void goBack();
+    void forgetHistory();   // no Back (the screenshot mode's own jumps aren't the reader's)
     void nextChapter();
     void previousChapter();
     QString goToPageOrPercent(const QString& text);   // empty on success, else a message for the user

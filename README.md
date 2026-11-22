@@ -1,13 +1,13 @@
 # FreeReader
 
-An e-book reader for DRM-free EPUB books, for Windows (tested) and Linux (experimental). It is being built to
-make reading in another language easy: translations of selected words and passages are coming in a later
-version.
+An e-book reader for DRM-free EPUB books, for Windows (tested) and Linux (experimental), built to make reading in
+another language easy: select a word or a passage and its English meaning appears next to it. Every word you look
+up is saved, ready to practise as flashcards.
 
 ![FreeReader showing Don Quijote with the contents panel open](.github/screenshot.png)
 
-**Status:** early development (phase 2 of 7). The library, reading, themes and text settings work. Translation,
-highlights and the word log come next.
+**Status:** early development (phase 3 of 7). The library, reading, themes, text settings, translation, the word
+log and flashcard practice work. Highlights, notes and search come next.
 
 ## Download
 
@@ -31,6 +31,35 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 
 <br clear="right">
 
+## Translation
+
+![The translation pop-up next to a selected word](.github/readme/translation.png)
+
+- **Select a word or a passage** (drag, or double-click a word) and a pop-up shows what it means in that sentence,
+  other meanings, its dictionary form ("tenía" → tener), a definition in Spanish and the whole sentence in
+  English. **Copy** and **Hear Pronunciation** are in the pop-up.
+- **Right-click** a word (it's selected for you) or a selection: Translate, Look Up in Dictionary, Copy, Search
+  the Web, Search Wikipedia.
+- Answers come from **Google's Gemini** (free tier, no card needed), then **LM Studio** on your own computer when
+  Gemini can't answer, then an **offline dictionary**. Every answer is kept, so looking up the same word again
+  costs nothing.
+- **Set it up once:** get a free key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey), then
+  paste it in **Settings ▸ Translation Settings…**. The key is kept in Windows Credential Manager (or the
+  system's key store on Linux), never in a file. **Test** looks up one word to check it works.
+- **Offline Only** (for all books, or one book from the View menu) never sends text over the internet.
+
+## Practice
+
+![A flashcard with its answer shown](.github/readme/practice.png)
+
+- **Practice Words** (Ctrl+P, or the Practice button in the library) turns the words you looked up into
+  flashcards, scheduled with FSRS (the spaced-repetition method Anki uses): each card comes back just before you
+  would forget it.
+- Choose the directions: Spanish → English, English → Spanish, Definition → Word, or the book's sentence with a
+  gap. Flip the card, or type the answer (missing accents are accepted but pointed out).
+- **Word List:** every word with its meaning, book and page. Search, change a meaning, star, **Show in Book**,
+  and **Export…** a file Anki can import.
+
 ## Reading
 
 - **Turn pages:** arrow keys, Page Up and Page Down, Space, the mouse wheel, or the arrows at the edges of the page.
@@ -38,7 +67,7 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 - **Go to a page or point:** Ctrl+G, then a page number or a percentage such as `45%`. Click the progress bar
   to jump there. **Back to Page …** (or Alt+Left) returns to where you were.
 - **Footnotes** open in a small pop-up next to the reference. **Pictures** open full size when clicked.
-- **Commands:** Ctrl+K lists everything FreeReader can do. There is no menu bar.
+- **Menus:** File, View, Go, Settings and Help at the top left. Ctrl+K lists every command with a search box.
 
 Page numbers stay the same whatever the text size or the window: one page is 1,800 characters of the book, or
 the publisher's own page numbers when the book has them.
@@ -77,6 +106,8 @@ Every shortcut can be changed in **Settings** (Ctrl+,).
 | Text and Layout… | Ctrl+Shift+A |
 | Choose Theme… | Ctrl+Shift+T |
 | Go to Page or Percent… | Ctrl+G |
+| Translate Selection | Ctrl+E |
+| Practice Words | Ctrl+P |
 | Back | Alt+Left, Backspace |
 | Next Chapter / Previous Chapter | Ctrl+Page Down / Ctrl+Page Up |
 | Go to Beginning of Book | Ctrl+Home |
@@ -105,19 +136,22 @@ FreeReader [book.epub] [--data-folder FOLDER]
 FreeReader [book.epub] --screenshot out.png [--page N | --percent P] [--turn N] [--size WxH]
            [--columns one|two|auto] [--text-size PERCENT] [--font FAMILY] [--theme KEY]
            [--contents] [--palette] [--appearance] [--theme-list] [--add-books FOLDER] [--list-view]
+FreeReader --check-translation result.txt
 ```
 
 `--data-folder` uses that folder for this run only. `--screenshot` draws the window off-screen to a picture and
-exits; it never shows a window or a dialog, and it uses a throwaway library.
+exits; it never shows a window or a dialog, and it uses a throwaway library. `--check-translation` looks up one
+word with Gemini and the saved key (one of the day's free lookups), writes the answer to the file and exits.
 
 </details>
 
 <details>
 <summary>Building from source</summary>
 
-C++20, Qt 6 (Widgets, Svg, Sql, Concurrent) and zlib, built with CMake.
+C++20, Qt 6 (Widgets, Svg, Sql, Concurrent, Network; TextToSpeech when available) and zlib, built with CMake.
 
-- **Windows:** MSYS2 UCRT64 with `mingw-w64-ucrt-x86_64-{gcc,cmake,ninja,qt6-base,qt6-svg}`. For the single-file
+- **Windows:** MSYS2 UCRT64 with `mingw-w64-ucrt-x86_64-{gcc,cmake,ninja,qt6-base,qt6-svg}` (add `qt6-speech` for
+  pronunciation). For the single-file
   exe, add `qt6-static` and configure with `-DSTATIC_BUILD=ON -DCMAKE_PREFIX_PATH=<msys2>/ucrt64/qt6-static`.
 - **Linux:** Qt 6.5 or newer, zlib, CMake and Ninja.
 
@@ -138,7 +172,11 @@ cmake --build build
   tables with stable character positions, laid out into pages on background threads (with hyphenation by
   Liang's algorithm) and drawn with QPainter. No browser engine is used.
 - `src/core/position`: positions as EPUB CFI, which keep working when the text size or window changes.
-- `src/core/services`: the book engine (opening, layout cache), the library database (SQLite) and adding books.
+- `src/core/services`: the book engine (opening, layout cache), the library database (SQLite), adding books, the
+  word log and the system key store.
+- `src/core/translate`: translation providers (Gemini, LM Studio, the offline dictionary) and the service that
+  tries them in order and caches answers.
+- `src/core/practice`: the FSRS scheduler and typed-answer checking for flashcards.
 - `src/app`: the windows.
 
 </details>
