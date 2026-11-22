@@ -10,8 +10,10 @@
 
 #include <QDateTime>
 #include <QJsonValue>
+#include <QHash>
 #include <QList>
 #include <QLocale>
+#include <QStringList>
 
 #include <functional>
 #include <memory>
@@ -30,6 +32,7 @@ class QPushButton;
 class QToolButton;
 class TocPanel;
 class NotebookPanel;
+class BilingualPanel;
 class SearchPanel;
 class TranslationPopup;
 class QMenu;
@@ -109,6 +112,12 @@ public:
     void setNotebookVisible(bool on);
     void refreshAnnotations();
 
+    // The bilingual view: the English of the paragraphs on the screen, in a panel on the right.
+    bool bilingualVisible() const;
+    void setBilingualVisible(bool on);
+    void refreshBilingual();
+    BilingualPanel* bilingualPanel() const { return m_bilingual; }
+
     // Search This Book.
     SearchPanel* searchPanel() const { return m_search; }
     void openSearch(const QString& query = QString());
@@ -162,6 +171,17 @@ public:
     void flushReading();   // writes the reading time and pages counted so far
 
 private:
+    struct ParagraphRef {
+        int spine = -1, start = 0;
+        QString text;
+    };
+    QList<ParagraphRef> visibleParagraphs() const;
+    QString paragraphKey(const QString& text) const;
+    void onBilingualTranslated(int id, const core::TranslationResult& r, const QString& why);
+    BilingualPanel* m_bilingual = nullptr;
+    QTimer m_bilingualTimer;
+    QHash<int, QStringList> m_bilingualAsked;   // requests on their way: id -> paragraphs asked
+
     qint64 readingNow() const;
     void creditReading(bool forwardTurn, int chars);
     std::function<qint64()> m_readingClock;

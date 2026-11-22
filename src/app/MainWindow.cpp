@@ -293,6 +293,12 @@ void MainWindow::buildCommands()
                tr("The book's highlights, notes and bookmarks."));
     addCommand(QStringLiteral("practice"), tr("Practice Words"), QKeySequence(Qt::CTRL | Qt::Key_P), [this] { showPractice(); }, nullptr,
                tr("Flashcards of the words you looked up."));
+    addCommand(QStringLiteral("bilingual"), tr("Show English Alongside"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_B), [this] {
+        m_reader->setBilingualVisible(!m_reader->bilingualVisible());
+        syncChecks();
+        saveSettingsSoon();
+    }, [this] { return isReading(); }, tr("The English of every paragraph on the page, in a panel beside it (Gemini or LM Studio)."));
+    command(QStringLiteral("bilingual"))->action->setCheckable(true);
     addCommand(QStringLiteral("statistics"), tr("Statistics"), QKeySequence(), [this] { showStatistics(); }, nullptr,
                tr("Time read, days in a row, books finished, words and reviews."));
     addCommand(QStringLiteral("word-list"), tr("Word List"), QKeySequence(), [this] { showPractice(true); }, nullptr,
@@ -353,6 +359,7 @@ void MainWindow::buildMenus()
     view->setProperty("testId", "menuView");
     add(view, "contents");
     add(view, "notebook");
+    add(view, "bilingual");
     add(view, "book-offline");
     view->addSeparator();
     add(view, "larger");
@@ -513,6 +520,7 @@ void MainWindow::syncChecks()
     set("use-dictionary", m_settings.useDictionary);
     set("offline-only", m_settings.offlineOnly);
     set("book-offline", m_reader && m_reader->bookIsOffline());
+    set("bilingual", m_reader && m_reader->bilingualVisible());
 }
 
 void MainWindow::showSettings(int tab)
