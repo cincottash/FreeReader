@@ -1,35 +1,80 @@
 #include "Theme.h"
 
 #include <QApplication>
-#include <QPalette>
+#include <QStyle>
 #include <QStyleFactory>
+#include <QStyleHints>
+#include <QWidget>
 
-Theme Theme::midnight()
+namespace {
+
+QColor color(const ThemeDef& d, const char* key, const QColor& fallback = QColor())
+{
+    const QString v = d.colors.value(QString::fromLatin1(key));
+    return v.isEmpty() ? fallback : QColor(v);
+}
+
+QColor withAlpha(QColor c, float a)
+{
+    c.setAlphaF(a);
+    return c;
+}
+
+}  // namespace
+
+Theme Theme::fromDef(const ThemeDef& d)
 {
     Theme t;
-    t.key = QStringLiteral("midnight");
-    t.name = QStringLiteral("Midnight");
-    t.bg = QColor(0x0f, 0x11, 0x15);
-    t.surface = QColor(0x16, 0x19, 0x20);
-    t.pop = QColor(0x1d, 0x21, 0x2a);
-    t.fg = QColor(0xe4, 0xe1, 0xd8);
-    t.muted = QColor(0xa0, 0xa6, 0xb3);
-    t.line = QColor(0x2a, 0x2f, 0x3a);
-    t.accent = QColor(0xe0, 0xa8, 0x4a);
-    t.accentFg = QColor(0x1a, 0x14, 0x08);
-    t.hl = QColor(224, 168, 74, 71);
-    t.sel = QColor(110, 160, 255, 97);
-    t.dark = true;
+    t.key = d.key;
+    t.name = d.name;
+    t.group = d.group;
+    t.bg = color(d, "bg");
+    t.surface = color(d, "card", t.bg);
+    t.dark = t.bg.lightnessF() < 0.5f;
+    t.pop = color(d, "pop", t.dark ? t.surface.lighter(112) : t.surface);
+    t.input = color(d, "input", t.bg);
+    t.fg = color(d, "text");
+    t.muted = color(d, "muted");
+    t.line = color(d, "border", t.muted);
+    t.accent = color(d, "accent");
+    t.accentHover = color(d, "accent_hover", t.accent);
+    t.accentFg = color(d, "accent_text", t.dark ? QColor(Qt::black) : QColor(Qt::white));
+    t.hl = withAlpha(t.accent, t.dark ? 0.28f : 0.30f);
+    t.sel = withAlpha(color(d, "sel", t.accentHover), t.dark ? 0.38f : 0.28f);
     return t;
 }
 
-void applyTheme(QApplication& app, const Theme& t)
+Theme Theme::midnight()
 {
-    app.setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
+    for (const ThemeDef& d : themeTable())
+        if (d.key == QLatin1String("midnight")) return fromDef(d);
+    return fromDef(themeTable().first());
+}
+
+bool Theme::systemIsDark()
+{
+    return QGuiApplication::styleHints()->colorScheme() != Qt::ColorScheme::Light;
+}
+
+Theme Theme::forChoice(const QString& key)
+{
+    const QString k = key == QLatin1String("system") ? (systemIsDark() ? QStringLiteral("midnight") : QStringLiteral("paper")) : key;
+    for (const ThemeDef& d : themeTable())
+        if (d.key == k) return fromDef(d);
+    return midnight();
+}
+
+QStringList Theme::groups()
+{
+    return {QStringLiteral("Reading Themes"), QStringLiteral("Dark Themes"), QStringLiteral("Light Themes")};
+}
+
+QPalette themePalette(const Theme& t)
+{
     QPalette p;
     p.setColor(QPalette::Window, t.surface);
     p.setColor(QPalette::WindowText, t.fg);
-    p.setColor(QPalette::Base, t.bg);
+    p.setColor(QPalette::Base, t.input);
     p.setColor(QPalette::AlternateBase, t.surface);
     p.setColor(QPalette::Text, t.fg);
     p.setColor(QPalette::Button, t.surface);
@@ -43,8 +88,11 @@ void applyTheme(QApplication& app, const Theme& t)
     p.setColor(QPalette::Disabled, QPalette::Text, t.muted);
     p.setColor(QPalette::Disabled, QPalette::WindowText, t.muted);
     p.setColor(QPalette::Disabled, QPalette::ButtonText, t.muted);
-    app.setPalette(p);
+    return p;
+}
 
+QString themeStyleSheet(const Theme& t)
+{
     auto c = [](const QColor& col) { return col.name(QColor::HexArgb); };
     QString css = QStringLiteral(R"(
 QWidget { color: @fg; }
@@ -55,7 +103,7 @@ QToolTip { background: @pop; color: @fg; border: 1px solid @line; padding: 4px 6
 #PanelTitle { color: @muted; font-size: 11px; font-weight: 600; letter-spacing: 1px; padding: 14px 20px 6px 20px; }
 #Pop { background: @pop; border: 1px solid @line; border-radius: 14px; }
 #Muted { color: @muted; }
-#StartView { background: @bg; }
+#StartView, #Page { background: @bg; }
 #Title { font-weight: 600; }
 QToolButton#Icon { border: 0; border-radius: 10px; background: transparent; }
 QToolButton#Icon:hover { background: @hover; }
@@ -64,9 +112,10 @@ QPushButton#Primary { background: @accent; color: @accentFg; border: 0; border-r
 QPushButton#Primary:hover { background: @accentHover; }
 QPushButton#Chip { background: @pop; color: @fg; border: 1px solid @line; border-radius: 16px; padding: 6px 14px; }
 QPushButton#Chip:hover { border-color: @accent; }
+QPushButton#Chip:checked { background: @hl; border-color: @accent; }
 QPushButton#Link { background: transparent; color: @accent; border: 0; padding: 4px 0; text-align: left; }
 QPushButton#Link:hover { text-decoration: underline; }
-QLineEdit { background: @bg; border: 1px solid @line; border-radius: 8px; padding: 8px 10px; selection-background-color: @accent; selection-color: @accentFg; }
+QLineEdit { background: @input; border: 1px solid @line; border-radius: 8px; padding: 8px 10px; selection-background-color: @accent; selection-color: @accentFg; }
 QLineEdit:focus { border-color: @accent; }
 QTreeView, QListView { background: transparent; border: 0; outline: 0; }
 QTreeView::item, QListView::item { padding: 6px 4px; border-radius: 6px; }
@@ -78,24 +127,54 @@ QScrollBar::handle:vertical:hover { background: @muted; }
 QScrollBar::add-line, QScrollBar::sub-line { height: 0; width: 0; }
 QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
 QScrollBar:horizontal { height: 0; }
-QMessageBox { background: @surface; }
-QDialog { background: @surface; }
+QMessageBox, QDialog { background: @surface; }
 QPushButton { background: @pop; border: 1px solid @line; border-radius: 8px; padding: 6px 14px; }
 QPushButton:hover { border-color: @accent; }
+QComboBox { background: @input; border: 1px solid @line; border-radius: 8px; padding: 6px 10px; }
+QComboBox:hover { border-color: @accent; }
+QComboBox QAbstractItemView { background: @pop; border: 1px solid @line; selection-background-color: @hl; selection-color: @fg; }
+QSlider::groove:horizontal { height: 4px; background: @line; border-radius: 2px; }
+QSlider::sub-page:horizontal { background: @accent; border-radius: 2px; }
+QSlider::handle:horizontal { background: @fg; width: 14px; height: 14px; margin: -5px 0; border-radius: 7px; }
 QCheckBox::indicator { width: 16px; height: 16px; }
+QMenu { background: @pop; border: 1px solid @line; padding: 4px; }
+QMenu::item { padding: 6px 18px; border-radius: 6px; }
+QMenu::item:selected { background: @hl; }
 )");
     QColor hover = t.fg;
     hover.setAlphaF(0.07f);
-    css.replace(QLatin1String("@accentHover"), c(t.accent.lighter(110)))
+    css.replace(QLatin1String("@accentHover"), c(t.accentHover))
         .replace(QLatin1String("@accentFg"), c(t.accentFg))
         .replace(QLatin1String("@accent"), c(t.accent))
         .replace(QLatin1String("@surface"), c(t.surface))
         .replace(QLatin1String("@pop"), c(t.pop))
+        .replace(QLatin1String("@input"), c(t.input))
         .replace(QLatin1String("@fg"), c(t.fg))
         .replace(QLatin1String("@muted"), c(t.muted))
         .replace(QLatin1String("@line"), c(t.line))
         .replace(QLatin1String("@hover"), c(hover))
         .replace(QLatin1String("@hl"), c(t.hl))
         .replace(QLatin1String("@bg"), c(t.bg));
-    app.setStyleSheet(css);
+    return css;
+}
+
+void applyTheme(QApplication& app, const Theme& t)
+{
+    if (!app.style() || app.style()->name().compare(QLatin1String("fusion"), Qt::CaseInsensitive) != 0)
+        app.setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
+    app.setPalette(themePalette(t));
+    app.setStyleSheet(themeStyleSheet(t));
+}
+
+void applyThemeTo(QWidget* w, const Theme& t)
+{
+    w->setPalette(themePalette(t));
+    w->setStyleSheet(themeStyleSheet(t));
+}
+
+void clearThemeFrom(QWidget* w)
+{
+    if (w->styleSheet().isEmpty()) return;
+    w->setStyleSheet(QString());
+    w->setPalette(QPalette());
 }

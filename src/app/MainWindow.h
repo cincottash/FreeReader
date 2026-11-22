@@ -14,6 +14,7 @@
 #include <vector>
 
 class CommandPalette;
+class ThemePicker;
 class ImageViewer;
 class QStackedWidget;
 class ReaderView;
@@ -44,6 +45,10 @@ public:
     void runCommand(const QString& id);
     void saveSettingsSoon();
     void saveSettingsNow();
+    void chooseTheme(const QString& key);       // saves it, restyles the whole app
+    void previewTheme(const QString& key);      // empty: the saved theme again
+    ThemePicker* themePicker() const { return m_themePicker; }
+    const Theme& theme() const { return m_theme; }
 
 signals:
     void bookShown();
@@ -68,6 +73,7 @@ private:
     void toggleFullScreen();
     void changeDataFolder();
     void about();
+    void showTheme(const Theme& t, bool preview);
 
     Settings& m_settings;
     core::Library* m_library;
@@ -79,6 +85,8 @@ private:
     ReaderView* m_reader;
     CommandPalette* m_palette;
     ImageViewer* m_imageViewer;
+    ThemePicker* m_themePicker;
+    QString m_previewKey;
     std::vector<std::unique_ptr<Command>> m_commands;
     QString m_openingPath;
     QString m_lastError;

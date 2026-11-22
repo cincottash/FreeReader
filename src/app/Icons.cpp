@@ -25,6 +25,7 @@ const QHash<QString, QString>& shapes()
         {"chevronRight", "<path d='M9.5 6l6 6-6 6'/>"},
         {"close", "<path d='M6 6l12 12M18 6L6 18'/>"},
         {"open", "<path d='M4 7.5A1.5 1.5 0 015.5 6H10l2 2h6.5A1.5 1.5 0 0120 9.5v8a1.5 1.5 0 01-1.5 1.5h-13A1.5 1.5 0 014 17.5z'/>"},
+        {"more", "<circle cx='6' cy='12' r='1.2'/><circle cx='12' cy='12' r='1.2'/><circle cx='18' cy='12' r='1.2'/>"},
         {"book", "<path d='M5 4.5h9.5a2 2 0 012 2V20H7a2 2 0 01-2-2z'/><path d='M5 18a2 2 0 012-2h9.5M19 7v13'/>"},
     };
     return s;

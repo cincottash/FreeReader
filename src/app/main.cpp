@@ -65,6 +65,7 @@ static int screenshot(QCommandLineParser& cli, const QString& out)
     if (cli.isSet(QStringLiteral("columns"))) settings.columns = cli.value(QStringLiteral("columns"));
     if (cli.isSet(QStringLiteral("text-size"))) settings.textSizePct = qBound(60, cli.value(QStringLiteral("text-size")).toInt(), 300);
     settings.showContents = cli.isSet(QStringLiteral("contents"));
+    if (cli.isSet(QStringLiteral("theme"))) settings.theme = cli.value(QStringLiteral("theme"));
     core::Library library;
     QString err;
     if (!library.open(QDir(appdata::folder()).filePath(QStringLiteral("library.sqlite")), &err)) {
@@ -113,6 +114,7 @@ static int screenshot(QCommandLineParser& cli, const QString& out)
         }
     }
     if (cli.isSet(QStringLiteral("palette"))) w.runCommand(QStringLiteral("commands"));
+    if (cli.isSet(QStringLiteral("theme-list"))) w.runCommand(QStringLiteral("themes"));
     QCoreApplication::processEvents();
     QElapsedTimer settle;
     settle.start();
@@ -156,6 +158,8 @@ int main(int argc, char* argv[])
     cli.addOption({QStringLiteral("text-size"), QStringLiteral("With --screenshot: text size in percent."), QStringLiteral("percent")});
     cli.addOption({QStringLiteral("contents"), QStringLiteral("With --screenshot: show the contents panel.")});
     cli.addOption({QStringLiteral("palette"), QStringLiteral("With --screenshot: show the command palette.")});
+    cli.addOption({QStringLiteral("theme"), QStringLiteral("With --screenshot: use this theme (a key such as midnight, paper, nord)."), QStringLiteral("key")});
+    cli.addOption({QStringLiteral("theme-list"), QStringLiteral("With --screenshot: show the theme list.")});
     cli.process(app);
 
     if (cli.isSet(QStringLiteral("screenshot"))) return screenshot(cli, cli.value(QStringLiteral("screenshot")));

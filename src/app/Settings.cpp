@@ -19,6 +19,7 @@ void fields(Settings& s, F&& f)
     f("line_spacing_pct", s.lineSpacingPct);
     f("columns", s.columns);
     f("theme", s.theme);
+    f("recent_themes", s.recentThemes);
     f("reading_speed", s.readingSpeed);
     f("last_folder", s.lastFolder);
     f("shortcuts", s.shortcuts);
@@ -57,6 +58,7 @@ bool Settings::load(const QString& path)
     lineSpacingPct = qBound(100, lineSpacingPct, 250);
     readingSpeed = qBound(200, readingSpeed, 6000);
     if (columns != QLatin1String("one") && columns != QLatin1String("two")) columns = QStringLiteral("auto");
+    while (recentThemes.size() > 4) recentThemes.removeLast();
     return true;
 }
 

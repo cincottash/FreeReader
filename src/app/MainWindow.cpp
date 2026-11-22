@@ -4,6 +4,7 @@
 #include "Popups.h"
 #include "ReaderView.h"
 #include "StartView.h"
+#include "ThemePicker.h"
 
 #include "core/format/FormatPlugin.h"
 #include "core/services/BookEngine.h"
@@ -20,6 +21,7 @@
 #include <QMimeData>
 #include <QScreen>
 #include <QStackedWidget>
+#include <QStyleHints>
 #include <QTimer>
 
 MainWindow::MainWindow(Settings& settings, core::Library* library, bool interactive, QWidget* parent)
@@ -37,6 +39,15 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     setCentralWidget(m_stack);
     m_palette = new CommandPalette(m_stack);
     m_imageViewer = new ImageViewer(m_stack);
+    // The theme list belongs to the window, not to its body: previews restyle the body only, never the list.
+    m_themePicker = new ThemePicker(this);
+    connect(m_themePicker, &ThemePicker::previewRequested, this, &MainWindow::previewTheme);
+    connect(m_themePicker, &ThemePicker::chosen, this, &MainWindow::chooseTheme);
+    connect(m_reader, &ReaderView::themeChosen, this, &MainWindow::chooseTheme);
+    connect(m_reader, &ReaderView::moreThemesRequested, this, [this](const QPoint& p) { m_themePicker->showFor(m_settings.theme, p); });
+    connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this, [this] {
+        if (m_settings.theme == QLatin1String("system")) showTheme(Theme::forChoice(QStringLiteral("system")), false);
+    });
 
     m_settingsTimer = new QTimer(this);
     m_settingsTimer->setSingleShot(true);
@@ -63,6 +74,7 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     if (m_library) m_start->setRecent(m_library->recentBooks(8));
 
     buildCommands();
+    showTheme(Theme::forChoice(m_settings.theme), false);
 
     if (!m_settings.geometry.isEmpty()) {
         restoreGeometry(m_settings.geometry);
@@ -134,6 +146,9 @@ void MainWindow::buildCommands()
     addCommand(QStringLiteral("columns-two"), tr("Two Columns"), QKeySequence(), [this] { setColumns(QStringLiteral("two")); });
     addCommand(QStringLiteral("columns-auto"), tr("Automatic Columns"), QKeySequence(), [this] { setColumns(QStringLiteral("auto")); },
                nullptr, tr("Two columns when the window is wide enough."));
+    addCommand(QStringLiteral("themes"), tr("Choose Theme…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_T), [this] {
+        m_themePicker->showFor(m_settings.theme, QPoint(width() - 8, 56));
+    });
     addCommand(QStringLiteral("fullscreen"), tr("Full Screen"), QKeySequence(Qt::Key_F11), [this] { toggleFullScreen(); });
     addCommand(QStringLiteral("data-folder"), tr("Change App Data Folder…"), QKeySequence(), [this] { changeDataFolder(); });
     addCommand(QStringLiteral("about"), tr("About FreeReader"), QKeySequence(), [this] { about(); });
@@ -318,4 +333,46 @@ void MainWindow::resizeEvent(QResizeEvent* e)
     if (m_palette->isVisible()) m_palette->place();
     if (m_imageViewer->isVisible()) m_imageViewer->setGeometry(m_stack->rect());
     saveSettingsSoon();
+}
+
+void MainWindow::showTheme(const Theme& t, bool preview)
+{
+    if (preview) {
+        applyThemeTo(m_stack, t);
+    } else {
+        clearThemeFrom(m_stack);
+        applyTheme(*qApp, t);
+        m_theme = t;
+    }
+    m_reader->setTheme(t);
+    m_imageViewer->setTheme(t);
+}
+
+void MainWindow::chooseTheme(const QString& key)
+{
+    m_previewKey.clear();
+    // The theme being left stays one click away as a dot.
+    if (!m_settings.recentThemes.contains(m_settings.theme)) m_settings.recentThemes.prepend(m_settings.theme);
+    m_settings.theme = key;
+    m_settings.recentThemes.removeAll(key);
+    m_settings.recentThemes.prepend(key);
+    while (m_settings.recentThemes.size() > 4) m_settings.recentThemes.removeLast();
+    showTheme(Theme::forChoice(key), false);
+    saveSettingsSoon();
+}
+
+void MainWindow::previewTheme(const QString& key)
+{
+    if (key == m_previewKey) return;
+    m_previewKey = key;
+    if (key.isEmpty() || key == m_settings.theme) {
+        // Back to the saved theme (only if a preview was showing).
+        if (!m_stack->styleSheet().isEmpty()) {
+            clearThemeFrom(m_stack);
+            m_reader->setTheme(m_theme);
+            m_imageViewer->setTheme(m_theme);
+        }
+        return;
+    }
+    showTheme(Theme::forChoice(key), true);
 }

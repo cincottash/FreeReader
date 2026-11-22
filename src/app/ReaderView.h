@@ -37,6 +37,8 @@ public:
     void applyReadingOptions();  // text size, spacing, columns from the settings
     void setSettingsNotKept(bool on);
     void setInteractive(bool on) { m_interactive = on; }   // off: never opens the browser (tests, screenshots)
+    void setTheme(const Theme& t);
+    void updateThemeDots();
 
     PageView* pages() const { return m_pages; }
     TocPanel* contents() const { return m_toc; }
@@ -61,6 +63,8 @@ signals:
     void fullScreenRequested();
     void imageRequested(const QString& path);
     void settingsLinkClicked();
+    void themeChosen(const QString& key);
+    void moreThemesRequested(const QPoint& windowPos);   // below-right corner of the button, window coordinates
 
 protected:
     void resizeEvent(QResizeEvent*) override;
@@ -88,6 +92,7 @@ private:
     QToolButton* m_tocButton;
     QToolButton* m_commandsButton;
     QToolButton* m_fullButton;
+    QWidget* m_themeDots;
     TocPanel* m_toc;
     PageView* m_pages;
     FooterBar* m_footer;

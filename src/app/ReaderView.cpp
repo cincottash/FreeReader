@@ -13,6 +13,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLocale>
+#include <QPainter>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QToolButton>
@@ -87,6 +88,12 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     m_commandsButton = iconButton("commands", tr("Commands (Ctrl+K)"), m_theme);
     m_fullButton = iconButton("fullscreen", tr("Full screen (F11)"), m_theme);
     h->addWidget(m_tocButton);
+    // Recently used themes as dots (as in the mock-up), then the full theme list.
+    m_themeDots = new QWidget;
+    m_themeDots->setLayout(new QHBoxLayout);
+    m_themeDots->layout()->setContentsMargins(6, 0, 6, 0);
+    m_themeDots->layout()->setSpacing(0);
+    h->addWidget(m_themeDots);
     h->addWidget(m_commandsButton);
     h->addWidget(m_fullButton);
     lay->addWidget(bar);
@@ -143,6 +150,66 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
 }
 
 void ReaderView::setSettingsNotKept(bool on) { m_notKept->setVisible(on); }
+
+void ReaderView::setTheme(const Theme& t)
+{
+    m_theme = t;
+    m_libraryButton->setIcon(icons::icon("back", t.fg));
+    m_tocButton->setIcon(icons::icon("toc", t.fg));
+    m_commandsButton->setIcon(icons::icon("commands", t.fg));
+    setFullScreenIcon(window() && window()->isFullScreen());
+    m_pages->setTheme(t);
+    m_footer->setTheme(t);
+    m_toc->setTheme(t);
+    updateThemeDots();
+}
+
+void ReaderView::updateThemeDots()
+{
+    QLayout* lay = m_themeDots->layout();
+    while (QLayoutItem* it = lay->takeAt(0)) {
+        delete it->widget();
+        delete it;
+    }
+    QStringList keys = m_settings.recentThemes;
+    if (!keys.contains(m_settings.theme)) keys.prepend(m_settings.theme);
+    while (keys.size() > 4) keys.removeLast();
+    for (const QString& key : keys) {
+        const Theme t = Theme::forChoice(key);
+        auto* b = new QToolButton;
+        b->setObjectName(QStringLiteral("Icon"));
+        b->setFixedSize(32, 40);
+        b->setCursor(Qt::PointingHandCursor);
+        b->setFocusPolicy(Qt::NoFocus);
+        b->setToolTip(key == QLatin1String("system") ? tr("Match Operating System") : t.name);
+        b->setProperty("testId", QStringLiteral("themeDot-") + key);
+        QPixmap pm(QSize(22, 22) * 2);
+        pm.setDevicePixelRatio(2);
+        pm.fill(Qt::transparent);
+        QPainter p(&pm);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setPen(QPen(key == m_settings.theme ? m_theme.accent : m_theme.muted, 2));
+        p.setBrush(t.bg);
+        p.drawEllipse(QRectF(2, 2, 18, 18));
+        p.end();
+        b->setIcon(QIcon(pm));
+        b->setIconSize(QSize(22, 22));
+        connect(b, &QToolButton::clicked, this, [this, key] { emit themeChosen(key); });
+        lay->addWidget(b);
+    }
+    auto* more = new QToolButton;
+    more->setObjectName(QStringLiteral("Icon"));
+    more->setFixedSize(32, 40);
+    more->setCursor(Qt::PointingHandCursor);
+    more->setFocusPolicy(Qt::NoFocus);
+    more->setIcon(icons::icon("more", m_theme.fg));
+    more->setToolTip(tr("All themes (Ctrl+Shift+T)"));
+    more->setProperty("testId", "moreThemes");
+    connect(more, &QToolButton::clicked, this, [this, more] {
+        emit moreThemesRequested(more->mapTo(window(), QPoint(more->width(), more->height())));
+    });
+    lay->addWidget(more);
+}
 
 void ReaderView::applyReadingOptions()
 {

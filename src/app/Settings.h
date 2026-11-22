@@ -15,7 +15,8 @@ struct Settings {
     int textSizePct = 100;            // 100 % = 20 px body text
     int lineSpacingPct = 160;         // line height in % of the text size
     QString columns = QStringLiteral("auto");   // auto / one / two
-    QString theme = QStringLiteral("midnight");
+    QString theme = QStringLiteral("midnight");     // a theme key or "system"
+    QStringList recentThemes;                        // most recent first; shown as dots in the reader's header
     int readingSpeed = 1100;          // characters per minute, learned from page turns
 
     // Files
