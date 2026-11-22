@@ -6,15 +6,24 @@
 #include "Popups.h"
 #include "Settings.h"
 #include "TocPanel.h"
+#include "TranslationPopup.h"
 
 #include "core/services/BookEngine.h"
 #include "core/services/Library.h"
+#include "core/translate/TranslationService.h"
 
 #include <QDesktopServices>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QJsonObject>
+#include <QApplication>
+#include <QClipboard>
 #include <QLocale>
+#include <QMenu>
+#include <QUrlQuery>
+#ifdef HAVE_TEXT_TO_SPEECH
+#include <QTextToSpeech>
+#endif
 #include <QPainter>
 #include <QPushButton>
 #include <QRegularExpression>
@@ -87,7 +96,6 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     m_tocButton = iconButton("toc", tr("Contents (Ctrl+T)"), m_theme);
     m_tocButton->setCheckable(true);
     m_tocButton->setProperty("testId", "tocButton");
-    m_commandsButton = iconButton("commands", tr("Commands (Ctrl+K)"), m_theme);
     m_fullButton = iconButton("fullscreen", tr("Full screen (F11)"), m_theme);
     h->addWidget(m_tocButton);
     m_aaButton = new QToolButton;
@@ -108,7 +116,6 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     m_themeDots->layout()->setContentsMargins(6, 0, 6, 0);
     m_themeDots->layout()->setSpacing(0);
     h->addWidget(m_themeDots);
-    h->addWidget(m_commandsButton);
     h->addWidget(m_fullButton);
     lay->addWidget(bar);
 
@@ -134,6 +141,12 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     m_backChip->hide();
     m_backChip->setProperty("testId", "backChip");
     m_note = new NotePopup(m_pages);
+    m_translate = new TranslationPopup(m_pages);
+    connect(m_translate, &TranslationPopup::settingsRequested, this, [this] {
+        m_translate->hide();
+        emit translationSettingsRequested();
+    });
+    connect(m_translate, &TranslationPopup::speakRequested, this, &ReaderView::speak);
     m_panel = new AppearancePanel(this);
     m_lookTimer.setSingleShot(true);
     m_lookTimer.setInterval(60);   // sliders move in many small steps; lay out once they pause
@@ -163,7 +176,6 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     connect(&m_saveTimer, &QTimer::timeout, this, &ReaderView::savePosition);
 
     connect(m_libraryButton, &QToolButton::clicked, this, &ReaderView::libraryRequested);
-    connect(m_commandsButton, &QToolButton::clicked, this, &ReaderView::commandsRequested);
     connect(m_fullButton, &QToolButton::clicked, this, &ReaderView::fullScreenRequested);
     connect(m_notKept, &QPushButton::clicked, this, &ReaderView::settingsLinkClicked);
     connect(m_tocButton, &QToolButton::toggled, this, [this](bool on) { setContentsVisible(on); });
@@ -179,6 +191,16 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     connect(m_pages, &PageView::linkClicked, this, &ReaderView::onLink);
     connect(m_pages, &PageView::imageClicked, this, &ReaderView::imageRequested);
     connect(m_pages, &PageView::pageTurnedByUser, m_note, &QWidget::hide);
+    connect(m_pages, &PageView::pageTurnedByUser, m_translate, &QWidget::hide);
+    connect(m_pages, &PageView::selectionCleared, m_translate, &QWidget::hide);
+    connect(m_pages, &PageView::selectionMade, this, [this] {
+        if (m_settings.autoTranslate) translateSelection();
+    });
+    connect(m_pages, &PageView::selectionMenuRequested, this, [this](const QPoint& at) {
+        QMenu* menu = buildSelectionMenu();
+        if (m_interactive) menu->exec(at);
+        delete menu;
+    });
     connect(m_engine, &core::BookEngine::indexReady, this, &ReaderView::onIndexReady);
     connect(m_footer, &FooterBar::jumpRequested, this, [this](double f) {
         const auto ix = m_engine->index();
@@ -193,9 +215,9 @@ void ReaderView::setTheme(const Theme& t)
     m_theme = t;
     m_libraryButton->setIcon(icons::icon("back", t.fg));
     m_tocButton->setIcon(icons::icon("toc", t.fg));
-    m_commandsButton->setIcon(icons::icon("commands", t.fg));
     setFullScreenIcon(window() && window()->isFullScreen());
     m_pages->setTheme(t);
+    m_translate->setTheme(t);
     m_footer->setTheme(t);
     m_toc->setTheme(t);
     updateThemeDots();
@@ -342,6 +364,8 @@ void ReaderView::closeBook()
     m_saveTimer.stop();
     m_bookId = 0;
     m_note->hide();
+    m_translate->hide();
+    m_lookupId = 0;
 }
 
 bool ReaderView::contentsVisible() const { return m_toc->isVisible(); }
@@ -593,6 +617,130 @@ void ReaderView::onLink(const LinkClick& link, const QPoint& globalPos)
         return;
     }
     jumpTo(target);
+}
+
+// ---------------------------------------------------------------- translation and the selection menu
+
+void ReaderView::setTranslator(core::TranslationService* service)
+{
+    m_translator = service;
+    if (service) connect(service, &core::TranslationService::finished, this, &ReaderView::onTranslated);
+    if (service)
+        connect(service, &core::TranslationService::asking, this, [this](int id, const QString& provider) {
+            if (id == m_lookupId) m_translate->showAsking(provider);
+        });
+}
+
+bool ReaderView::bookIsOffline() const
+{
+    return m_settings.offlineOnly || (m_bookId && m_settings.offlineBooks.contains(QString::number(m_bookId)));
+}
+
+void ReaderView::setBookOffline(bool on)
+{
+    if (!m_bookId) return;
+    const QString id = QString::number(m_bookId);
+    m_settings.offlineBooks.removeAll(id);
+    if (on) m_settings.offlineBooks << id;
+    emit appearanceChanged();   // the settings file needs saving
+}
+
+void ReaderView::translateSelection(bool dictionaryFirst)
+{
+    const QString text = m_pages->selectedText().trimmed();
+    if (text.isEmpty()) return;
+    m_note->hide();
+    const QRect anchor = m_pages->rangeRect(m_pages->selectionSpine(), m_pages->selectionStart(), m_pages->selectionEnd());
+    m_translate->setTheme(m_theme);
+    m_translate->showLoading(text, languageCode(), anchor);
+    if (!m_translator) {
+        m_translate->showNothing(tr("Translation isn't available."));
+        return;
+    }
+    core::TranslationRequest r;
+    r.text = text.size() > 4000 ? text.left(4000) : text;
+    r.sentence = m_pages->selectionSentence();
+    if (r.sentence.size() > 600 || r.sentence == r.text) r.sentence.clear();
+    r.from = languageCode();
+    m_dictionaryFirst = dictionaryFirst;
+    m_translator->setOfflineOnly(bookIsOffline());
+    m_lookupId = m_translator->translate(r);
+}
+
+void ReaderView::onTranslated(int id, const core::TranslationResult& r, const QString& why)
+{
+    if (id != m_lookupId || !m_translate->isVisible()) return;
+    if (r.isEmpty()) {
+        QString text = why.isEmpty() ? tr("No translation service is set up.") : why;
+        if (bookIsOffline()) text += QLatin1Char('\n') + tr("This book is kept offline, so Gemini isn't asked.");
+        m_translate->showNothing(text);
+    } else {
+        m_translate->showResult(r, m_dictionaryFirst);
+    }
+}
+
+QMenu* ReaderView::buildSelectionMenu()
+{
+    auto* menu = new QMenu(this);
+    menu->setProperty("testId", "selectionMenu");
+    const QString text = m_pages->selectedText().simplified();
+    const int words = int(text.split(QLatin1Char(' '), Qt::SkipEmptyParts).size());
+    QAction* translate = menu->addAction(tr("Translate"), this, [this] { translateSelection(false); });
+    translate->setProperty("testId", "menuTranslate");
+    QAction* dict = menu->addAction(tr("Look Up in Dictionary"), this, [this] { translateSelection(true); });
+    dict->setProperty("testId", "menuDictionary");
+    dict->setEnabled(words >= 1 && words <= 4);
+    QAction* copy = menu->addAction(tr("Copy"), this, [this] {
+        const QString t = m_pages->selectedText();
+        if (!t.isEmpty()) QApplication::clipboard()->setText(t);
+    });
+    copy->setShortcut(QKeySequence::Copy);
+    copy->setProperty("testId", "menuCopy");
+    menu->addSeparator();
+    QAction* web = menu->addAction(tr("Search the Web"), this, [this] { searchWeb(false); });
+    web->setProperty("testId", "menuWeb");
+    QAction* wiki = menu->addAction(tr("Search Wikipedia"), this, [this] { searchWeb(true); });
+    wiki->setProperty("testId", "menuWikipedia");
+    return menu;
+}
+
+void ReaderView::searchWeb(bool wikipedia)
+{
+    const QString text = m_pages->selectedText().simplified().left(300);
+    if (text.isEmpty()) return;
+    QUrl url;
+    QUrlQuery q;
+    if (wikipedia) {
+        // The book's own language edition: the words are in that language.
+        const QString lang = languageCode().isEmpty() ? QStringLiteral("en") : languageCode();
+        url = QUrl(QStringLiteral("https://%1.wikipedia.org/w/index.php").arg(lang));
+        q.addQueryItem(QStringLiteral("search"), text);
+    } else {
+        url = QUrl(QStringLiteral("https://www.google.com/search"));
+        q.addQueryItem(QStringLiteral("q"), text);
+    }
+    url.setQuery(q);
+    m_lastUrl = url.toString(QUrl::FullyEncoded);
+    if (m_interactive) QDesktopServices::openUrl(url);
+}
+
+void ReaderView::speak(const QString& text, const QString& language)
+{
+#ifdef HAVE_TEXT_TO_SPEECH
+    if (!m_interactive || text.isEmpty()) return;
+    if (!m_speech) m_speech = new QTextToSpeech(this);
+    const QLocale want(language.isEmpty() ? QStringLiteral("en") : language);
+    // A voice for the book's language when Windows has one; otherwise the default voice.
+    for (const QLocale& l : m_speech->availableLocales())
+        if (l.language() == want.language()) {
+            m_speech->setLocale(l);
+            break;
+        }
+    m_speech->say(text);
+#else
+    Q_UNUSED(text);
+    Q_UNUSED(language);
+#endif
 }
 
 void ReaderView::showAppearancePanel()

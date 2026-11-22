@@ -15,7 +15,7 @@ namespace core {
 
 namespace {
 
-constexpr int kSchemaVersion = 3;
+constexpr int kSchemaVersion = 4;
 
 QString nowIso() { return QDateTime::currentDateTimeUtc().toString(Qt::ISODate); }
 
@@ -106,6 +106,12 @@ bool Library::open(const QString& databaseFile, QString* error)
         if (!run("CREATE TABLE IF NOT EXISTS collection_books ("
                  " collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,"
                  " book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE, PRIMARY KEY (collection_id, book_id))"))
+            return false;
+    }
+    if (version < 4) {
+        // Translations already looked up (any provider), so the same lookup never uses an allowance twice.
+        if (!run("CREATE TABLE IF NOT EXISTS translation_cache (key TEXT PRIMARY KEY, provider TEXT NOT NULL, json TEXT NOT NULL,"
+                 " created TEXT NOT NULL)"))
             return false;
     }
     if (version < kSchemaVersion) q.exec(QStringLiteral("PRAGMA user_version=%1").arg(kSchemaVersion));
@@ -347,6 +353,36 @@ QJsonObject Library::appearanceLayer(const QString& scope) const
     q.addBindValue(scope);
     if (!q.exec() || !q.next()) return {};
     return QJsonDocument::fromJson(q.value(0).toString().toUtf8()).object();
+}
+
+QJsonObject Library::cachedTranslation(const QString& key) const
+{
+    if (!m_open) return {};
+    QSqlQuery q(QSqlDatabase::database(m_connection));
+    q.prepare(QStringLiteral("SELECT json FROM translation_cache WHERE key=?"));
+    q.addBindValue(key);
+    if (!q.exec() || !q.next()) return {};
+    return QJsonDocument::fromJson(q.value(0).toString().toUtf8()).object();
+}
+
+void Library::cacheTranslation(const QString& key, const QString& provider, const QJsonObject& result)
+{
+    if (!m_open) return;
+    QSqlQuery q(QSqlDatabase::database(m_connection));
+    q.prepare(QStringLiteral("INSERT INTO translation_cache (key, provider, json, created) VALUES (?,?,?,?)"
+                             " ON CONFLICT(key) DO UPDATE SET provider=excluded.provider, json=excluded.json, created=excluded.created"));
+    q.addBindValue(key);
+    q.addBindValue(provider);
+    q.addBindValue(QString::fromUtf8(QJsonDocument(result).toJson(QJsonDocument::Compact)));
+    q.addBindValue(QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+    q.exec();
+}
+
+int Library::cachedTranslationCount() const
+{
+    if (!m_open) return 0;
+    QSqlQuery q(QSqlDatabase::database(m_connection));
+    return q.exec(QStringLiteral("SELECT COUNT(*) FROM translation_cache")) && q.next() ? q.value(0).toInt() : 0;
 }
 
 void Library::setAppearanceLayer(const QString& scope, const QJsonObject& layer)

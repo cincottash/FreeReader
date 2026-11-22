@@ -399,13 +399,6 @@ LibraryView::LibraryView(core::Library* library, Settings& settings, QWidget* pa
     addMenu->addAction(tr("Add Folder…"), this, &LibraryView::chooseFolderToAdd);
     m_add->setMenu(addMenu);
     h->addWidget(m_add);
-    m_commands = new QToolButton;
-    m_commands->setObjectName(QStringLiteral("Icon"));
-    m_commands->setFixedSize(40, 40);
-    m_commands->setToolTip(tr("Commands (Ctrl+K)"));
-    m_commands->setCursor(Qt::PointingHandCursor);
-    m_commands->setFocusPolicy(Qt::NoFocus);
-    h->addWidget(m_commands);
     lay->addWidget(bar);
 
     // Body: filters + books
@@ -538,7 +531,6 @@ LibraryView::LibraryView(core::Library* library, Settings& settings, QWidget* pa
     lay->addWidget(m_continueBar);
 
     connect(m_notKept, &QPushButton::clicked, this, &LibraryView::settingsLinkClicked);
-    connect(m_commands, &QToolButton::clicked, this, &LibraryView::commandsRequested);
     connect(m_search, &QLineEdit::textChanged, this, &LibraryView::setSearch);
     connect(m_sort, &QComboBox::activated, this, [this](int i) { setSort(m_sort->itemData(i).toString()); });
     connect(m_gridButton, &QToolButton::clicked, this, [this] { setListMode(false); });
@@ -588,7 +580,6 @@ LibraryView::~LibraryView() = default;
 void LibraryView::setTheme(const Theme& t)
 {
     m_theme = t;
-    m_commands->setIcon(icons::icon("commands", t.fg));
     m_gridButton->setIcon(icons::icon("grid", t.fg));
     m_listButton->setIcon(icons::icon("list", t.fg));
     if (auto* d = dynamic_cast<CoverDelegate*>(m_grid->itemDelegate())) d->covers.clear();

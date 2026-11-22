@@ -23,6 +23,15 @@ struct Settings {
     bool libraryList = false;         // list view instead of covers
     QString librarySort = QStringLiteral("recent");
 
+    // Translation (API keys are never here: they go to the system's credential store)
+    bool autoTranslate = true;        // the pop-up opens when text is selected with the mouse
+    bool offlineOnly = false;         // never send text over the internet
+    QStringList offlineBooks;         // book ids kept offline
+    bool useGemini = true;
+    QString geminiModel;              // empty: the default (latest Flash-Lite)
+    bool useLmStudio = true;
+    QString lmStudioAddress = QStringLiteral("http://localhost:1234");
+
     // Files
     QString lastFolder;
     QStringList shortcuts;            // "command-id=Ctrl+X" overrides of the default shortcuts

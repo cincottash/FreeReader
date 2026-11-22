@@ -49,6 +49,13 @@ public:
     QString selectedText() const;
     void clearSelection();
     void selectRange(const core::Position& from, const core::Position& to);   // tests
+    // Selects the word under a point (widget coordinates); false when there is no text there.
+    bool selectWordAt(const QPointF& pos);
+    int selectionSpine() const { return m_selSpine; }
+    int selectionStart() const { return qMin(m_selStart, m_selEnd); }
+    int selectionEnd() const { return qMax(m_selStart, m_selEnd); }
+    // The sentence the selection starts in (the whole selection when it spans sentences).
+    QString selectionSentence() const;
 
     // Rectangles of a range on screen (widget coordinates), for pop-up placement.
     QRect rangeRect(int spine, int start, int end) const;
@@ -59,6 +66,9 @@ signals:
     void imageClicked(const QString& path);
     void readyChanged();
     void pageTurnedByUser();
+    void selectionMade();                              // a word or passage was selected with the mouse
+    void selectionCleared();
+    void selectionMenuRequested(const QPoint& globalPos);   // right-click on text
 
 protected:
     void paintEvent(QPaintEvent*) override;
@@ -67,6 +77,7 @@ protected:
     void mouseMoveEvent(QMouseEvent*) override;
     void mouseReleaseEvent(QMouseEvent*) override;
     void mouseDoubleClickEvent(QMouseEvent*) override;
+    void contextMenuEvent(QContextMenuEvent*) override;
     void wheelEvent(QWheelEvent*) override;
     void keyPressEvent(QKeyEvent*) override;
     void leaveEvent(QEvent*) override;

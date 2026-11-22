@@ -1,5 +1,5 @@
-// The main window: the start screen and the reader, the command palette (instead of a menu bar), opening books
-// and the shortcuts.
+// The main window: the menu bar, the library and the reader, opening books and the shortcuts. Every action is a
+// command (label, shortcut that can be changed in Settings); the menus and the keyboard-only palette (Ctrl+K) list them.
 #pragma once
 
 #include "Commands.h"
@@ -18,6 +18,8 @@ class CommandPalette;
 class SettingsDialog;
 class ThemePicker;
 class ImageViewer;
+class QMenu;
+class QNetworkAccessManager;
 class QStackedWidget;
 class ReaderView;
 class LibraryView;
@@ -25,6 +27,9 @@ class LibraryView;
 namespace core {
 class BookEngine;
 class Library;
+class GeminiProvider;
+class LmStudioProvider;
+class TranslationService;
 }
 
 class MainWindow : public QMainWindow {
@@ -64,6 +69,8 @@ protected:
 
 private:
     void buildCommands();
+    void buildMenus();
+    void fillThemeMenu();
     void addCommand(const QString& id, const QString& label, const QKeySequence& key, std::function<void()> run,
                     std::function<bool()> enabled = nullptr, const QString& hint = QString());
     void showLibrary();
@@ -79,7 +86,11 @@ private:
     void applyShortcuts();
 
 public:
-    void showSettings();
+    void showSettings(int tab = 0);
+    void applyTranslationSettings();
+    core::TranslationService* translator() const { return m_translator; }
+    core::GeminiProvider* gemini() const { return m_gemini; }
+    core::LmStudioProvider* lmStudio() const { return m_lmStudio; }
     SettingsDialog* settingsDialog() const;
 
 private:
@@ -97,6 +108,11 @@ private:
     ThemePicker* m_themePicker;
     QString m_previewKey;
     QPointer<SettingsDialog> m_settingsDialog;
+    QMenu* m_themeMenu = nullptr;
+    QNetworkAccessManager* m_net;
+    core::GeminiProvider* m_gemini;
+    core::LmStudioProvider* m_lmStudio;
+    core::TranslationService* m_translator;
     std::vector<std::unique_ptr<Command>> m_commands;
     QString m_openingPath;
     QString m_lastError;

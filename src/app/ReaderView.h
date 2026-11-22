@@ -1,4 +1,4 @@
-// The reading screen: header (back to the library, title and chapter, contents, commands, full screen), the
+// The reading screen: header (back to the library, title and chapter, contents, text and layout, themes, full screen), the
 // contents panel, the pages, the progress footer, Back after a jump, and footnote pop-ups.
 #pragma once
 
@@ -22,11 +22,16 @@ class QLabel;
 class QPushButton;
 class QToolButton;
 class TocPanel;
+class TranslationPopup;
+class QMenu;
+class QTextToSpeech;
 struct Settings;
 
 namespace core {
 class BookEngine;
 class Library;
+class TranslationService;
+struct TranslationResult;
 }
 
 class ReaderView : public QWidget {
@@ -66,15 +71,25 @@ public:
     QString goToPageOrPercent(const QString& text);   // empty on success, else a message for the user
     void setFullScreenIcon(bool fullScreen);
 
+    // Translation of the selection (the pop-up), and the right-click menu on the page.
+    void setTranslator(core::TranslationService* service);
+    TranslationPopup* translationPopup() const { return m_translate; }
+    void translateSelection(bool dictionaryFirst = false);
+    QMenu* buildSelectionMenu();          // the menu for the current selection (the caller shows or deletes it)
+    void searchWeb(bool wikipedia);
+    QString lastOpenedUrl() const { return m_lastUrl; }   // tests: the browser is never opened when not interactive
+    bool bookIsOffline() const;
+    void setBookOffline(bool on);
+
 signals:
     void libraryRequested();
-    void commandsRequested();
     void fullScreenRequested();
     void imageRequested(const QString& path);
     void settingsLinkClicked();
     void themeChosen(const QString& key);
     void appearanceChanged();      // the All Books values changed (the settings file needs saving)
     void moreThemesRequested(const QPoint& windowPos);   // below-right corner of the button, window coordinates
+    void translationSettingsRequested();
 
 protected:
     void resizeEvent(QResizeEvent*) override;
@@ -87,6 +102,8 @@ private:
     void savePosition();
     void placeBackChip();
     QString chapterTitleAt(const core::Position& p) const;
+    void onTranslated(int id, const core::TranslationResult& r, const QString& why);
+    void speak(const QString& text, const QString& language);
 
     core::BookEngine* m_engine;
     core::Library* m_library;
@@ -100,7 +117,6 @@ private:
     QLabel* m_subtitle;
     QPushButton* m_notKept;
     QToolButton* m_tocButton;
-    QToolButton* m_commandsButton;
     QToolButton* m_fullButton;
     QWidget* m_themeDots;
     QToolButton* m_aaButton;
@@ -111,6 +127,12 @@ private:
     FooterBar* m_footer;
     QPushButton* m_backChip;
     NotePopup* m_note;
+    TranslationPopup* m_translate;
+    core::TranslationService* m_translator = nullptr;
+    int m_lookupId = 0;
+    bool m_dictionaryFirst = false;
+    QString m_lastUrl;
+    QTextToSpeech* m_speech = nullptr;
 
     std::vector<core::Position> m_history;
     QTimer m_saveTimer;

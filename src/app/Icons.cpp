@@ -28,6 +28,7 @@ const QHash<QString, QString>& shapes()
         {"more", "<circle cx='6' cy='12' r='1.2'/><circle cx='12' cy='12' r='1.2'/><circle cx='18' cy='12' r='1.2'/>"},
         {"grid", "<rect x='4' y='4' width='6.5' height='6.5' rx='1.2'/><rect x='13.5' y='4' width='6.5' height='6.5' rx='1.2'/><rect x='4' y='13.5' width='6.5' height='6.5' rx='1.2'/><rect x='13.5' y='13.5' width='6.5' height='6.5' rx='1.2'/>"},
         {"list", "<path d='M8 6h12M8 12h12M8 18h12'/><circle cx='4.5' cy='6' r='0.8'/><circle cx='4.5' cy='12' r='0.8'/><circle cx='4.5' cy='18' r='0.8'/>"},
+        {"speaker", "<path d='M4 9.5v5h3.5L12 18V6L7.5 9.5z'/><path d='M15.5 9a4 4 0 010 6M18 6.5a7.5 7.5 0 010 11'/>"},
         {"book", "<path d='M5 4.5h9.5a2 2 0 012 2V20H7a2 2 0 01-2-2z'/><path d='M5 18a2 2 0 012-2h9.5M19 7v13'/>"},
     };
     return s;

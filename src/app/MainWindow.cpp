@@ -11,6 +11,9 @@
 #include "core/services/BookEngine.h"
 #include "core/services/Importer.h"
 #include "core/services/Library.h"
+#include "core/services/Secrets.h"
+#include "core/translate/AiProviders.h"
+#include "core/translate/TranslationService.h"
 
 #include <QAction>
 #include <QApplication>
@@ -19,8 +22,12 @@
 #include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QActionGroup>
+#include <QMenu>
+#include <QMenuBar>
 #include <QMessageBox>
 #include <QMimeData>
+#include <QNetworkAccessManager>
 #include <QScreen>
 #include <QStackedWidget>
 #include <QStyleHints>
@@ -32,10 +39,19 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     setWindowTitle(QStringLiteral(APP_NAME));
     setAcceptDrops(true);
     m_engine = new core::BookEngine(this);
+    // Translation: Gemini first, then LM Studio (the offline ones join the list when they are installed).
+    m_net = new QNetworkAccessManager(this);
+    m_gemini = new core::GeminiProvider(m_net, this);
+    m_lmStudio = new core::LmStudioProvider(m_net, this);
+    m_translator = new core::TranslationService(this);
+    m_translator->setCache(m_library);
+    m_translator->setProviders({m_gemini, m_lmStudio});
+    m_gemini->setKey(core::secrets::read(QStringLiteral("gemini-api-key")));
     m_stack = new QStackedWidget;
     m_start = new LibraryView(m_library, m_settings);
     m_reader = new ReaderView(m_engine, m_library, m_settings);
     m_reader->setInteractive(interactive);
+    m_reader->setTranslator(m_translator);
     m_stack->addWidget(m_start);
     m_stack->addWidget(m_reader);
     setCentralWidget(m_stack);
@@ -61,7 +77,6 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     connect(m_engine, &core::BookEngine::openFailed, this, &MainWindow::onOpenFailed);
     connect(m_start, &LibraryView::openRequested, this, &MainWindow::openBook);
     connect(m_start, &LibraryView::settingsLinkClicked, this, &MainWindow::changeDataFolder);
-    connect(m_start, &LibraryView::commandsRequested, this, [this] { runCommand(QStringLiteral("commands")); });
     m_start->setPrompt([this](const QString& title, const QString& placeholder, std::function<QString(const QString&)> accept) {
         m_palette->showPrompt(title, placeholder, std::move(accept));
     });
@@ -71,8 +86,8 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     });
     connect(m_reader, &ReaderView::settingsLinkClicked, this, &MainWindow::changeDataFolder);
     connect(m_reader, &ReaderView::libraryRequested, this, &MainWindow::showLibrary);
-    connect(m_reader, &ReaderView::commandsRequested, this, [this] { runCommand(QStringLiteral("commands")); });
     connect(m_reader, &ReaderView::fullScreenRequested, this, &MainWindow::toggleFullScreen);
+    connect(m_reader, &ReaderView::translationSettingsRequested, this, [this] { showSettings(SettingsDialog::TranslationTab); });
     connect(m_reader, &ReaderView::imageRequested, this, [this](const QString& path) {
         QImage img;
         img.loadFromData(m_engine->resource(path));
@@ -82,7 +97,9 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     m_start->setSettingsNotKept(appdata::isTemporary());
     m_reader->setSettingsNotKept(appdata::isTemporary());
 
+    applyTranslationSettings();
     buildCommands();
+    buildMenus();
     showTheme(Theme::forChoice(m_settings.theme), false);
 
     if (!m_settings.geometry.isEmpty()) {
@@ -177,7 +194,128 @@ void MainWindow::buildCommands()
     addCommand(QStringLiteral("quit"), tr("Quit"), QKeySequence(Qt::CTRL | Qt::Key_Q), [this] { close(); });
     addCommand(QStringLiteral("settings"), tr("Settings…"), QKeySequence(Qt::CTRL | Qt::Key_Comma), [this] { showSettings(); }, nullptr,
                tr("App data folder, keyboard shortcuts, resets."));
+    addCommand(QStringLiteral("translate"), tr("Translate Selection"), QKeySequence(Qt::CTRL | Qt::Key_E), [this] { m_reader->translateSelection(); },
+               [this] { return isReading() && m_reader->pages()->hasSelection(); }, tr("Shows the translation pop-up for the selected text."));
+    addCommand(QStringLiteral("book-offline"), tr("Keep This Book Offline"), QKeySequence(), [this] {
+        m_reader->setBookOffline(!m_reader->bookIsOffline());
+    }, [this] { return isReading() && !m_settings.offlineOnly; }, tr("Text from this book is never sent to Gemini."));
+    if (Command* c = command(QStringLiteral("book-offline"))) c->action->setCheckable(true);
+    addCommand(QStringLiteral("translation-settings"), tr("Translation Settings…"), QKeySequence(),
+               [this] { showSettings(SettingsDialog::TranslationTab); }, nullptr, tr("Gemini key, LM Studio, offline only."));
+    addCommand(QStringLiteral("keyboard-shortcuts"), tr("Keyboard Shortcuts"), QKeySequence(), [this] { showSettings(SettingsDialog::ShortcutsTab); },
+               nullptr, tr("Every shortcut, and changing them."));
     applyShortcuts();
+}
+
+void MainWindow::buildMenus()
+{
+    QMenuBar* bar = menuBar();
+    bar->setNativeMenuBar(false);
+    auto add = [this](QMenu* m, const char* id) {
+        if (Command* c = command(QString::fromLatin1(id))) m->addAction(c->action);
+    };
+    // A command that can't run now is greyed out while its menu is open; its shortcut keeps working the rest of the
+    // time (the command checks again when it runs).
+    auto watch = [this](QMenu* m) {
+        connect(m, &QMenu::aboutToShow, this, [this] {
+            for (auto& c : m_commands) c->action->setEnabled(c->isEnabled());
+            if (Command* c = command(QStringLiteral("book-offline"))) c->action->setChecked(m_reader->bookIsOffline());
+        });
+        connect(m, &QMenu::aboutToHide, this, [this] {
+            for (auto& c : m_commands) c->action->setEnabled(true);
+        });
+    };
+
+    QMenu* file = bar->addMenu(tr("&File"));
+    file->setProperty("testId", "menuFile");
+    add(file, "open");
+    add(file, "add-books");
+    add(file, "add-folder");
+    add(file, "new-collection");
+    file->addSeparator();
+    add(file, "library");
+    file->addSeparator();
+    add(file, "quit");
+    watch(file);
+
+    QMenu* view = bar->addMenu(tr("&View"));
+    view->setProperty("testId", "menuView");
+    add(view, "contents");
+    add(view, "book-offline");
+    view->addSeparator();
+    add(view, "larger");
+    add(view, "smaller");
+    add(view, "default-size");
+    QMenu* columns = view->addMenu(tr("Columns"));
+    add(columns, "columns-one");
+    add(columns, "columns-two");
+    add(columns, "columns-auto");
+    view->addSeparator();
+    add(view, "library-grid");
+    add(view, "library-list");
+    view->addSeparator();
+    add(view, "fullscreen");
+    watch(view);
+
+    QMenu* go = bar->addMenu(tr("&Go"));
+    go->setProperty("testId", "menuGo");
+    add(go, "goto");
+    add(go, "back");
+    go->addSeparator();
+    add(go, "next-chapter");
+    add(go, "previous-chapter");
+    add(go, "book-start");
+    watch(go);
+
+    QMenu* settings = bar->addMenu(tr("&Settings"));
+    settings->setProperty("testId", "menuSettings");
+    add(settings, "appearance");
+    add(settings, "translation-settings");
+    m_themeMenu = settings->addMenu(tr("Theme"));
+    m_themeMenu->setProperty("testId", "menuTheme");
+    connect(m_themeMenu, &QMenu::aboutToShow, this, &MainWindow::fillThemeMenu);
+    // Pointing at a theme previews it on the window; leaving the menu without choosing puts the saved one back.
+    connect(m_themeMenu, &QMenu::aboutToHide, this, [this] { previewTheme(QString()); });
+    settings->addSeparator();
+    add(settings, "settings");
+    add(settings, "data-folder");
+    watch(settings);
+
+    QMenu* help = bar->addMenu(tr("&Help"));
+    help->setProperty("testId", "menuHelp");
+    add(help, "keyboard-shortcuts");
+    add(help, "commands");
+    help->addSeparator();
+    add(help, "about");
+    watch(help);
+}
+
+void MainWindow::fillThemeMenu()
+{
+    m_themeMenu->clear();
+    auto* group = new QActionGroup(m_themeMenu);
+    auto addTheme = [this, group](QMenu* m, const QString& key, const QString& name) {
+        QAction* a = m->addAction(name);
+        a->setCheckable(true);
+        a->setChecked(key == m_settings.theme);
+        a->setData(key);
+        group->addAction(a);
+        connect(a, &QAction::triggered, this, [this, key] { chooseTheme(key); });
+        connect(a, &QAction::hovered, this, [this, key] { previewTheme(key); });
+    };
+    addTheme(m_themeMenu, QStringLiteral("system"), tr("Match Operating System"));
+    m_themeMenu->addSeparator();
+    for (const QString& g : Theme::groups()) {
+        QMenu* sub = m_themeMenu->addMenu(g);
+        connect(sub, &QMenu::aboutToHide, this, [this] { previewTheme(QString()); });
+        for (const ThemeDef& d : themeTable())
+            if (d.group == g) addTheme(sub, d.key, d.name);
+    }
+    m_themeMenu->addSeparator();
+    if (Command* c = command(QStringLiteral("themes"))) {
+        c->action->setText(tr("Theme List…"));
+        m_themeMenu->addAction(c->action);
+    }
 }
 
 void MainWindow::applyShortcuts()
@@ -205,12 +343,25 @@ void MainWindow::applyShortcuts()
     }
 }
 
-void MainWindow::showSettings()
+void MainWindow::applyTranslationSettings()
+{
+    m_gemini->setEnabled(m_settings.useGemini);
+    m_gemini->setModel(m_settings.geminiModel);
+    m_lmStudio->setEnabled(m_settings.useLmStudio);
+    m_lmStudio->setAddress(m_settings.lmStudioAddress);
+    m_translator->clearPauses();
+}
+
+void MainWindow::showSettings(int tab)
 {
     if (!m_settingsDialog) {
         std::vector<Command*> list;
         for (auto& c : m_commands) list.push_back(c.get());
-        m_settingsDialog = new SettingsDialog(m_settings, list, this);
+        m_settingsDialog = new SettingsDialog(m_settings, list, m_gemini, m_lmStudio, m_interactive, this);
+        connect(m_settingsDialog, &SettingsDialog::translationChanged, this, [this] {
+            applyTranslationSettings();
+            saveSettingsSoon();
+        });
         connect(m_settingsDialog, &SettingsDialog::shortcutsChanged, this, [this] {
             applyShortcuts();
             saveSettingsSoon();
@@ -226,6 +377,8 @@ void MainWindow::showSettings()
         });
     }
     m_settingsDialog->setDataFolder(appdata::folder(), appdata::isTemporary());
+    m_settingsDialog->refreshTranslation();
+    m_settingsDialog->showTab(SettingsDialog::Tab(tab));
     m_settingsDialog->show();
     m_settingsDialog->raise();
 }
@@ -336,6 +489,7 @@ void MainWindow::toggleFullScreen()
         m_wasMaximized = isMaximized();
         showFullScreen();
     }
+    menuBar()->setVisible(!isFullScreen());
     m_reader->setFullScreenIcon(isFullScreen());
 }
 

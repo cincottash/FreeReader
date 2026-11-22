@@ -27,7 +27,9 @@ if(STATIC_BUILD AND MINGW)
     set(CMAKE_CXX_STANDARD_LIBRARIES "${CMAKE_CXX_STANDARD_LIBRARIES} -lbz2 -lbrotlidec -lbrotlicommon -lws2_32 -lcrypt32 -liphlpapi -lbcrypt")
 endif()
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Widgets Svg Sql Concurrent)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Widgets Svg Sql Concurrent Network)
+# Spoken pronunciation in the translation pop-up, when this Qt has the module.
+find_package(Qt6 QUIET COMPONENTS TextToSpeech)
 find_package(ZLIB REQUIRED)
 if(STATIC_BUILD AND MINGW AND TARGET harfbuzz::harfbuzz)
     # harfbuzz's CMake package always points at its DLL; use the static library instead.
@@ -62,10 +64,17 @@ add_library(freereader_core STATIC
     src/core/services/BookEngine.cpp
     src/core/services/Importer.cpp
     src/core/services/Library.cpp
+    src/core/services/Secrets.cpp
+    src/core/translate/Translation.cpp
+    src/core/translate/AiProviders.cpp
+    src/core/translate/TranslationService.cpp
 )
 target_include_directories(freereader_core PUBLIC src)
 target_compile_definitions(freereader_core PUBLIC APP_NAME="${APP_NAME}" APP_ORG="${APP_ORG}" APP_VERSION="${APP_VERSION}")
-target_link_libraries(freereader_core PUBLIC Qt6::Gui Qt6::Sql Qt6::Concurrent ZLIB::ZLIB)
+target_link_libraries(freereader_core PUBLIC Qt6::Gui Qt6::Sql Qt6::Concurrent Qt6::Network ZLIB::ZLIB)
+if(WIN32)
+    target_link_libraries(freereader_core PUBLIC advapi32)   # Credential Manager
+endif()
 # Hyphenation patterns (hyph-utf8: MIT, BSD, LPPL; each file's license header sits next to it).
 file(GLOB HYPH_FILES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/resources/hyphenation/*.txt)
 qt_add_resources(freereader_core hyphenation PREFIX "/" BASE resources FILES ${HYPH_FILES})
@@ -76,6 +85,10 @@ list(REMOVE_ITEM UI_SOURCES "${CMAKE_SOURCE_DIR}/src/app/main.cpp")
 add_library(freereader_ui STATIC ${UI_SOURCES})
 target_include_directories(freereader_ui PUBLIC src)
 target_link_libraries(freereader_ui PUBLIC freereader_core Qt6::Widgets Qt6::Svg)
+if(TARGET Qt6::TextToSpeech)
+    target_link_libraries(freereader_ui PUBLIC Qt6::TextToSpeech)
+    target_compile_definitions(freereader_ui PUBLIC HAVE_TEXT_TO_SPEECH)
+endif()
 
 set(SOURCES src/app/main.cpp)
 if(WIN32)
@@ -100,7 +113,13 @@ if(STATIC_BUILD)
         INCLUDE_BY_TYPE iconengines Qt6::QSvgIconPlugin
         INCLUDE_BY_TYPE sqldrivers Qt6::QSQLiteDriverPlugin)
     if(WIN32)
-        qt_import_plugins(app INCLUDE_BY_TYPE platforms Qt6::QWindowsIntegrationPlugin Qt6::QOffscreenIntegrationPlugin)
+        # HTTPS through Windows' own TLS (Schannel); speech through Windows' voices (SAPI).
+        qt_import_plugins(app INCLUDE_BY_TYPE platforms Qt6::QWindowsIntegrationPlugin Qt6::QOffscreenIntegrationPlugin
+            INCLUDE_BY_TYPE tls Qt6::QSchannelBackendPlugin
+            EXCLUDE_BY_TYPE networkinformation)
+        if(TARGET Qt6::QTextToSpeechSapiPlugin)
+            qt_import_plugins(app INCLUDE_BY_TYPE texttospeech Qt6::QTextToSpeechSapiPlugin)
+        endif()
     endif()
 endif()
 

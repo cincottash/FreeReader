@@ -28,6 +28,13 @@ void fields(Settings& s, F&& f)
     f("reading_speed", s.readingSpeed);
     f("library_list", s.libraryList);
     f("library_sort", s.librarySort);
+    f("auto_translate", s.autoTranslate);
+    f("offline_only", s.offlineOnly);
+    f("offline_books", s.offlineBooks);
+    f("use_gemini", s.useGemini);
+    f("gemini_model", s.geminiModel);
+    f("use_lm_studio", s.useLmStudio);
+    f("lm_studio_address", s.lmStudioAddress);
     f("last_folder", s.lastFolder);
     f("shortcuts", s.shortcuts);
 }
