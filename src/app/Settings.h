@@ -1,0 +1,27 @@
+// Everything the app remembers between runs, saved as JSON in the app data folder. Books, positions and (later)
+// annotations live in the library database instead.
+#pragma once
+
+#include <QByteArray>
+#include <QString>
+#include <QStringList>
+
+struct Settings {
+    // Window
+    QByteArray geometry;
+    bool showContents = false;
+
+    // Reading
+    int textSizePct = 100;            // 100 % = 20 px body text
+    int lineSpacingPct = 160;         // line height in % of the text size
+    QString columns = QStringLiteral("auto");   // auto / one / two
+    QString theme = QStringLiteral("midnight");
+    int readingSpeed = 1100;          // characters per minute, learned from page turns
+
+    // Files
+    QString lastFolder;
+    QStringList shortcuts;            // "command-id=Ctrl+X" overrides of the default shortcuts
+
+    bool load(const QString& path);
+    bool save(const QString& path) const;
+};

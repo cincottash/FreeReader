@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#232936"/>
+      <stop offset="1" stop-color="#0f1115"/>
+    </linearGradient>
+    <linearGradient id="page" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f7f1e3"/>
+      <stop offset="1" stop-color="#e4dccb"/>
+    </linearGradient>
+  </defs>
+  <rect x="6" y="6" width="244" height="244" rx="52" fill="url(#bg)"/>
+  <!-- An open book -->
+  <path d="M128 76 C104 62 72 58 38 62 L38 190 C72 186 104 190 128 204 Z" fill="url(#page)"/>
+  <path d="M128 76 C152 62 184 58 218 62 L218 190 C184 186 152 190 128 204 Z" fill="url(#page)"/>
+  <path d="M128 76 L128 204" stroke="#b9ad93" stroke-width="4"/>
+  <!-- Lines of text -->
+  <g stroke="#8a8170" stroke-width="7" stroke-linecap="round">
+    <path d="M58 92 L110 98"/>
+    <path d="M58 116 L110 122"/>
+    <path d="M58 140 L110 146"/>
+    <path d="M58 164 L96 168"/>
+    <path d="M146 98 L198 92"/>
+    <path d="M146 146 L198 140"/>
+    <path d="M146 170 L184 166"/>
+  </g>
+  <!-- A highlighted word: the translation feature -->
+  <rect x="140" y="110" width="64" height="24" rx="8" fill="#e0a84a" transform="rotate(-6 172 122)"/>
+  <!-- Bookmark ribbon -->
+  <path d="M176 52 L200 52 L200 98 L188 88 L176 98 Z" fill="#e0a84a"/>
+</svg>
