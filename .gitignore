@@ -1,0 +1,28 @@
+# Build output (builds normally go outside the repo)
+build/
+build-*/
+out/
+dist/
+CMakeUserPresets.json
+CMakeLists.txt.user*
+compile_commands.json
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Design docs and working notes (kept local, not published)
+CLAUDE.md
+docs/
+HANDOFF.md
+
+# Local-only tests, check scripts and test books (kept out of the repo)
+tests/
+tools/
+scratch/
+*.epub
+
+# Secrets / local config
+.env
+config.local.*
