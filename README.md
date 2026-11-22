@@ -1,8 +1,8 @@
 # FreeReader
 
 An e-book reader for DRM-free EPUB books, for Windows (tested) and Linux (experimental), built to make reading in
-another language easy: select a word or a passage and its English meaning appears next to it. Every word you look
-up is saved, ready to practise as flashcards.
+another language easy: right-click a word or a passage and its English meaning appears next to it. Every word you
+look up or highlight is saved, ready to practise as flashcards.
 
 ![FreeReader showing Don Quijote with the contents panel open](.github/screenshot.png)
 
@@ -35,25 +35,26 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 
 ![The translation pop-up next to a selected word](.github/readme/translation.png)
 
-- **Select a word or a passage** (drag, or double-click a word) and a pop-up shows what it means in that sentence,
-  other meanings, its dictionary form ("tenía" → tener), a definition in Spanish and the whole sentence in
-  English. **Copy** and **Hear Pronunciation** are in the pop-up.
-- **Right-click** a word (it's selected for you) or a selection: Translate, Look Up in Dictionary, Copy, Search
-  the Web, Search Wikipedia.
+- **Right-click** a word (it's selected for you) or a selection and choose **Translate** (or select and press
+  Ctrl+E): a pop-up shows what it means in that sentence, other meanings, its dictionary form ("tenía" → tener),
+  a definition in Spanish and the whole sentence in English. **Copy** and **Hear Pronunciation** are in the pop-up.
+  The same menu has Look Up in Dictionary, Copy, Search the Web and Search Wikipedia.
+- Prefer the pop-up as soon as you select? Turn on **Settings ▸ Translation ▸ Translate When Text Is Selected**.
 - Answers come from **Google's Gemini** (free tier, no card needed), then **LM Studio** on your own computer when
-  Gemini can't answer, then an **offline dictionary**. Every answer is kept, so looking up the same word again
-  costs nothing.
+  Gemini can't answer (optional), then an **offline dictionary**. Every answer is kept, so looking up the same
+  word again costs nothing. Each one can be switched off in **Settings ▸ Translation**.
 - **Set it up once:** get a free key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey), then
-  paste it in **Settings ▸ Translation Settings…**. The key is kept in Windows Credential Manager (or the
-  system's key store on Linux), never in a file. **Test** looks up one word to check it works.
-- **Offline Only** (for all books, or one book from the View menu) never sends text over the internet.
+  paste it in **Settings ▸ Translation ▸ Translation Settings…**. The key is kept in Windows Credential Manager
+  (or the system's key store on Linux), never in a file. **Test** looks up one word to check it works.
+- **Offline Only** (for all books, or just the open one) never sends text over the internet.
 
 ## Practice
 
 ![A flashcard with its answer shown](.github/readme/practice.png)
 
-- **Practice Words** (Ctrl+P, or the Practice button in the library) turns the words you looked up into
-  flashcards, scheduled with FSRS (the spaced-repetition method Anki uses): each card comes back just before you
+- **Practice Words** (Ctrl+P, or the Practice button in the library) turns the words you looked up or
+  highlighted into flashcards (a highlighted word is never looked up for this: the offline dictionary fills in its
+  meaning, or its card has a **Look Up Meaning** button), scheduled with FSRS (the spaced-repetition method Anki uses): each card comes back just before you
   would forget it.
 - Choose the directions: Spanish → English, English → Spanish, Definition → Word, or the book's sentence with a
   gap. Flip the card, or type the answer (missing accents are accepted but pointed out).
@@ -65,10 +66,10 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 ![Highlights on the page and the Notebook](.github/readme/notebook.png)
 
 - **Highlight** in pink, orange, yellow or blue from the dots at the top of the right-click menu. Highlights cover
-  whole words; right-click one to change its color, add a note or remove it.
+  whole words; right-click one to change its color, add a note or remove it (its own color again removes it too).
 - **Bookmark This Page** (Ctrl+D, or the bookmark button).
 - **Notebook** (Ctrl+Shift+N): the book's highlights, notes and bookmarks in reading order, filtered by kind or
-  color. Click one to go there; **Export…** saves them as Markdown.
+  color. Click one to go there; **Export…** saves them as Markdown, or as JSON for other tools.
 - **Search This Book** (Ctrl+F): every place a word or phrase appears, with its page. Accents and capitals don't
   matter unless you ask ("razon" finds "razón").
 
