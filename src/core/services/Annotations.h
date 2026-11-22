@@ -1,0 +1,58 @@
+// Highlights, notes and bookmarks, per book, in the library database. Each keeps its place twice: the chapter
+// offset (fast, for painting) and an EPUB CFI (survives changes to the app), plus the quoted text.
+#pragma once
+
+#include "core/position/Position.h"
+
+#include <QColor>
+#include <QDateTime>
+#include <QList>
+#include <QString>
+
+namespace core {
+
+class Library;
+
+struct Annotation {
+    enum Kind { Highlight = 0, Bookmark = 1 };
+    int id = 0;
+    int bookId = 0;
+    Kind kind = Highlight;
+    int spine = -1, start = 0, end = 0;   // end == start for a bookmark
+    QString cfi;
+    QString text;                          // the quoted text (a bookmark: the first words of the page)
+    QString color;                         // highlight color key: pink, orange, yellow, blue
+    QString note;
+    QString pageLabel, chapter;
+    QDateTime created, modified;
+};
+
+class Annotations {
+public:
+    explicit Annotations(Library* library);
+    bool isOpen() const;
+
+    static QStringList colors() { return {"pink", "orange", "yellow", "blue"}; }
+    static QColor colorValue(const QString& key);   // the swatch color
+
+    int add(const Annotation& a);                   // returns the id (0 on failure)
+    bool update(const Annotation& a);               // color, note
+    void remove(int id);
+    Annotation get(int id) const;
+    QList<Annotation> forBook(int bookId) const;    // in reading order
+    QList<Annotation> inChapter(int bookId, int spine) const;
+    // Highlights overlapping [start, end) in a chapter.
+    QList<Annotation> highlightsAt(int bookId, int spine, int start, int end) const;
+    int bookmarkAt(int bookId, int spine, int from, int to) const;   // the first bookmark in [from, to], or 0
+    int count(int bookId) const;
+
+    // Markdown: the book's title, then each highlight as a quote with its note and page, and the bookmarks.
+    QString markdown(int bookId, const QString& title, const QString& author) const;
+    // JSON for other tools: {"book": {...}, "annotations": [{kind, color, text, note, page, chapter, cfi, created}]}.
+    QByteArray json(int bookId, const QString& title, const QString& author, const QString& path) const;
+
+private:
+    QString m_connection;
+};
+
+}  // namespace core

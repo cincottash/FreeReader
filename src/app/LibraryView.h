@@ -71,9 +71,9 @@ public:
     QListWidget* filters() const { return m_filters; }
 
 signals:
+    void practiceRequested();
     void openRequested(const QString& path);
     void settingsLinkClicked();
-    void commandsRequested();
 
 protected:
     void dragEnterEvent(QDragEnterEvent*) override;
@@ -101,7 +101,7 @@ private:
 
     QLineEdit* m_search;
     QPushButton* m_add;
-    QToolButton* m_commands;
+    QPushButton* m_practice;
     QPushButton* m_notKept;
     QListWidget* m_filters;
     QLabel* m_heading;

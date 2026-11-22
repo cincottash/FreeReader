@@ -81,7 +81,13 @@ public:
     QJsonObject appearanceLayer(const QString& scope) const;
     void setAppearanceLayer(const QString& scope, const QJsonObject& layer);
 
+    // Translation cache: a lookup's answer (TranslationResult JSON) by its key (TranslationRequest::cacheKey).
+    QJsonObject cachedTranslation(const QString& key) const;
+    void cacheTranslation(const QString& key, const QString& provider, const QJsonObject& result);
+    int cachedTranslationCount() const;
+
     static QString canonicalPath(const QString& path);
+    QString connectionName() const { return m_connection; }   // for the word log, which shares the database
 
 private:
     QString m_connection;

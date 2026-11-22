@@ -15,7 +15,7 @@ namespace core {
 
 namespace {
 
-constexpr int kSchemaVersion = 3;
+constexpr int kSchemaVersion = 6;
 
 QString nowIso() { return QDateTime::currentDateTimeUtc().toString(Qt::ISODate); }
 
@@ -107,6 +107,47 @@ bool Library::open(const QString& databaseFile, QString* error)
                  " collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,"
                  " book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE, PRIMARY KEY (collection_id, book_id))"))
             return false;
+    }
+    if (version < 4) {
+        // Translations already looked up (any provider), so the same lookup never uses an allowance twice.
+        if (!run("CREATE TABLE IF NOT EXISTS translation_cache (key TEXT PRIMARY KEY, provider TEXT NOT NULL, json TEXT NOT NULL,"
+                 " created TEXT NOT NULL)"))
+            return false;
+    }
+    if (version < 5) {
+        // The word log: every word or passage looked up, one row per word (by its dictionary form), with the last
+        // place it was seen. Practice cards: one per word and direction, with their spaced-repetition state.
+        if (!run("CREATE TABLE IF NOT EXISTS words ("
+                 " id INTEGER PRIMARY KEY, language TEXT NOT NULL, word_key TEXT NOT NULL, text TEXT NOT NULL, lemma TEXT NOT NULL DEFAULT '',"
+                 " passage INTEGER NOT NULL DEFAULT 0, translation TEXT NOT NULL DEFAULT '', alternatives TEXT NOT NULL DEFAULT '[]',"
+                 " part_of_speech TEXT NOT NULL DEFAULT '', definition TEXT NOT NULL DEFAULT '', sentence TEXT NOT NULL DEFAULT '',"
+                 " sentence_translation TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '', user_note TEXT NOT NULL DEFAULT '',"
+                 " edited INTEGER NOT NULL DEFAULT 0, starred INTEGER NOT NULL DEFAULT 0,"
+                 " book_id INTEGER REFERENCES books(id) ON DELETE SET NULL, book_title TEXT NOT NULL DEFAULT '',"
+                 " spine INTEGER NOT NULL DEFAULT -1, sel_start INTEGER NOT NULL DEFAULT 0, sel_end INTEGER NOT NULL DEFAULT 0,"
+                 " cfi TEXT NOT NULL DEFAULT '', page_label TEXT NOT NULL DEFAULT '', chapter TEXT NOT NULL DEFAULT '',"
+                 " lookups INTEGER NOT NULL DEFAULT 1, added TEXT NOT NULL, last_seen TEXT NOT NULL, UNIQUE(language, word_key))"))
+            return false;
+        if (!run("CREATE TABLE IF NOT EXISTS cards ("
+                 " id INTEGER PRIMARY KEY, word_id INTEGER NOT NULL REFERENCES words(id) ON DELETE CASCADE, direction TEXT NOT NULL,"
+                 " state INTEGER NOT NULL DEFAULT 0, step INTEGER NOT NULL DEFAULT 0, due TEXT NOT NULL, stability REAL NOT NULL DEFAULT 0,"
+                 " difficulty REAL NOT NULL DEFAULT 0, reps INTEGER NOT NULL DEFAULT 0, lapses INTEGER NOT NULL DEFAULT 0,"
+                 " last_review TEXT NOT NULL DEFAULT '', suspended INTEGER NOT NULL DEFAULT 0, UNIQUE(word_id, direction))"))
+            return false;
+        if (!run("CREATE TABLE IF NOT EXISTS reviews ("
+                 " id INTEGER PRIMARY KEY, card_id INTEGER NOT NULL REFERENCES cards(id) ON DELETE CASCADE, rating INTEGER NOT NULL,"
+                 " state INTEGER NOT NULL, reviewed TEXT NOT NULL, elapsed_days REAL NOT NULL DEFAULT 0)"))
+            return false;
+    }
+    if (version < 6) {
+        // Highlights (with a color and an optional note) and bookmarks.
+        if (!run("CREATE TABLE IF NOT EXISTS annotations ("
+                 " id INTEGER PRIMARY KEY, book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE, kind INTEGER NOT NULL,"
+                 " spine INTEGER NOT NULL, sel_start INTEGER NOT NULL, sel_end INTEGER NOT NULL, cfi TEXT NOT NULL DEFAULT '',"
+                 " text TEXT NOT NULL DEFAULT '', color TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '',"
+                 " page_label TEXT NOT NULL DEFAULT '', chapter TEXT NOT NULL DEFAULT '', created TEXT NOT NULL, modified TEXT NOT NULL)"))
+            return false;
+        if (!run("CREATE INDEX IF NOT EXISTS annotations_book ON annotations(book_id, spine, sel_start)")) return false;
     }
     if (version < kSchemaVersion) q.exec(QStringLiteral("PRAGMA user_version=%1").arg(kSchemaVersion));
     m_open = true;
@@ -347,6 +388,36 @@ QJsonObject Library::appearanceLayer(const QString& scope) const
     q.addBindValue(scope);
     if (!q.exec() || !q.next()) return {};
     return QJsonDocument::fromJson(q.value(0).toString().toUtf8()).object();
+}
+
+QJsonObject Library::cachedTranslation(const QString& key) const
+{
+    if (!m_open) return {};
+    QSqlQuery q(QSqlDatabase::database(m_connection));
+    q.prepare(QStringLiteral("SELECT json FROM translation_cache WHERE key=?"));
+    q.addBindValue(key);
+    if (!q.exec() || !q.next()) return {};
+    return QJsonDocument::fromJson(q.value(0).toString().toUtf8()).object();
+}
+
+void Library::cacheTranslation(const QString& key, const QString& provider, const QJsonObject& result)
+{
+    if (!m_open) return;
+    QSqlQuery q(QSqlDatabase::database(m_connection));
+    q.prepare(QStringLiteral("INSERT INTO translation_cache (key, provider, json, created) VALUES (?,?,?,?)"
+                             " ON CONFLICT(key) DO UPDATE SET provider=excluded.provider, json=excluded.json, created=excluded.created"));
+    q.addBindValue(key);
+    q.addBindValue(provider);
+    q.addBindValue(QString::fromUtf8(QJsonDocument(result).toJson(QJsonDocument::Compact)));
+    q.addBindValue(QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+    q.exec();
+}
+
+int Library::cachedTranslationCount() const
+{
+    if (!m_open) return 0;
+    QSqlQuery q(QSqlDatabase::database(m_connection));
+    return q.exec(QStringLiteral("SELECT COUNT(*) FROM translation_cache")) && q.next() ? q.value(0).toInt() : 0;
 }
 
 void Library::setAppearanceLayer(const QString& scope, const QJsonObject& layer)

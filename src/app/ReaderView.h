@@ -1,4 +1,4 @@
-// The reading screen: header (back to the library, title and chapter, contents, commands, full screen), the
+// The reading screen: header (back to the library, title and chapter, contents, text and layout, themes, full screen), the
 // contents panel, the pages, the progress footer, Back after a jump, and footnote pop-ups.
 #pragma once
 
@@ -22,11 +22,22 @@ class QLabel;
 class QPushButton;
 class QToolButton;
 class TocPanel;
+class NotebookPanel;
+class SearchPanel;
+class TranslationPopup;
+class QMenu;
+class QTextToSpeech;
 struct Settings;
 
 namespace core {
 class BookEngine;
 class Library;
+class TranslationService;
+class WordLog;
+class Annotations;
+struct SearchHit;
+struct TranslationResult;
+struct WordPlace;
 }
 
 class ReaderView : public QWidget {
@@ -61,20 +72,57 @@ public:
     void jumpTo(const core::Position& p);   // remembers where it came from (Back)
     bool canGoBack() const { return !m_history.empty(); }
     void goBack();
+    void forgetHistory();   // no Back (the screenshot mode's own jumps aren't the reader's)
     void nextChapter();
     void previousChapter();
     QString goToPageOrPercent(const QString& text);   // empty on success, else a message for the user
     void setFullScreenIcon(bool fullScreen);
 
+    // Translation of the selection (the pop-up), and the right-click menu on the page.
+    void setTranslator(core::TranslationService* service);
+    void setWordLog(core::WordLog* log) { m_words = log; }
+    int bookId() const { return m_bookId; }
+
+    // Highlights, notes, bookmarks (phase 4).
+    void setAnnotations(core::Annotations* a) { m_notes = a; }
+    int highlightSelection(const QString& color);   // the highlight's id; an existing one changes color
+    bool removeHighlightAtSelection();
+    int highlightAtSelection() const;              // the highlight the selection is in, 0 when none
+    int addNoteToSelection(const QString& note);   // highlights it (yellow) when it isn't yet
+    void setNote(int annotationId, const QString& note);
+    void editNote(int annotationId);               // asks for the text (interactive only)
+    bool toggleBookmark();                         // true when the page is bookmarked now
+    bool pageIsBookmarked() const;
+    void goToAnnotation(int annotationId);
+    bool exportNotebook(const QString& path, QString* error);
+    NotebookPanel* notebook() const { return m_notebook; }
+    bool notebookVisible() const;
+    void setNotebookVisible(bool on);
+    void refreshAnnotations();
+
+    // Search This Book.
+    SearchPanel* searchPanel() const { return m_search; }
+    void openSearch(const QString& query = QString());
+    void closeSearch();
+    void goToSearchHit(int index);
+    TranslationPopup* translationPopup() const { return m_translate; }
+    void translateSelection(bool dictionaryFirst = false);
+    QMenu* buildSelectionMenu();          // the menu for the current selection (the caller shows or deletes it)
+    void searchWeb(bool wikipedia);
+    QString lastOpenedUrl() const { return m_lastUrl; }   // tests: the browser is never opened when not interactive
+    bool bookIsOffline() const;
+    void setBookOffline(bool on);
+
 signals:
     void libraryRequested();
-    void commandsRequested();
     void fullScreenRequested();
     void imageRequested(const QString& path);
     void settingsLinkClicked();
     void themeChosen(const QString& key);
     void appearanceChanged();      // the All Books values changed (the settings file needs saving)
     void moreThemesRequested(const QPoint& windowPos);   // below-right corner of the button, window coordinates
+    void translationSettingsRequested();
+    void wordLogged();
 
 protected:
     void resizeEvent(QResizeEvent*) override;
@@ -87,6 +135,11 @@ private:
     void savePosition();
     void placeBackChip();
     QString chapterTitleAt(const core::Position& p) const;
+    void onTranslated(int id, const core::TranslationResult& r, const QString& why);
+    core::WordPlace wordPlace(int spine, int start, int end, const QString& sentence) const;
+    // A new highlight of a word or short phrase joins the word log (no lookup); returns the word's id or 0.
+    int markHighlightedWord(const QString& text, int spine, int start, int end, const QString& sentence);
+    void speak(const QString& text, const QString& language);
 
     core::BookEngine* m_engine;
     core::Library* m_library;
@@ -100,7 +153,6 @@ private:
     QLabel* m_subtitle;
     QPushButton* m_notKept;
     QToolButton* m_tocButton;
-    QToolButton* m_commandsButton;
     QToolButton* m_fullButton;
     QWidget* m_themeDots;
     QToolButton* m_aaButton;
@@ -111,6 +163,22 @@ private:
     FooterBar* m_footer;
     QPushButton* m_backChip;
     NotePopup* m_note;
+    TranslationPopup* m_translate;
+    core::TranslationService* m_translator = nullptr;
+    core::WordLog* m_words = nullptr;
+    int m_lookupSpine = -1, m_lookupStart = 0, m_lookupEnd = 0;
+    QString m_lookupSentence;
+    int m_lookupId = 0;
+    bool m_dictionaryFirst = false;
+    QString m_lastUrl;
+    QTextToSpeech* m_speech = nullptr;
+    core::Annotations* m_notes = nullptr;
+    NotebookPanel* m_notebook;
+    SearchPanel* m_search;
+    QToolButton* m_searchButton;
+    QToolButton* m_bookmarkButton;
+    QToolButton* m_notebookButton;
+    int m_searchId = 0;
 
     std::vector<core::Position> m_history;
     QTimer m_saveTimer;

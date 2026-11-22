@@ -10,6 +10,14 @@
 #include "core/format/FormatPlugin.h"
 #include "core/services/BookEngine.h"
 #include "core/services/Library.h"
+#include "core/services/Secrets.h"
+#include "core/translate/AiProviders.h"
+
+#include <QFile>
+#include <QJsonDocument>
+#include <QNetworkAccessManager>
+#include <QSslSocket>
+#include <QTextStream>
 
 #include <QApplication>
 #include <QCommandLineParser>
@@ -52,6 +60,41 @@ static bool waitFor(const std::function<bool()>& ready, int timeoutMs)
         QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
     }
     return true;
+}
+
+// --check-translation: one real lookup through Gemini with the saved key (one of today's free lookups), the
+// answer written to a file, then exit. Shows nothing; for checking a build can reach Gemini.
+static int checkTranslation(const QString& out)
+{
+    QFile f(out);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        fprintf(stderr, "Can't write %s\n", qPrintable(out));
+        return 2;
+    }
+    QTextStream ts(&f);
+    ts.setEncoding(QStringConverter::Utf8);
+    ts << "TLS backends: " << QSslSocket::availableBackends().join(QStringLiteral(", ")) << " (active: " << QSslSocket::activeBackend() << ")\n";
+    QNetworkAccessManager net;
+    core::GeminiProvider gemini(&net);
+    gemini.setKey(core::secrets::read(QStringLiteral("gemini-api-key")));
+    ts << "Gemini key saved: " << (gemini.hasKey() ? "yes" : "no") << ", model " << gemini.model() << "\n";
+    if (!gemini.hasKey()) return 3;
+    core::TranslationRequest r;
+    r.text = QStringLiteral("biblioteca");
+    r.sentence = QStringLiteral("Pasó la tarde en la biblioteca.");
+    r.from = QStringLiteral("es");
+    int code = 4;
+    QElapsedTimer t;
+    t.start();
+    gemini.translate(r, [&](const core::TranslationResult& res, core::TranslationFailure fail, const QString& detail) {
+        ts << "Answer in " << t.elapsed() << " ms: " << (fail == core::TranslationFailure::None ? QStringLiteral("ok") : core::failureText(fail) + QStringLiteral(" ") + detail) << "\n";
+        ts << QString::fromUtf8(QJsonDocument(res.toJson()).toJson(QJsonDocument::Indented)) << "\n";
+        code = fail == core::TranslationFailure::None ? 0 : 5;
+        QCoreApplication::quit();
+    });
+    QTimer::singleShot(40000, qApp, [] { QCoreApplication::exit(6); });
+    const int loop = QCoreApplication::exec();
+    return loop == 6 ? 6 : code;
 }
 
 // --screenshot: renders the window off-screen to a PNG and exits. Never shows a dialog or a window: problems are
@@ -119,6 +162,7 @@ static int screenshot(QCommandLineParser& cli, const QString& out)
                 return 2;
             }
             waitFor([&] { return w.isSettled(); }, 30000);
+            w.reader()->forgetHistory();
         }
         for (int i = 0; i < cli.value(QStringLiteral("turn")).toInt(); ++i) {
             w.reader()->pages()->nextScreen();
@@ -178,8 +222,10 @@ int main(int argc, char* argv[])
     cli.addOption({QStringLiteral("list-view"), QStringLiteral("With --screenshot: show the library as a list.")});
     cli.addOption({QStringLiteral("appearance"), QStringLiteral("With --screenshot: show the text and layout panel.")});
     cli.addOption({QStringLiteral("font"), QStringLiteral("With --screenshot: use this font for the text."), QStringLiteral("family")});
+    cli.addOption({QStringLiteral("check-translation"), QStringLiteral("Look up one word with Gemini (the saved key), write the answer to this file and exit."), QStringLiteral("file")});
     cli.process(app);
 
+    if (cli.isSet(QStringLiteral("check-translation"))) return checkTranslation(cli.value(QStringLiteral("check-translation")));
     if (cli.isSet(QStringLiteral("screenshot"))) return screenshot(cli, cli.value(QStringLiteral("screenshot")));
 
     if (appdata::resolve(cli.value(QStringLiteral("data-folder")), nullptr).isEmpty()) return 0;

@@ -5,6 +5,7 @@
 #include "core/layout/PageRenderer.h"
 #include "core/services/BookEngine.h"
 
+#include <QContextMenuEvent>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPainter>
@@ -91,6 +92,7 @@ void PageView::applyParams()
 
 void PageView::resizeEvent(QResizeEvent*)
 {
+    emit resized();   // pop-ups placed next to text would point at the wrong place
     if (m_geo.columnWidth <= 0 || !m_engine->isOpen()) {
         applyParams();
         return;
@@ -243,6 +245,7 @@ void PageView::paintEvent(QPaintEvent*)
     }
     const layout::RenderColors colors{m_theme.fg, m_theme.muted, m_theme.accent, m_theme.line, m_theme.surface};
     std::vector<layout::Overlay> overlays;
+    if (m_highlightSpine == m_anchor.spine) overlays = m_highlights;
     if (m_selSpine == m_anchor.spine && hasSelection())
         overlays.push_back({qMin(m_selStart, m_selEnd), qMax(m_selStart, m_selEnd), m_theme.sel});
     const int first = firstPage(*cl);
@@ -289,6 +292,7 @@ void PageView::mouseMoveEvent(QMouseEvent* e)
             m_dragging = true;
             m_selSpine = m_anchor.spine;
             m_selStart = m_selEnd = m_selAnchor;
+            emit selectionCleared();
         }
         if (m_dragging) {
             const layout::Hit h = hitAt(e->position());
@@ -316,6 +320,7 @@ void PageView::mouseReleaseEvent(QMouseEvent* e)
         m_dragging = false;
         if (m_selStart > m_selEnd) std::swap(m_selStart, m_selEnd);
         update();
+        if (hasSelection() && !selectedText().trimmed().isEmpty()) emit selectionMade();
         return;
     }
     if (m_pressSide) {
@@ -333,9 +338,21 @@ void PageView::mouseReleaseEvent(QMouseEvent* e)
 
 void PageView::mouseDoubleClickEvent(QMouseEvent* e)
 {
+    if (e->button() != Qt::LeftButton) return;
+    m_pressed = false;
+    // Clicking an arrow quickly twice turns two pages; it never selects a word under the arrow.
+    if (const int side = hoverSide(e->position())) {
+        side < 0 ? previousScreen() : nextScreen();
+        return;
+    }
+    if (selectWordAt(e->position()) && !selectedText().trimmed().isEmpty()) emit selectionMade();
+}
+
+bool PageView::selectWordAt(const QPointF& pos)
+{
     const auto cl = current();
-    const layout::Hit h = hitAt(e->position());
-    if (!cl || h.charOffset < 0) return;
+    const layout::Hit h = hitAt(pos);
+    if (!cl || h.charOffset < 0) return false;
     for (const layout::Block& b : cl->flow->blocks) {
         if (b.kind != layout::Block::Text || h.charOffset < b.start || h.charOffset >= b.start + b.length) continue;
         QTextBoundaryFinder f(QTextBoundaryFinder::Word, b.text);
@@ -346,13 +363,59 @@ void PageView::mouseDoubleClickEvent(QMouseEvent* e)
         int en = int(f.toNextBoundary());
         if (s < 0) s = 0;
         if (en < 0) en = int(b.text.size());
+        // A click on the space or punctuation after a word selects that word, without the space.
+        auto isWordChar = [&](int i) { return i >= 0 && i < int(b.text.size()) && (b.text[i].isLetterOrNumber() || b.text[i] == QChar(0x00AD)); };
+        if (!isWordChar(at) && isWordChar(at - 1)) {
+            en = at;
+            f.setPosition(at - 1);
+            s = f.isAtBoundary() ? at - 1 : qMax(0, int(f.toPreviousBoundary()));
+        }
+        while (en > s && !isWordChar(en - 1)) --en;
+        while (s < en && !isWordChar(s)) ++s;
+        if (s >= en) return false;
         m_selSpine = m_anchor.spine;
         m_selStart = b.start + s;
         m_selEnd = b.start + en;
-        m_pressed = false;
         update();
-        return;
+        return true;
     }
+    return false;
+}
+
+void PageView::contextMenuEvent(QContextMenuEvent* e)
+{
+    // Inside the selection: the menu is for it. Elsewhere on text: the word there is selected first, as in Kindle.
+    const layout::Hit h = hitAt(e->pos());
+    const bool inSelection = hasSelection() && m_selSpine == m_anchor.spine && h.charOffset >= selectionStart() &&
+                             h.charOffset < selectionEnd();
+    if (!inSelection) {
+        if (!selectWordAt(e->pos())) {
+            clearSelection();
+            return;
+        }
+    }
+    if (selectedText().trimmed().isEmpty()) return;
+    m_pressed = false;
+    emit selectionMenuRequested(e->globalPos());
+}
+
+QString PageView::selectionSentence() const
+{
+    const auto cl = current();
+    if (!cl || m_selSpine != m_anchor.spine || !hasSelection()) return {};
+    const int from = selectionStart(), to = selectionEnd();
+    for (const layout::Block& b : cl->flow->blocks) {
+        if (b.kind != layout::Block::Text || from < b.start || from >= b.start + b.length) continue;
+        QTextBoundaryFinder f(QTextBoundaryFinder::Sentence, b.text);
+        f.setPosition(from - b.start);
+        int s = f.isAtBoundary() ? from - b.start : int(f.toPreviousBoundary());
+        if (s < 0) s = 0;
+        f.setPosition(qMin(int(b.text.size()), qMax(to - b.start, s + 1)));
+        int en = f.isAtBoundary() ? f.position() : int(f.toNextBoundary());
+        if (en < 0) en = int(b.text.size());
+        return QString(b.text.mid(s, en - s)).simplified();
+    }
+    return {};
 }
 
 void PageView::wheelEvent(QWheelEvent* e)
@@ -426,7 +489,17 @@ void PageView::clearSelection()
     m_selStart = m_selEnd = 0;
     m_selSpine = -1;
     update();
+    emit selectionCleared();
 }
+
+void PageView::setHighlights(int spine, const std::vector<layout::Overlay>& overlays)
+{
+    m_highlightSpine = spine;
+    m_highlights = overlays;
+    update();
+}
+
+int PageView::offsetAt(const QPointF& pos) const { return hitAt(pos).charOffset; }
 
 void PageView::selectRange(const core::Position& from, const core::Position& to)
 {

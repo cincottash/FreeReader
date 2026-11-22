@@ -1,5 +1,5 @@
-// The main window: the start screen and the reader, the command palette (instead of a menu bar), opening books
-// and the shortcuts.
+// The main window: the menu bar, the library and the reader, opening books and the shortcuts. Every action is a
+// command (label, shortcut that can be changed in Settings); the menus and the keyboard-only palette (Ctrl+K) list them.
 #pragma once
 
 #include "Commands.h"
@@ -18,13 +18,22 @@ class CommandPalette;
 class SettingsDialog;
 class ThemePicker;
 class ImageViewer;
+class QMenu;
+class QNetworkAccessManager;
 class QStackedWidget;
 class ReaderView;
 class LibraryView;
+class PracticeView;
 
 namespace core {
 class BookEngine;
 class Library;
+class GeminiProvider;
+class LmStudioProvider;
+class TranslationService;
+class WordLog;
+class OfflineDictionary;
+class Annotations;
 }
 
 class MainWindow : public QMainWindow {
@@ -41,6 +50,10 @@ public:
 
     ReaderView* reader() const { return m_reader; }
     LibraryView* library() const { return m_start; }
+    PracticeView* practice() const { return m_practice; }
+    core::WordLog* wordLog() const { return m_words.get(); }
+    core::Annotations* annotations() const { return m_annotations.get(); }
+    void showPractice(bool wordList = false);
     CommandPalette* palette() const { return m_palette; }
     core::BookEngine* engine() const { return m_engine; }
     Command* command(const QString& id) const;
@@ -64,6 +77,8 @@ protected:
 
 private:
     void buildCommands();
+    void buildMenus();
+    void fillThemeMenu();
     void addCommand(const QString& id, const QString& label, const QKeySequence& key, std::function<void()> run,
                     std::function<bool()> enabled = nullptr, const QString& hint = QString());
     void showLibrary();
@@ -77,9 +92,18 @@ private:
     void about();
     void showTheme(const Theme& t, bool preview);
     void applyShortcuts();
+    void applyPendingJump();
 
 public:
-    void showSettings();
+    void showSettings(int tab = 0);
+    void applyTranslationSettings();
+    void translationOptionsChanged();   // a switch in the menu changed: apply, save, update the open dialog
+    void syncChecks();                  // check marks of the menu switches from the settings
+    core::TranslationService* translator() const { return m_translator; }
+    core::GeminiProvider* gemini() const { return m_gemini; }
+    core::LmStudioProvider* lmStudio() const { return m_lmStudio; }
+    core::OfflineDictionary* dictionary() const { return m_dictionary; }
+    static QString dictionaryFile(const QString& language);   // <data folder>/dictionaries/<language>-en.sqlite
     SettingsDialog* settingsDialog() const;
 
 private:
@@ -92,11 +116,23 @@ private:
     QStackedWidget* m_stack;
     LibraryView* m_start;   // the library
     ReaderView* m_reader;
+    PracticeView* m_practice;
+    std::unique_ptr<core::WordLog> m_words;
+    std::unique_ptr<core::Annotations> m_annotations;
+    QWidget* m_beforePractice = nullptr;
+    // Show in Book from the word list: where to go once the book is open.
+    struct PendingJump { QString cfi; int spine = -1, start = 0, end = 0; } m_pendingJump;
     CommandPalette* m_palette;
     ImageViewer* m_imageViewer;
     ThemePicker* m_themePicker;
     QString m_previewKey;
     QPointer<SettingsDialog> m_settingsDialog;
+    QMenu* m_themeMenu = nullptr;
+    QNetworkAccessManager* m_net;
+    core::GeminiProvider* m_gemini;
+    core::LmStudioProvider* m_lmStudio;
+    core::TranslationService* m_translator;
+    core::OfflineDictionary* m_dictionary;
     std::vector<std::unique_ptr<Command>> m_commands;
     QString m_openingPath;
     QString m_lastError;

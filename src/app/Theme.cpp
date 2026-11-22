@@ -136,10 +136,25 @@ QComboBox QAbstractItemView { background: @pop; border: 1px solid @line; selecti
 QSlider::groove:horizontal { height: 4px; background: @line; border-radius: 2px; }
 QSlider::sub-page:horizontal { background: @accent; border-radius: 2px; }
 QSlider::handle:horizontal { background: @fg; width: 14px; height: 14px; margin: -5px 0; border-radius: 7px; }
-QCheckBox::indicator { width: 16px; height: 16px; }
+QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid @muted; border-radius: 4px; background: @input; }
+QCheckBox::indicator:hover { border-color: @accent; }
+QCheckBox::indicator:checked { background: @accent; border-color: @accent; image: url(@check); }
+QCheckBox::indicator:disabled { border-color: @line; background: transparent; }
+QFrame#Rule { background: @line; border: 0; }
+QPushButton#Suggested { border: 2px solid @accent; font-weight: 600; padding: 5px 13px; }
+QTabWidget::pane { border: 1px solid @line; border-radius: 8px; top: -1px; background: @surface; }
+QTabBar::tab { background: transparent; color: @muted; padding: 8px 14px; border: 0; border-bottom: 2px solid transparent; }
+QTabBar::tab:selected { color: @fg; border-bottom-color: @accent; }
+QTabBar::tab:hover { color: @fg; }
+QMenuBar { background: @surface; border-bottom: 1px solid @line; padding: 2px 6px; }
+QMenuBar::item { background: transparent; padding: 5px 10px; border-radius: 6px; }
+QMenuBar::item:selected, QMenuBar::item:pressed { background: @hover; }
 QMenu { background: @pop; border: 1px solid @line; padding: 4px; }
-QMenu::item { padding: 6px 18px; border-radius: 6px; }
+QMenu::item { padding: 6px 28px 6px 24px; border-radius: 6px; }
 QMenu::item:selected { background: @hl; }
+QMenu::item:disabled { color: @muted; }
+QMenu::separator { height: 1px; background: @line; margin: 4px 8px; }
+QMenu::indicator { width: 14px; height: 14px; left: 6px; }
 )");
     QColor hover = t.fg;
     hover.setAlphaF(0.07f);
@@ -154,7 +169,9 @@ QMenu::item:selected { background: @hl; }
         .replace(QLatin1String("@line"), c(t.line))
         .replace(QLatin1String("@hover"), c(hover))
         .replace(QLatin1String("@hl"), c(t.hl))
-        .replace(QLatin1String("@bg"), c(t.bg));
+        .replace(QLatin1String("@bg"), c(t.bg))
+        // A check mark that shows on the accent color.
+        .replace(QLatin1String("@check"), t.accentFg.lightnessF() > 0.5f ? QStringLiteral(":/check-light.svg") : QStringLiteral(":/check-dark.svg"));
     return css;
 }
 
