@@ -397,6 +397,14 @@ LibraryView::LibraryView(core::Library* library, Settings& settings, QWidget* pa
     m_search->setFixedWidth(300);
     m_search->setProperty("testId", "search");
     h->addWidget(m_search);
+    // Beyond titles and authors: the text of every book (with what is typed in the box, if anything).
+    m_searchInside = new QPushButton(tr("Search Inside Books"));
+    m_searchInside->setObjectName(QStringLiteral("Chip"));
+    m_searchInside->setCursor(Qt::PointingHandCursor);
+    m_searchInside->setToolTip(tr("A word or phrase in the text of every book (Ctrl+Shift+F)"));
+    m_searchInside->setProperty("testId", "librarySearchInside");
+    h->addWidget(m_searchInside);
+    connect(m_searchInside, &QPushButton::clicked, this, [this] { emit librarySearchRequested(m_search->text()); });
     m_add = new QPushButton(tr("Add Books"));
     m_add->setObjectName(QStringLiteral("Primary"));
     m_add->setCursor(Qt::PointingHandCursor);

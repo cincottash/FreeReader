@@ -5,6 +5,9 @@
 #include "ReaderView.h"
 #include "LibraryView.h"
 #include "PracticeView.h"
+#include "LibrarySearchView.h"
+
+#include <QLineEdit>
 #include "SettingsDialog.h"
 #include "ThemePicker.h"
 
@@ -72,6 +75,8 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     m_stack->addWidget(m_practice);
     m_stack->addWidget(m_start);
     m_stack->addWidget(m_reader);
+    m_librarySearch = new LibrarySearchView(m_library);
+    m_stack->addWidget(m_librarySearch);
     m_stack->setCurrentWidget(m_start);   // the library first, whatever order the screens were added in
     setCentralWidget(m_stack);
     m_palette = new CommandPalette(m_stack);
@@ -108,6 +113,22 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     connect(m_reader, &ReaderView::fullScreenRequested, this, &MainWindow::toggleFullScreen);
     connect(m_reader, &ReaderView::translationSettingsRequested, this, [this] { showSettings(SettingsDialog::TranslationTab); });
     connect(m_start, &LibraryView::practiceRequested, this, [this] { showPractice(); });
+    connect(m_start, &LibraryView::librarySearchRequested, this, [this](const QString& q) { showLibrarySearch(q); });
+    connect(m_librarySearch, &LibrarySearchView::backRequested, this, [this] {
+        QWidget* to = m_beforeLibrarySearch == m_reader && m_engine->isOpen() ? static_cast<QWidget*>(m_reader) : static_cast<QWidget*>(m_start);
+        m_stack->setCurrentWidget(to);
+        if (to == m_start) m_start->refresh();
+        else m_reader->pages()->setFocus();
+    });
+    connect(m_librarySearch, &LibrarySearchView::openRequested, this, [this](int bookId, const QString& path, int spine, int start, int end) {
+        m_pendingJump = {QString(), spine, start, end};
+        if (m_engine->isOpen() && m_reader->bookId() == bookId) {
+            m_stack->setCurrentWidget(m_reader);
+            applyPendingJump();
+        } else {
+            openBook(path);
+        }
+    });
     connect(m_practice, &PracticeView::settingsChanged, this, &MainWindow::saveSettingsSoon);
     connect(m_practice, &PracticeView::backRequested, this, [this] {
         QWidget* to = m_beforePractice == m_reader && m_engine->isOpen() ? static_cast<QWidget*>(m_reader) : static_cast<QWidget*>(m_start);
@@ -249,6 +270,9 @@ void MainWindow::buildCommands()
     addCommand(QStringLiteral("search-book"), tr("Search This Book…"), QKeySequence(Qt::CTRL | Qt::Key_F), [this] {
         m_reader->openSearch(m_reader->pages()->hasSelection() ? m_reader->pages()->selectedText() : QString());
     }, reading, tr("Every place a word or phrase appears, with its page."));
+    addCommand(QStringLiteral("search-library"), tr("Search All Books…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_F), [this] {
+        showLibrarySearch(isReading() && m_reader->pages()->hasSelection() ? m_reader->pages()->selectedText() : QString());
+    }, nullptr, tr("A word or phrase in the text of every book in the library."));
     addCommand(QStringLiteral("bookmark"), tr("Bookmark This Page"), QKeySequence(Qt::CTRL | Qt::Key_D), [this] { m_reader->toggleBookmark(); },
                reading, tr("Adds a bookmark, or removes the one on this page."));
     addCommand(QStringLiteral("notebook"), tr("Show or Hide Notebook"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_N),
@@ -340,6 +364,7 @@ void MainWindow::buildMenus()
     add(go, "book-start");
     go->addSeparator();
     add(go, "search-book");
+    add(go, "search-library");
     add(go, "bookmark");
     go->addSeparator();
     add(go, "practice");
@@ -525,7 +550,8 @@ bool MainWindow::isReading() const { return m_stack->currentWidget() == m_reader
 bool MainWindow::isSettled() const
 {
     if (!m_openingPath.isEmpty() || m_start->isImporting()) return false;
-    return m_stack->currentWidget() == m_start || m_stack->currentWidget() == m_practice || m_reader->isSettled();
+    return m_stack->currentWidget() == m_start || m_stack->currentWidget() == m_practice || m_stack->currentWidget() == m_librarySearch ||
+           m_reader->isSettled();
 }
 
 void MainWindow::chooseBook()
@@ -696,6 +722,7 @@ void MainWindow::showTheme(const Theme& t, bool preview)
     m_reader->setTheme(t);
     m_start->setTheme(t);
     m_practice->setTheme(t);
+    m_librarySearch->setTheme(t);
     m_imageViewer->setTheme(t);
 }
 
@@ -704,6 +731,15 @@ void MainWindow::showPractice(bool wordList)
     if (m_stack->currentWidget() != m_practice) m_beforePractice = m_stack->currentWidget();
     m_stack->setCurrentWidget(m_practice);
     wordList ? m_practice->showList() : m_practice->showStart();
+}
+
+void MainWindow::showLibrarySearch(const QString& query)
+{
+    if (m_stack->currentWidget() != m_librarySearch) m_beforeLibrarySearch = m_stack->currentWidget();
+    m_stack->setCurrentWidget(m_librarySearch);
+    if (!query.simplified().isEmpty()) m_librarySearch->setQuery(query);
+    m_librarySearch->setFocus();
+    if (auto* box = m_librarySearch->findChild<QLineEdit*>()) box->setFocus();
 }
 
 void MainWindow::applyPendingJump()
