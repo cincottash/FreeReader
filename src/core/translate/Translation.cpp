@@ -17,8 +17,12 @@ bool TranslationRequest::isWord() const
 
 QString TranslationRequest::cacheKey() const
 {
-    // The meaning of a word depends on its sentence, so both are part of the key.
-    const QByteArray raw = (from + QLatin1Char('|') + to + QLatin1Char('|') + text.trimmed() + QLatin1Char('|') + sentence.simplified()).toUtf8();
+    // The meaning of a word depends on its sentence, so both are part of the key. Lookups keep the key they had
+    // before the other kinds existed (the cache stays valid).
+    QString base = from + QLatin1Char('|') + to + QLatin1Char('|') + text.trimmed() + QLatin1Char('|') + sentence.simplified();
+    if (kind == Kind::Explain) base.prepend(QLatin1String("explain|"));
+    if (kind == Kind::Paragraphs) base = QLatin1String("paragraphs|") + from + QLatin1Char('|') + to + QLatin1Char('|') + paragraphs.join(QChar(0x2029));
+    const QByteArray raw = base.toUtf8();
     return QString::fromLatin1(QCryptographicHash::hash(raw, QCryptographicHash::Sha256).toHex());
 }
 
@@ -33,6 +37,8 @@ QJsonObject TranslationResult::toJson() const
     o[QLatin1String("definition")] = definition;
     o[QLatin1String("in_sentence")] = inSentence;
     o[QLatin1String("note")] = note;
+    if (!explanation.isEmpty()) o[QLatin1String("explanation")] = QJsonArray::fromStringList(explanation);
+    if (!paragraphs.isEmpty()) o[QLatin1String("translations")] = QJsonArray::fromStringList(paragraphs);
     o[QLatin1String("provider")] = provider;
     return o;
 }
@@ -54,6 +60,9 @@ TranslationResult TranslationResult::fromJson(const QJsonObject& o)
     r.definition = s("definition");
     r.inSentence = s("in_sentence");
     r.note = s("note");
+    for (const QJsonValue& v : o.value(QLatin1String("explanation")).toArray())
+        if (!v.toString().trimmed().isEmpty()) r.explanation << v.toString().trimmed();
+    for (const QJsonValue& v : o.value(QLatin1String("translations")).toArray()) r.paragraphs << v.toString().trimmed();
     r.provider = s("provider");
     return r;
 }

@@ -6,6 +6,7 @@
 #include "Theme.h"
 
 #include "core/position/Position.h"
+#include "core/translate/Translation.h"
 
 #include <QDateTime>
 #include <QJsonValue>
@@ -111,6 +112,8 @@ public:
     void goToSearchHit(int index);
     TranslationPopup* translationPopup() const { return m_translate; }
     void translateSelection(bool dictionaryFirst = false);
+    // Explain This Sentence: the selection's sentence in English with notes on its grammar and idioms.
+    void explainSelection();
     QMenu* buildSelectionMenu();          // the menu for the current selection (the caller shows or deletes it)
     void searchWeb(bool wikipedia);
     QString lastOpenedUrl() const { return m_lastUrl; }   // tests: the browser is never opened when not interactive
@@ -183,6 +186,7 @@ private:
     QString m_lookupSentence;
     int m_lookupId = 0;
     bool m_dictionaryFirst = false;
+    core::TranslationRequest::Kind m_lookupKind = core::TranslationRequest::Kind::Lookup;
     QString m_lastUrl;
     QTextToSpeech* m_speech = nullptr;
     core::Annotations* m_notes = nullptr;

@@ -27,6 +27,8 @@ public:
     // `interim`: the offline dictionary's answer while the online one is on its way (still loading).
     void showResult(const core::TranslationResult& r, bool dictionaryFirst = false, bool interim = false);
     void showNothing(const QString& why);
+    // Explain This Sentence: the sentence in English, then the notes on how it works.
+    void showExplanation(const core::TranslationResult& r);
     // Hear Pronunciation can't read this language: why, and (Windows) a button to the system's speech settings.
     void showSpeechProblem(const QString& text, bool canOpenSettings);
     const core::TranslationResult& result() const { return m_result; }

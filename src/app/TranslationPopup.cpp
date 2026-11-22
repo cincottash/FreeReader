@@ -282,6 +282,47 @@ void TranslationPopup::showNothing(const QString& why)
     place();
 }
 
+void TranslationPopup::showExplanation(const core::TranslationResult& r)
+{
+    m_loading = false;
+    m_result = r;
+    setHead(QString(), QString());
+    m_speak->setVisible(false);
+    m_translation->setObjectName(QString());
+    m_translation->style()->polish(m_translation);
+    m_translation->setText(r.translation);
+    m_translation->setVisible(!r.translation.isEmpty());
+    m_alternatives->hide();
+    m_note->setText(r.note);
+    m_note->setVisible(!r.note.isEmpty());
+    m_sentenceTitle->hide();
+    m_sentence->hide();
+    // The notes below the rule, where the definition goes.
+    if (m_lay->indexOf(m_definitionTitle) < m_lay->indexOf(m_rule)) {
+        m_lay->removeWidget(m_definitionTitle);
+        m_lay->removeWidget(m_definition);
+        const int at = m_lay->indexOf(m_rule) + 2;
+        m_lay->insertWidget(at, m_definitionTitle);
+        m_lay->insertWidget(at + 1, m_definition);
+    }
+    m_definitionTitle->setText(tr("HOW IT WORKS"));
+    QStringList notes;
+    for (const QString& n : r.explanation) notes << QStringLiteral("• ") + n;
+    m_definition->setText(notes.join(QLatin1Char('\n')));
+    const bool hasNotes = !notes.isEmpty();
+    m_definitionTitle->setVisible(hasNotes);
+    m_definition->setVisible(hasNotes);
+    m_rule->setVisible(hasNotes);
+    m_copy->setText(tr("Copy"));
+    m_copy->setVisible(!r.translation.isEmpty());
+    m_settings->hide();
+    QString source = tr("Source: %1").arg(r.provider.isEmpty() ? tr("unknown") : r.provider);
+    if (r.fromCache) source += tr(" (explained before)");
+    m_source->setText(source);
+    m_source->show();
+    place();
+}
+
 void TranslationPopup::showSpeechProblem(const QString& text, bool canOpenSettings)
 {
     if (!isVisible()) return;

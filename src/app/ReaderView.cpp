@@ -782,6 +782,34 @@ void ReaderView::translateSelection(bool dictionaryFirst)
     m_lookupStart = m_pages->selectionStart();
     m_lookupEnd = m_pages->selectionEnd();
     m_lookupSentence = r.sentence.isEmpty() ? r.text : r.sentence;
+    m_lookupKind = core::TranslationRequest::Kind::Lookup;
+    m_translator->setOfflineOnly(bookIsOffline());
+    m_lookupId = m_translator->translate(r);
+}
+
+void ReaderView::explainSelection()
+{
+    if (!m_pages->hasSelection()) return;
+    // The sentence the selection is in; a selection longer than one sentence is explained as it is.
+    QString text = m_pages->selectionSentence().simplified();
+    const QString selected = m_pages->selectedText().simplified();
+    if (selected.size() > text.size()) text = selected;
+    if (text.isEmpty()) return;
+    if (text.size() > 1500) text = text.left(1500);
+    m_note->hide();
+    const QRect anchor = m_pages->rangeRect(m_pages->selectionSpine(), m_pages->selectionStart(), m_pages->selectionEnd());
+    m_translate->setTheme(m_theme);
+    m_translate->showLoading(text, languageCode(), anchor);
+    if (!m_translator) {
+        m_translate->showNothing(tr("Translation isn't available."));
+        return;
+    }
+    core::TranslationRequest r;
+    r.kind = core::TranslationRequest::Kind::Explain;
+    r.text = text;
+    r.sentence = text;
+    r.from = languageCode();
+    m_lookupKind = r.kind;
     m_translator->setOfflineOnly(bookIsOffline());
     m_lookupId = m_translator->translate(r);
 }
@@ -795,11 +823,16 @@ void ReaderView::onTranslated(int id, const core::TranslationResult& r, const QS
                               : why.isEmpty() ? tr("No translation engine is set up yet.") : why;
         if (bookIsOffline()) text += QLatin1Char('\n') + tr("This book is kept offline, so Gemini isn't asked.");
         // Nothing answered, and the free offline dictionary would have for a word: say where to get it.
-        if (!allOff && m_translator && !m_translator->hasOfflineDictionary(languageCode()) &&
+        if (!allOff && m_lookupKind == core::TranslationRequest::Kind::Lookup && m_translator && !m_translator->hasOfflineDictionary(languageCode()) &&
             (languageCode() == QLatin1String("es") || languageCode() == QLatin1String("en")))
             text += QLatin1Char('\n') + tr("Tip: the offline dictionary answers words without the internet. Download it in "
                                            "Settings > Translation > Translation Settings….");
+        if (m_lookupKind == core::TranslationRequest::Kind::Explain && !allOff)
+            text = tr("Explanations come from Gemini or LM Studio, and neither could answer.") + QLatin1Char('\n') + text;
         m_translate->showNothing(text);
+    } else if (m_lookupKind == core::TranslationRequest::Kind::Explain) {
+        // An explanation isn't vocabulary: shown, not logged.
+        m_translate->showExplanation(r);
     } else {
         m_translate->showResult(r, m_dictionaryFirst);
         // Every lookup goes to the word log, with the place it was seen.
@@ -911,6 +944,9 @@ QMenu* ReaderView::buildSelectionMenu()
     }
     QAction* translate = menu->addAction(tr("Translate"), this, [this] { translateSelection(false); });
     translate->setProperty("testId", "menuTranslate");
+    QAction* explain = menu->addAction(tr("Explain This Sentence"), this, [this] { explainSelection(); });
+    explain->setProperty("testId", "menuExplain");
+    explain->setToolTip(tr("The sentence in English, with notes on its grammar and idioms (Gemini or LM Studio)."));
     QAction* dict = menu->addAction(tr("Look Up in Dictionary"), this, [this] { translateSelection(true); });
     dict->setProperty("testId", "menuDictionary");
     dict->setEnabled(words >= 1 && words <= 4);

@@ -12,10 +12,15 @@
 namespace core {
 
 struct TranslationRequest {
-    QString text;       // the selection
+    // Lookup: the pop-up (a word or a passage). Explain: a sentence's translation with notes on its grammar and
+    // idioms. Paragraphs: several paragraphs translated in one go (the bilingual view), in `paragraphs`.
+    enum class Kind { Lookup, Explain, Paragraphs };
+    Kind kind = Kind::Lookup;
+    QString text;       // the selection (Explain: the sentence)
     QString sentence;   // the sentence it appears in (context)
     QString from;       // source language code ("es"), from the book
     QString to = QStringLiteral("en");
+    QStringList paragraphs;   // Paragraphs only
 
     bool isWord() const;     // one word (no spaces), so a dictionary entry fits
     QString cacheKey() const;
@@ -30,10 +35,12 @@ struct TranslationResult {
     QString definition;        // a short definition in the book's language
     QString inSentence;        // the whole sentence in English
     QString note;              // one short remark (an old meaning, an idiom), optional
+    QStringList explanation;   // Explain: short notes on the sentence's grammar, idioms and unusual words
+    QStringList paragraphs;    // Paragraphs: one translation per paragraph asked, in order
     QString provider;          // shown in the pop-up: "Gemini", "LM Studio", "Offline dictionary"
     bool fromCache = false;
 
-    bool isEmpty() const { return translation.isEmpty() && definition.isEmpty(); }
+    bool isEmpty() const { return translation.isEmpty() && definition.isEmpty() && paragraphs.isEmpty(); }
     QJsonObject toJson() const;
     static TranslationResult fromJson(const QJsonObject& o);
 };

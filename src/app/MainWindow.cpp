@@ -239,6 +239,9 @@ void MainWindow::buildCommands()
                tr("App data folder, keyboard shortcuts, resets."));
     addCommand(QStringLiteral("translate"), tr("Translate Selection"), QKeySequence(Qt::CTRL | Qt::Key_E), [this] { m_reader->translateSelection(); },
                [this] { return isReading() && m_reader->pages()->hasSelection(); }, tr("Shows the translation pop-up for the selected text."));
+    addCommand(QStringLiteral("explain"), tr("Explain This Sentence"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_E), [this] { m_reader->explainSelection(); },
+               [this] { return isReading() && m_reader->pages()->hasSelection(); },
+               tr("The selected sentence in English, with notes on its grammar and idioms."));
     addCommand(QStringLiteral("book-offline"), tr("Keep This Book Offline"), QKeySequence(), [this] {
         m_reader->setBookOffline(!m_reader->bookIsOffline());
     }, [this] { return isReading() && !m_settings.offlineOnly; }, tr("Text from this book is never sent to Gemini."));
