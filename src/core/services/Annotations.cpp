@@ -2,6 +2,9 @@
 
 #include "Library.h"
 
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QVariant>
@@ -149,6 +152,26 @@ int Annotations::count(int bookId) const
     q.prepare(QStringLiteral("SELECT COUNT(*) FROM annotations WHERE book_id=?"));
     q.addBindValue(bookId);
     return q.exec() && q.next() ? q.value(0).toInt() : 0;
+}
+
+QByteArray Annotations::json(int bookId, const QString& title, const QString& author, const QString& path) const
+{
+    QJsonArray list;
+    for (const Annotation& a : forBook(bookId)) {
+        QJsonObject o{{QStringLiteral("kind"), a.kind == Annotation::Highlight ? QStringLiteral("highlight") : QStringLiteral("bookmark")},
+                      {QStringLiteral("text"), a.text},
+                      {QStringLiteral("page"), a.pageLabel},
+                      {QStringLiteral("chapter"), a.chapter},
+                      {QStringLiteral("cfi"), a.cfi},
+                      {QStringLiteral("created"), a.created.toUTC().toString(Qt::ISODate)}};
+        if (a.kind == Annotation::Highlight) {
+            o[QLatin1String("color")] = a.color;
+            o[QLatin1String("note")] = a.note;
+        }
+        list.append(o);
+    }
+    const QJsonObject book{{QStringLiteral("title"), title}, {QStringLiteral("author"), author}, {QStringLiteral("file"), path}};
+    return QJsonDocument(QJsonObject{{QStringLiteral("book"), book}, {QStringLiteral("annotations"), list}}).toJson(QJsonDocument::Indented);
 }
 
 QString Annotations::markdown(int bookId, const QString& title, const QString& author) const

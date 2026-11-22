@@ -48,6 +48,8 @@ public:
 
     // Markdown: the book's title, then each highlight as a quote with its note and page, and the bookmarks.
     QString markdown(int bookId, const QString& title, const QString& author) const;
+    // JSON for other tools: {"book": {...}, "annotations": [{kind, color, text, note, page, chapter, cfi, created}]}.
+    QByteArray json(int bookId, const QString& title, const QString& author, const QString& path) const;
 
 private:
     QString m_connection;

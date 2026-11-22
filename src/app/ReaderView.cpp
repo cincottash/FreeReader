@@ -252,7 +252,7 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
         const QString name = m_title->text().isEmpty() ? tr("Notebook") : m_title->text();
         const QString path = QFileDialog::getSaveFileName(this, tr("Export Notebook"),
                                                           QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + QLatin1Char('/') + name + QStringLiteral(" notes.md"),
-                                                          tr("Markdown (*.md)"));
+                                                          tr("Markdown (*.md);;JSON (*.json)"));
         if (path.isEmpty()) return;
         QString err;
         if (!exportNotebook(path, &err)) QMessageBox::warning(this, tr("Export Notebook"), tr("Couldn't save the file. %1").arg(err));
@@ -1122,7 +1122,10 @@ bool ReaderView::exportNotebook(const QString& path, QString* error)
         if (error) *error = f.errorString();
         return false;
     }
-    f.write(m_notes->markdown(m_bookId, b.title.isEmpty() ? m_title->text() : b.title, b.author).toUtf8());
+    const QString title = b.title.isEmpty() ? m_title->text() : b.title;
+    // The file name chooses the format: .json for other tools, anything else Markdown.
+    if (path.endsWith(QLatin1String(".json"), Qt::CaseInsensitive)) f.write(m_notes->json(m_bookId, title, b.author, b.path));
+    else f.write(m_notes->markdown(m_bookId, title, b.author).toUtf8());
     if (!f.commit()) {
         if (error) *error = f.errorString();
         return false;
