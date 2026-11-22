@@ -47,6 +47,10 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
   paste it in **Settings ▸ Translation ▸ Translation Settings…**. The key is kept in Windows Credential Manager
   (or the system's key store on Linux), never in a file. **Test** looks up one word to check it works.
 - **Offline Only** (for all books, or just the open one) never sends text over the internet.
+- **Offline dictionary** (optional, 31 MB): **Download Dictionary** in the translation settings fetches the
+  Spanish → English dictionary (120,000 words, made from [Wiktionary](https://en.wiktionary.org), CC BY-SA 4.0)
+  from this project's [releases](https://github.com/cincottash/FreeReader/releases/tag/dictionary-es-en-1). It
+  answers single words at once, including verb forms ("tenía" → tener), with no internet.
 
 ## Practice
 

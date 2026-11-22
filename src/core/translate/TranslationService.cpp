@@ -56,6 +56,8 @@ TranslationResult TranslationService::offlineMeaning(const QString& text, const 
     return m_instant->lookUp(text, from);
 }
 
+bool TranslationService::hasOfflineDictionary() const { return m_instant && m_instant->info().ok; }
+
 void TranslationService::next(int id, const TranslationRequest& request, size_t from, QStringList why)
 {
     for (size_t i = from; i < m_providers.size(); ++i) {
