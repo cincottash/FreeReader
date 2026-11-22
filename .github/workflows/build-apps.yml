@@ -156,6 +156,9 @@ jobs:
           curl -fsSL -o linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
           curl -fsSL -o linuxdeploy-plugin-qt https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
           chmod +x linuxdeploy linuxdeploy-plugin-qt
+          # The app uses only the SQLite driver. The Qt plug-in would bundle every SQL driver, and some (Mimer,
+          # MySQL, ODBC) need libraries that aren't installed, which stops the packaging.
+          find "$QT_ROOT_DIR/plugins/sqldrivers" -type f ! -name 'libqsqlite.so' -print -delete
           cp resources/icon.svg FreeReader.svg
           ./linuxdeploy --appdir AppDir --executable build/FreeReader \
             --desktop-file packaging/linux/FreeReader.desktop --icon-file FreeReader.svg \
