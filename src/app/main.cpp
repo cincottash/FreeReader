@@ -90,6 +90,7 @@ static int screenshot(QCommandLineParser& cli, const QString& out)
             fprintf(stderr, "Adding books didn't finish in time.\n");
             return 3;
         }
+        w.library()->setMessage(QString());   // pictures show the library, not the import report
     }
     if (cli.isSet(QStringLiteral("list-view"))) w.library()->setListMode(true);
     const QStringList args = cli.positionalArguments();
