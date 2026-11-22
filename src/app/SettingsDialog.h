@@ -8,6 +8,7 @@
 
 #include "Commands.h"
 #include "core/translate/AiProviders.h"
+#include "core/translate/DictionaryDownload.h"
 
 #include <QDialog>
 
@@ -54,6 +55,12 @@ public:
     void setDictionary(core::OfflineDictionary* dictionary, const QString& installPath);
     QString installDictionary(const QString& file);   // empty when installed, else why not
     void removeDictionary();
+    // Download Dictionary: from FreeReader's GitHub releases (tests point it at a local server).
+    void downloadDictionary();
+    void cancelDictionaryDownload();
+    bool isDownloadingDictionary() const;
+    void setDictionarySource(const core::DictionaryDownload::Source& s) { m_dictSource = s; }
+    QString lastMessage() const;
 
 signals:
     void changeDataFolderRequested();
@@ -95,5 +102,11 @@ private:
     QLabel* m_dictStatus;
     QCheckBox* m_useDict;
     QPushButton* m_removeDict;
+    QPushButton* m_addDict;
+    QPushButton* m_downloadDict;
+    class QProgressBar* m_dictProgress;
+    core::DictionaryDownload* m_downloader = nullptr;
+    core::DictionaryDownload::Source m_dictSource = core::DictionaryDownload::spanishEnglish();
+    void installDownloaded(const QString& file, const QString& error);
     QCheckBox* m_auto;
 };
