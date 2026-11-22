@@ -7,6 +7,9 @@
 #include "Settings.h"
 #include "TocPanel.h"
 #include "NotebookPanel.h"
+#include "BilingualPanel.h"
+
+#include <QCryptographicHash>
 #include "SearchPanel.h"
 #include "TranslationPopup.h"
 
@@ -15,6 +18,7 @@
 #include "core/translate/TranslationService.h"
 #include "core/services/BookIndex.h"
 #include "core/services/WordLog.h"
+#include "core/services/Statistics.h"
 #include "core/services/Annotations.h"
 
 #include <QDialog>
@@ -164,6 +168,13 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     m_notebook->setFixedWidth(340);
     m_notebook->hide();
     body->addWidget(m_notebook);
+    m_bilingual = new BilingualPanel;
+    m_bilingual->setFixedWidth(380);
+    m_bilingual->hide();
+    body->addWidget(m_bilingual);
+    m_bilingualTimer.setSingleShot(true);
+    m_bilingualTimer.setInterval(250);   // a quick run of page turns asks once, for the page it stops on
+    connect(&m_bilingualTimer, &QTimer::timeout, this, &ReaderView::refreshBilingual);
     lay->addLayout(body, 1);
 
     m_footer = new FooterBar;
@@ -312,6 +323,7 @@ void ReaderView::setTheme(const Theme& t)
     m_bookmarkButton->setIcon(icons::icon("bookmark", t.fg));
     m_notebookButton->setIcon(icons::icon("panel", t.fg));
     m_notebook->setTheme(t);
+    m_bilingual->setTheme(t);
     setFullScreenIcon(window() && window()->isFullScreen());
     m_pages->setTheme(t);
     m_translate->setTheme(t);
@@ -436,7 +448,16 @@ void ReaderView::changeAppearance(const QString& key, const QJsonValue& value)
 
 void ReaderView::showBook(int bookId, const core::Position& start)
 {
+    if (m_bookId && m_bookId != bookId) {
+        creditReading(false, 0);
+        flushReading();
+    }
     m_bookId = bookId;
+    // Reading time starts now (counted at each page turn, in gaps of at most 5 minutes).
+    m_readingMark = readingNow();
+    m_pendingReadMs = 0;
+    m_pendingPages = 0;
+    m_pendingChars = 0;
     m_history.clear();
     m_backChip->hide();
     m_note->hide();
@@ -447,6 +468,7 @@ void ReaderView::showBook(int bookId, const core::Position& start)
     m_footer->setMarks({});
     setContentsVisible(m_settings.showContents);
     setNotebookVisible(m_settings.showNotebook);
+    setBilingualVisible(m_settings.showBilingual);
     closeSearch();
     applyReadingOptions();
     m_lastShown = start;
@@ -459,7 +481,11 @@ void ReaderView::showBook(int bookId, const core::Position& start)
 
 void ReaderView::closeBook()
 {
-    if (m_bookId) savePosition();
+    if (m_bookId) {
+        creditReading(false, 0);
+        savePosition();   // writes the reading time too
+    }
+    m_readingMark = 0;
     m_saveTimer.stop();
     m_bookId = 0;
     m_note->hide();
@@ -564,6 +590,9 @@ void ReaderView::onPositionChanged(const core::Position& p, bool byTurn)
             m_settings.readingSpeed = qBound(200, int(0.85 * m_settings.readingSpeed + 0.15 * cpm), 6000);
         }
     }
+    // Reading statistics: the time on the page just left, and a page read when it was a forward turn.
+    creditReading(byTurn && m_lastShown < p, m_lastScreenChars);
+    if (m_bilingual->isVisible()) m_bilingualTimer.start();
     m_sinceTurn.restart();
     m_lastShown = p;
     const core::Position end = m_pages->screenEnd();
@@ -573,8 +602,37 @@ void ReaderView::onPositionChanged(const core::Position& p, bool byTurn)
     refreshAnnotations();
 }
 
+ReaderView::~ReaderView() = default;
+
+qint64 ReaderView::readingNow() const { return m_readingClock ? m_readingClock() : QDateTime::currentMSecsSinceEpoch(); }
+
+void ReaderView::creditReading(bool forwardTurn, int chars)
+{
+    if (!m_bookId) return;
+    const qint64 now = readingNow();
+    // The time since the last turn, while the book was on screen; a long pause (the reader away) counts 5 minutes.
+    if (m_readingMark > 0 && now > m_readingMark && isVisible()) m_pendingReadMs += qMin<qint64>(now - m_readingMark, 5 * 60 * 1000);
+    m_readingMark = now;
+    if (forwardTurn) {
+        ++m_pendingPages;
+        m_pendingChars += qMax(0, chars);
+    }
+}
+
+void ReaderView::flushReading()
+{
+    if (!m_bookId || !m_library || (m_pendingReadMs < 1000 && m_pendingPages == 0)) return;
+    if (!m_readingLog) m_readingLog = std::make_unique<core::ReadingLog>(m_library);
+    const int seconds = int(m_pendingReadMs / 1000);
+    m_readingLog->add(m_bookId, QDate::currentDate(), seconds, m_pendingPages, m_pendingChars);
+    m_pendingReadMs -= qint64(seconds) * 1000;
+    m_pendingPages = 0;
+    m_pendingChars = 0;
+}
+
 void ReaderView::savePosition()
 {
+    flushReading();
     if (!m_bookId || !m_library) return;
     core::SavedPosition s;
     s.position = m_pages->position();
@@ -782,12 +840,44 @@ void ReaderView::translateSelection(bool dictionaryFirst)
     m_lookupStart = m_pages->selectionStart();
     m_lookupEnd = m_pages->selectionEnd();
     m_lookupSentence = r.sentence.isEmpty() ? r.text : r.sentence;
+    m_lookupKind = core::TranslationRequest::Kind::Lookup;
+    m_translator->setOfflineOnly(bookIsOffline());
+    m_lookupId = m_translator->translate(r);
+}
+
+void ReaderView::explainSelection()
+{
+    if (!m_pages->hasSelection()) return;
+    // The sentence the selection is in; a selection longer than one sentence is explained as it is.
+    QString text = m_pages->selectionSentence().simplified();
+    const QString selected = m_pages->selectedText().simplified();
+    if (selected.size() > text.size()) text = selected;
+    if (text.isEmpty()) return;
+    if (text.size() > 1500) text = text.left(1500);
+    m_note->hide();
+    const QRect anchor = m_pages->rangeRect(m_pages->selectionSpine(), m_pages->selectionStart(), m_pages->selectionEnd());
+    m_translate->setTheme(m_theme);
+    m_translate->showLoading(text, languageCode(), anchor);
+    if (!m_translator) {
+        m_translate->showNothing(tr("Translation isn't available."));
+        return;
+    }
+    core::TranslationRequest r;
+    r.kind = core::TranslationRequest::Kind::Explain;
+    r.text = text;
+    r.sentence = text;
+    r.from = languageCode();
+    m_lookupKind = r.kind;
     m_translator->setOfflineOnly(bookIsOffline());
     m_lookupId = m_translator->translate(r);
 }
 
 void ReaderView::onTranslated(int id, const core::TranslationResult& r, const QString& why)
 {
+    if (m_bilingualAsked.contains(id)) {
+        onBilingualTranslated(id, r, why);
+        return;
+    }
     if (id != m_lookupId || !m_translate->isVisible()) return;
     if (r.isEmpty()) {
         const bool allOff = !m_settings.useGemini && !m_settings.useLmStudio && !m_settings.useDictionary;
@@ -795,11 +885,16 @@ void ReaderView::onTranslated(int id, const core::TranslationResult& r, const QS
                               : why.isEmpty() ? tr("No translation engine is set up yet.") : why;
         if (bookIsOffline()) text += QLatin1Char('\n') + tr("This book is kept offline, so Gemini isn't asked.");
         // Nothing answered, and the free offline dictionary would have for a word: say where to get it.
-        if (!allOff && m_translator && !m_translator->hasOfflineDictionary(languageCode()) &&
+        if (!allOff && m_lookupKind == core::TranslationRequest::Kind::Lookup && m_translator && !m_translator->hasOfflineDictionary(languageCode()) &&
             (languageCode() == QLatin1String("es") || languageCode() == QLatin1String("en")))
             text += QLatin1Char('\n') + tr("Tip: the offline dictionary answers words without the internet. Download it in "
                                            "Settings > Translation > Translation Settings….");
+        if (m_lookupKind == core::TranslationRequest::Kind::Explain && !allOff)
+            text = tr("Explanations come from Gemini or LM Studio, and neither could answer.") + QLatin1Char('\n') + text;
         m_translate->showNothing(text);
+    } else if (m_lookupKind == core::TranslationRequest::Kind::Explain) {
+        // An explanation isn't vocabulary: shown, not logged.
+        m_translate->showExplanation(r);
     } else {
         m_translate->showResult(r, m_dictionaryFirst);
         // Every lookup goes to the word log, with the place it was seen.
@@ -911,6 +1006,9 @@ QMenu* ReaderView::buildSelectionMenu()
     }
     QAction* translate = menu->addAction(tr("Translate"), this, [this] { translateSelection(false); });
     translate->setProperty("testId", "menuTranslate");
+    QAction* explain = menu->addAction(tr("Explain This Sentence"), this, [this] { explainSelection(); });
+    explain->setProperty("testId", "menuExplain");
+    explain->setToolTip(tr("The sentence in English, with notes on its grammar and idioms (Gemini or LM Studio)."));
     QAction* dict = menu->addAction(tr("Look Up in Dictionary"), this, [this] { translateSelection(true); });
     dict->setProperty("testId", "menuDictionary");
     dict->setEnabled(words >= 1 && words <= 4);
@@ -1236,12 +1334,121 @@ bool ReaderView::notebookVisible() const { return m_notebook->isVisible(); }
 
 void ReaderView::setNotebookVisible(bool on)
 {
+    // One panel on the right at a time.
+    if (on && m_bilingual->isVisible()) setBilingualVisible(false);
     m_notebook->setVisible(on);
     const QSignalBlocker b(m_notebookButton);
     m_notebookButton->setChecked(on);
     m_settings.showNotebook = on;
     if (on) refreshAnnotations();
     emit appearanceChanged();   // the settings file needs saving
+}
+
+// ---------------------------------------------------------------- the bilingual view (English alongside)
+
+bool ReaderView::bilingualVisible() const { return m_bilingual->isVisible(); }
+
+void ReaderView::setBilingualVisible(bool on)
+{
+    if (on && m_notebook->isVisible()) setNotebookVisible(false);
+    m_bilingual->setVisible(on);
+    if (m_settings.showBilingual != on) {
+        m_settings.showBilingual = on;
+        emit appearanceChanged();   // the settings file needs saving
+    }
+    if (on) refreshBilingual();
+}
+
+QList<ReaderView::ParagraphRef> ReaderView::visibleParagraphs() const
+{
+    QList<ParagraphRef> out;
+    if (!m_engine->isOpen()) return out;
+    const core::Position a = m_pages->position(), e = m_pages->screenEnd();
+    const auto cl = m_engine->layout(a.spine);
+    if (!cl) return out;
+    for (const layout::Block& b : cl->flow->blocks) {
+        if (b.kind != layout::Block::Text) continue;
+        if (b.start + b.length <= a.offset) continue;               // ended before the screen
+        if (e.spine == a.spine && b.start >= e.offset) break;       // starts after it
+        QString t = b.text;
+        t.replace(QChar(0x2028), QLatin1Char(' '));
+        t = t.simplified();
+        int letters = 0;
+        for (const QChar c : t)
+            if (c.isLetter()) ++letters;
+        if (letters < 2) continue;   // page numbers, ornaments, "* * *"
+        out << ParagraphRef{a.spine, b.start, t};
+    }
+    return out;
+}
+
+QString ReaderView::paragraphKey(const QString& text) const
+{
+    const QByteArray raw = (QStringLiteral("paragraph|") + languageCode() + QStringLiteral("|en|") + text).toUtf8();
+    return QString::fromLatin1(QCryptographicHash::hash(raw, QCryptographicHash::Sha256).toHex());
+}
+
+void ReaderView::refreshBilingual()
+{
+    m_bilingualTimer.stop();
+    if (!m_bilingual->isVisible() || !m_engine->isOpen()) return;
+    const QList<ParagraphRef> paras = visibleParagraphs();
+    if (paras.isEmpty()) {
+        m_bilingual->setMessage(tr("No text on this page."));
+        return;
+    }
+    QStringList english, missing;
+    for (const ParagraphRef& p : paras) {
+        const QString t = m_library ? m_library->cachedTranslation(paragraphKey(p.text)).value(QLatin1String("translation")).toString() : QString();
+        english << t;
+        if (t.isEmpty() && !missing.contains(p.text)) missing << p.text;
+    }
+    if (missing.isEmpty()) {
+        m_bilingual->setParagraphs(english);
+        return;
+    }
+    if (!m_translator) {
+        m_bilingual->setParagraphs(english, tr("Translation isn't available."));
+        return;
+    }
+    // Already being translated (a page turned back and forth meanwhile): wait for it.
+    for (const QStringList& asked : std::as_const(m_bilingualAsked))
+        for (const QString& t : asked) missing.removeAll(t);
+    if (!missing.isEmpty()) {
+        // The page's paragraphs in one request (a very long page in a few).
+        core::TranslationRequest r;
+        r.kind = core::TranslationRequest::Kind::Paragraphs;
+        r.from = languageCode();
+        for (const QString& t : std::as_const(missing)) {
+            r.paragraphs << (t.size() > 4000 ? t.left(4000) : t);
+            if (r.paragraphs.size() == 25) break;
+        }
+        r.text = r.paragraphs.first().left(200);
+        m_translator->setOfflineOnly(bookIsOffline());
+        const int id = m_translator->translate(r);
+        m_bilingualAsked.insert(id, r.paragraphs);
+    }
+    m_bilingual->setParagraphs(english, tr("Translating this page…"));
+}
+
+void ReaderView::onBilingualTranslated(int id, const core::TranslationResult& r, const QString& why)
+{
+    const QStringList asked = m_bilingualAsked.take(id);
+    if (r.paragraphs.size() == asked.size() && !asked.isEmpty()) {
+        for (int i = 0; i < asked.size(); ++i)
+            if (m_library && !r.paragraphs[i].trimmed().isEmpty())
+                m_library->cacheTranslation(paragraphKey(asked[i]), r.provider,
+                                            QJsonObject{{QStringLiteral("translation"), r.paragraphs[i].trimmed()}, {QStringLiteral("provider"), r.provider}});
+        refreshBilingual();
+        return;
+    }
+    if (!m_bilingual->isVisible()) return;
+    // Nothing could translate the page: keep what is there and say why.
+    const bool allOff = !m_settings.useGemini && !m_settings.useLmStudio;
+    QString text = allOff ? tr("Turn on Gemini or LM Studio (Settings > Translation) to see the English of whole paragraphs.")
+                          : tr("The English for this page couldn't be fetched.") + (why.isEmpty() ? QString() : QLatin1Char('\n') + why);
+    if (bookIsOffline() && !allOff) text += QLatin1Char('\n') + tr("This book is kept offline, so Gemini isn't asked.");
+    m_bilingual->setParagraphs(m_bilingual->paragraphs(), text);
 }
 
 // ---------------------------------------------------------------- search

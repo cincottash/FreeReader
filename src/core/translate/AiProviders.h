@@ -17,7 +17,7 @@ namespace core {
 namespace ai {
 QString systemPrompt(const TranslationRequest& r);
 QString userPrompt(const TranslationRequest& r);
-QJsonObject answerSchema();
+QJsonObject answerSchema(const TranslationRequest& r);
 // The JSON object in a model's answer (tolerates code fences and text around it). Empty when there is none.
 QJsonObject parseAnswer(const QString& text);
 // Only addresses on this computer may replace the real Gemini address (tests use a local fake server).

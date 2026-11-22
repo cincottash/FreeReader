@@ -366,6 +366,8 @@ TranslationResult OfflineDictionary::lookUp(const QString& text, const QString& 
 
 bool OfflineDictionary::handles(const TranslationRequest& request) const
 {
+    // Words only: an explanation or a page of paragraphs is for the AI providers.
+    if (request.kind != TranslationRequest::Kind::Lookup) return false;
     return request.from.isEmpty() || m_info.language.isEmpty() || request.from == m_info.language;
 }
 

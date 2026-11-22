@@ -42,7 +42,7 @@ int TranslationService::translate(const TranslationRequest& request)
         return id;
     }
     m_inFlight.insert(key, {id});
-    if (request.isWord()) {
+    if (request.kind == TranslationRequest::Kind::Lookup && request.isWord()) {
         const TranslationResult quick = offlineMeaning(request.text, request.from);
         if (!quick.translation.isEmpty()) QTimer::singleShot(0, this, [this, id, quick] { emit interim(id, quick); });
     }

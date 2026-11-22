@@ -5,6 +5,10 @@
 #include "ReaderView.h"
 #include "LibraryView.h"
 #include "PracticeView.h"
+#include "LibrarySearchView.h"
+#include "StatisticsView.h"
+
+#include <QLineEdit>
 #include "SettingsDialog.h"
 #include "ThemePicker.h"
 
@@ -72,6 +76,10 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     m_stack->addWidget(m_practice);
     m_stack->addWidget(m_start);
     m_stack->addWidget(m_reader);
+    m_librarySearch = new LibrarySearchView(m_library);
+    m_stack->addWidget(m_librarySearch);
+    m_statistics = new StatisticsView(m_library);
+    m_stack->addWidget(m_statistics);
     m_stack->setCurrentWidget(m_start);   // the library first, whatever order the screens were added in
     setCentralWidget(m_stack);
     m_palette = new CommandPalette(m_stack);
@@ -108,6 +116,32 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     connect(m_reader, &ReaderView::fullScreenRequested, this, &MainWindow::toggleFullScreen);
     connect(m_reader, &ReaderView::translationSettingsRequested, this, [this] { showSettings(SettingsDialog::TranslationTab); });
     connect(m_start, &LibraryView::practiceRequested, this, [this] { showPractice(); });
+    connect(m_start, &LibraryView::librarySearchRequested, this, [this](const QString& q) { showLibrarySearch(q); });
+    connect(m_librarySearch, &LibrarySearchView::backRequested, this, [this] {
+        QWidget* to = m_beforeLibrarySearch == m_reader && m_engine->isOpen() ? static_cast<QWidget*>(m_reader) : static_cast<QWidget*>(m_start);
+        m_stack->setCurrentWidget(to);
+        if (to == m_start) m_start->refresh();
+        else m_reader->pages()->setFocus();
+    });
+    connect(m_statistics, &StatisticsView::backRequested, this, [this] {
+        QWidget* to = m_beforeStatistics == m_reader && m_engine->isOpen() ? static_cast<QWidget*>(m_reader) : static_cast<QWidget*>(m_start);
+        m_stack->setCurrentWidget(to);
+        if (to == m_start) m_start->refresh();
+        else m_reader->pages()->setFocus();
+    });
+    connect(m_statistics, &StatisticsView::openBookRequested, this, [this](int bookId) {
+        const core::LibraryBook b = m_library ? m_library->book(bookId) : core::LibraryBook();
+        if (b.id && QFileInfo::exists(b.path)) openBook(b.path);
+    });
+    connect(m_librarySearch, &LibrarySearchView::openRequested, this, [this](int bookId, const QString& path, int spine, int start, int end) {
+        m_pendingJump = {QString(), spine, start, end};
+        if (m_engine->isOpen() && m_reader->bookId() == bookId) {
+            m_stack->setCurrentWidget(m_reader);
+            applyPendingJump();
+        } else {
+            openBook(path);
+        }
+    });
     connect(m_practice, &PracticeView::settingsChanged, this, &MainWindow::saveSettingsSoon);
     connect(m_practice, &PracticeView::backRequested, this, [this] {
         QWidget* to = m_beforePractice == m_reader && m_engine->isOpen() ? static_cast<QWidget*>(m_reader) : static_cast<QWidget*>(m_start);
@@ -239,6 +273,9 @@ void MainWindow::buildCommands()
                tr("App data folder, keyboard shortcuts, resets."));
     addCommand(QStringLiteral("translate"), tr("Translate Selection"), QKeySequence(Qt::CTRL | Qt::Key_E), [this] { m_reader->translateSelection(); },
                [this] { return isReading() && m_reader->pages()->hasSelection(); }, tr("Shows the translation pop-up for the selected text."));
+    addCommand(QStringLiteral("explain"), tr("Explain This Sentence"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_E), [this] { m_reader->explainSelection(); },
+               [this] { return isReading() && m_reader->pages()->hasSelection(); },
+               tr("The selected sentence in English, with notes on its grammar and idioms."));
     addCommand(QStringLiteral("book-offline"), tr("Keep This Book Offline"), QKeySequence(), [this] {
         m_reader->setBookOffline(!m_reader->bookIsOffline());
     }, [this] { return isReading() && !m_settings.offlineOnly; }, tr("Text from this book is never sent to Gemini."));
@@ -246,6 +283,9 @@ void MainWindow::buildCommands()
     addCommand(QStringLiteral("search-book"), tr("Search This Book…"), QKeySequence(Qt::CTRL | Qt::Key_F), [this] {
         m_reader->openSearch(m_reader->pages()->hasSelection() ? m_reader->pages()->selectedText() : QString());
     }, reading, tr("Every place a word or phrase appears, with its page."));
+    addCommand(QStringLiteral("search-library"), tr("Search All Books…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_F), [this] {
+        showLibrarySearch(isReading() && m_reader->pages()->hasSelection() ? m_reader->pages()->selectedText() : QString());
+    }, nullptr, tr("A word or phrase in the text of every book in the library."));
     addCommand(QStringLiteral("bookmark"), tr("Bookmark This Page"), QKeySequence(Qt::CTRL | Qt::Key_D), [this] { m_reader->toggleBookmark(); },
                reading, tr("Adds a bookmark, or removes the one on this page."));
     addCommand(QStringLiteral("notebook"), tr("Show or Hide Notebook"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_N),
@@ -253,6 +293,14 @@ void MainWindow::buildCommands()
                tr("The book's highlights, notes and bookmarks."));
     addCommand(QStringLiteral("practice"), tr("Practice Words"), QKeySequence(Qt::CTRL | Qt::Key_P), [this] { showPractice(); }, nullptr,
                tr("Flashcards of the words you looked up."));
+    addCommand(QStringLiteral("bilingual"), tr("Show English Alongside"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_B), [this] {
+        m_reader->setBilingualVisible(!m_reader->bilingualVisible());
+        syncChecks();
+        saveSettingsSoon();
+    }, [this] { return isReading(); }, tr("The English of every paragraph on the page, in a panel beside it (Gemini or LM Studio)."));
+    command(QStringLiteral("bilingual"))->action->setCheckable(true);
+    addCommand(QStringLiteral("statistics"), tr("Statistics"), QKeySequence(), [this] { showStatistics(); }, nullptr,
+               tr("Time read, days in a row, books finished, words and reviews."));
     addCommand(QStringLiteral("word-list"), tr("Word List"), QKeySequence(), [this] { showPractice(true); }, nullptr,
                tr("Every word you looked up, with its meaning."));
     addCommand(QStringLiteral("translation-settings"), tr("Translation Settings…"), QKeySequence(),
@@ -311,6 +359,7 @@ void MainWindow::buildMenus()
     view->setProperty("testId", "menuView");
     add(view, "contents");
     add(view, "notebook");
+    add(view, "bilingual");
     add(view, "book-offline");
     view->addSeparator();
     add(view, "larger");
@@ -337,9 +386,11 @@ void MainWindow::buildMenus()
     add(go, "book-start");
     go->addSeparator();
     add(go, "search-book");
+    add(go, "search-library");
     add(go, "bookmark");
     go->addSeparator();
     add(go, "practice");
+    add(go, "statistics");
     add(go, "word-list");
     watch(go);
 
@@ -469,6 +520,7 @@ void MainWindow::syncChecks()
     set("use-dictionary", m_settings.useDictionary);
     set("offline-only", m_settings.offlineOnly);
     set("book-offline", m_reader && m_reader->bookIsOffline());
+    set("bilingual", m_reader && m_reader->bilingualVisible());
 }
 
 void MainWindow::showSettings(int tab)
@@ -522,7 +574,9 @@ bool MainWindow::isReading() const { return m_stack->currentWidget() == m_reader
 bool MainWindow::isSettled() const
 {
     if (!m_openingPath.isEmpty() || m_start->isImporting()) return false;
-    return m_stack->currentWidget() == m_start || m_stack->currentWidget() == m_practice || m_reader->isSettled();
+    return m_stack->currentWidget() == m_start || m_stack->currentWidget() == m_practice || m_stack->currentWidget() == m_librarySearch ||
+           m_stack->currentWidget() == m_statistics ||
+           m_reader->isSettled();
 }
 
 void MainWindow::chooseBook()
@@ -693,6 +747,8 @@ void MainWindow::showTheme(const Theme& t, bool preview)
     m_reader->setTheme(t);
     m_start->setTheme(t);
     m_practice->setTheme(t);
+    m_librarySearch->setTheme(t);
+    m_statistics->setTheme(t);
     m_imageViewer->setTheme(t);
 }
 
@@ -701,6 +757,25 @@ void MainWindow::showPractice(bool wordList)
     if (m_stack->currentWidget() != m_practice) m_beforePractice = m_stack->currentWidget();
     m_stack->setCurrentWidget(m_practice);
     wordList ? m_practice->showList() : m_practice->showStart();
+}
+
+void MainWindow::showStatistics()
+{
+    if (m_stack->currentWidget() != m_statistics) m_beforeStatistics = m_stack->currentWidget();
+    // The reading time so far counts too.
+    if (isReading()) m_reader->flushReading();
+    m_statistics->refresh();
+    m_stack->setCurrentWidget(m_statistics);
+    m_statistics->setFocus();
+}
+
+void MainWindow::showLibrarySearch(const QString& query)
+{
+    if (m_stack->currentWidget() != m_librarySearch) m_beforeLibrarySearch = m_stack->currentWidget();
+    m_stack->setCurrentWidget(m_librarySearch);
+    if (!query.simplified().isEmpty()) m_librarySearch->setQuery(query);
+    m_librarySearch->setFocus();
+    if (auto* box = m_librarySearch->findChild<QLineEdit*>()) box->setFocus();
 }
 
 void MainWindow::applyPendingJump()

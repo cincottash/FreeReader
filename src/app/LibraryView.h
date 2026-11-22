@@ -72,6 +72,7 @@ public:
 
 signals:
     void practiceRequested();
+    void librarySearchRequested(const QString& query);
     void openRequested(const QString& path);
     void settingsLinkClicked();
 
@@ -102,6 +103,7 @@ private:
     QLineEdit* m_search;
     QPushButton* m_add;
     QPushButton* m_practice;
+    QPushButton* m_searchInside;
     QPushButton* m_notKept;
     QListWidget* m_filters;
     QLabel* m_heading;

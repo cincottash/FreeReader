@@ -39,6 +39,10 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
   Ctrl+E): a pop-up shows what it means in that sentence, other meanings, its dictionary form ("tenía" → tener),
   a definition in Spanish and the whole sentence in English. **Copy** and **Hear Pronunciation** are in the pop-up.
   The same menu has Look Up in Dictionary, Copy, Search the Web and Search Wikipedia.
+- **Explain This Sentence** (right-click, or Ctrl+Shift+E): the sentence in English with short notes on how it
+  works (verb forms, pronouns, idioms, old words).
+- **Show English Alongside** (View menu, Ctrl+Shift+B): the English of every paragraph on the page in a panel
+  beside it, a page at a time; pages you've seen stay translated.
 - Prefer the pop-up as soon as you select? Turn on **Settings ▸ Translation ▸ Translate When Text Is Selected**.
 - Answers come from **Google's Gemini** (free tier, no card needed), then **LM Studio** on your own computer when
   Gemini can't answer (optional), then an **offline dictionary**. Every answer is kept, so looking up the same
@@ -70,6 +74,8 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
   gap. Flip the card, or type the answer (missing accents are accepted but pointed out).
 - **Word List:** every word with its meaning, book and page. Search, change a meaning, star, **Show in Book**,
   and **Export…** a file Anki can import.
+- **Statistics** (Go menu): time read today and this week, days in a row, books finished, words, cards learned,
+  reviews and how many you remembered, with charts of the last 30 days and the time spent on each book.
 
 ## Highlights, notes and search
 
@@ -82,6 +88,8 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
   color. Click one to go there; **Export…** saves them as Markdown, or as JSON for other tools.
 - **Search This Book** (Ctrl+F): every place a word or phrase appears, with its page. Accents and capitals don't
   matter unless you ask ("razon" finds "razón").
+- **Search All Books** (Ctrl+Shift+F, or **Search Inside Books** in the library): the same in the text of every
+  book in the library, book by book; click a result to open the book there.
 
 FreeReader never changes your book files: highlights and notes live in its own database.
 

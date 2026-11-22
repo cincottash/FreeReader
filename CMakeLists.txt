@@ -68,6 +68,8 @@ add_library(freereader_core STATIC
     src/core/services/WordLog.cpp
     src/core/services/Annotations.cpp
     src/core/services/BookSearch.cpp
+    src/core/services/LibrarySearch.cpp
+    src/core/services/Statistics.cpp
     src/core/practice/Scheduler.cpp
     src/core/practice/Answer.cpp
     src/core/translate/Translation.cpp

@@ -56,7 +56,12 @@ TranslationResult resultFrom(const QJsonObject& answer, const TranslationRequest
     TranslationResult res = TranslationResult::fromJson(answer);
     res.text = r.text.trimmed();
     res.provider = provider;
-    if (!r.isWord()) {
+    if (r.kind == TranslationRequest::Kind::Paragraphs) {
+        // One translation per paragraph, or none: a list of the wrong length can't be matched to the paragraphs.
+        if (res.paragraphs.size() != r.paragraphs.size()) res.paragraphs.clear();
+        res.translation = res.paragraphs.isEmpty() ? QString() : res.paragraphs.first();
+    }
+    if (!r.isWord() || r.kind != TranslationRequest::Kind::Lookup) {
         // A passage has no dictionary entry.
         res.alternatives.clear();
         res.partOfSpeech.clear();
@@ -81,6 +86,25 @@ QString userPrompt(const TranslationRequest& r)
 {
     const QString from = languageName(r.from), to = languageName(r.to);
     QString p;
+    if (r.kind == TranslationRequest::Kind::Explain) {
+        p += QStringLiteral("Sentence: «%1»\n\n").arg(r.text.trimmed());
+        p += QStringLiteral("The reader is learning %1 and wants to understand how this sentence works. Fill in this JSON:\n").arg(from);
+        p += QStringLiteral("- translation: the sentence in natural %1.\n").arg(to);
+        p += QStringLiteral("- explanation: 2 to 6 short notes in %1, one per item, on what a learner needs to understand it: the verb "
+                            "forms and why they are used (tense, mood, person), pronouns and what they refer to, word order, idioms "
+                            "and set phrases, old or regional words. Quote the %2 words each note is about. No note that only "
+                            "repeats the translation.\n").arg(to, from);
+        return p;
+    }
+    if (r.kind == TranslationRequest::Kind::Paragraphs) {
+        p += QStringLiteral("Translate each of these %1 paragraphs from a book into natural %2, keeping the author's tone. They are "
+                            "consecutive: use each one's neighbours as context, but translate each paragraph on its own.\n\n")
+                 .arg(r.paragraphs.size())
+                 .arg(to);
+        for (int i = 0; i < r.paragraphs.size(); ++i) p += QStringLiteral("Paragraph %1: «%2»\n\n").arg(i + 1).arg(r.paragraphs[i]);
+        p += QStringLiteral("Fill in this JSON: translations, a list of exactly %1 strings, the translation of paragraph 1 first.\n").arg(r.paragraphs.size());
+        return p;
+    }
     p += QStringLiteral("Selected text: «%1»\n").arg(r.text.trimmed());
     p += QStringLiteral("Sentence it appears in: «%1»\n\n").arg(r.sentence.isEmpty() ? r.text.trimmed() : r.sentence);
     p += QStringLiteral("Fill in this JSON:\n");
@@ -100,9 +124,21 @@ QString userPrompt(const TranslationRequest& r)
     return p;
 }
 
-QJsonObject answerSchema()
+QJsonObject answerSchema(const TranslationRequest& r)
 {
     auto str = [] { return QJsonObject{{QStringLiteral("type"), QStringLiteral("string")}}; };
+    auto list = [&] { return QJsonObject{{QStringLiteral("type"), QStringLiteral("array")}, {QStringLiteral("items"), str()}}; };
+    auto object = [](const QJsonObject& props, const QJsonArray& required) {
+        return QJsonObject{{QStringLiteral("type"), QStringLiteral("object")},
+                           {QStringLiteral("properties"), props},
+                           {QStringLiteral("required"), required},
+                           {QStringLiteral("additionalProperties"), false}};
+    };
+    if (r.kind == TranslationRequest::Kind::Explain)
+        return object({{QStringLiteral("translation"), str()}, {QStringLiteral("explanation"), list()}},
+                      {QStringLiteral("translation"), QStringLiteral("explanation")});
+    if (r.kind == TranslationRequest::Kind::Paragraphs)
+        return object({{QStringLiteral("translations"), list()}}, {QStringLiteral("translations")});
     QJsonObject props{
         {QStringLiteral("translation"), str()},
         {QStringLiteral("alternatives"), QJsonObject{{QStringLiteral("type"), QStringLiteral("array")}, {QStringLiteral("items"), str()}}},
@@ -130,7 +166,10 @@ QJsonObject parseAnswer(const QString& text)
     const QJsonDocument d = QJsonDocument::fromJson(text.mid(a, b - a + 1).toUtf8(), &err);
     if (err.error != QJsonParseError::NoError || !d.isObject()) return {};
     const QJsonObject o = d.object();
-    return o.value(QLatin1String("translation")).toString().trimmed().isEmpty() ? QJsonObject() : o;
+    // An answer has a translation, or (paragraphs) a list of them.
+    const bool has = !o.value(QLatin1String("translation")).toString().trimmed().isEmpty() ||
+                     !o.value(QLatin1String("translations")).toArray().isEmpty();
+    return has ? o : QJsonObject();
 }
 
 QUrl localOverride(const char* envVar)
@@ -169,10 +208,10 @@ void GeminiProvider::send(const TranslationRequest& request, Done done, bool sim
     req.setRawHeader("x-goog-api-key", m_key.toUtf8());
     req.setTransferTimeout(25000);
 
-    QJsonObject gen{{QStringLiteral("responseMimeType"), QStringLiteral("application/json")}, {QStringLiteral("maxOutputTokens"), 2048}};
+    QJsonObject gen{{QStringLiteral("responseMimeType"), QStringLiteral("application/json")}, {QStringLiteral("maxOutputTokens"), request.kind == TranslationRequest::Kind::Paragraphs ? 8192 : 2048}};
     if (!simple) {
         // A strict answer shape, and as little "thinking" as the model allows (faster, and it doesn't use up tokens).
-        gen[QLatin1String("responseJsonSchema")] = ai::answerSchema();
+        gen[QLatin1String("responseJsonSchema")] = ai::answerSchema(request);
         gen[QLatin1String("thinkingConfig")] = QJsonObject{{QStringLiteral("thinkingLevel"), QStringLiteral("minimal")}};
     }
     const QJsonObject body{
@@ -345,7 +384,7 @@ void LmStudioProvider::ask(const TranslationRequest& request, const QString& mod
             QJsonObject{{QStringLiteral("role"), QStringLiteral("system")}, {QStringLiteral("content"), ai::systemPrompt(request)}},
             QJsonObject{{QStringLiteral("role"), QStringLiteral("user")}, {QStringLiteral("content"), ai::userPrompt(request)}}}},
         {QStringLiteral("temperature"), 0.2},
-        {QStringLiteral("max_tokens"), 3000},
+        {QStringLiteral("max_tokens"), request.kind == TranslationRequest::Kind::Paragraphs ? 8192 : 3000},
         {QStringLiteral("stream"), false},
     };
     if (!simple)
@@ -353,7 +392,7 @@ void LmStudioProvider::ask(const TranslationRequest& request, const QString& mod
             {QStringLiteral("type"), QStringLiteral("json_schema")},
             {QStringLiteral("json_schema"), QJsonObject{{QStringLiteral("name"), QStringLiteral("translation")},
                                                         {QStringLiteral("strict"), true},
-                                                        {QStringLiteral("schema"), ai::answerSchema()}}}};
+                                                        {QStringLiteral("schema"), ai::answerSchema(request)}}}};
     QNetworkReply* reply = m_net->post(req, QJsonDocument(body).toJson(QJsonDocument::Compact));
     connect(reply, &QNetworkReply::finished, this, [this, reply, request, model, done, simple] {
         reply->deleteLater();

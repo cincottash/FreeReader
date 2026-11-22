@@ -13,6 +13,7 @@ struct Settings {
     QByteArray geometry;
     bool showContents = false;
     bool showNotebook = false;
+    bool showBilingual = false;       // the English of the page in a panel on the right
 
     // Reading
     Appearance look;                  // All Books; languages and books can override it (library database)
