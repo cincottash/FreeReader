@@ -107,6 +107,10 @@ jobs:
           # Draws the window off-screen to a picture and exits: proves Qt, its plugins and the UI all load.
           $p = Start-Process dist/FreeReader.exe -ArgumentList "--screenshot", "$env:RUNNER_TEMP\shot.png" -PassThru -Wait
           if ($p.ExitCode -ne 0 -or -not (Test-Path "$env:RUNNER_TEMP\shot.png")) { throw "The screenshot check failed (exit $($p.ExitCode))" }
+          # Hear Pronunciation: Windows' speech engine (SAPI) is in the exe.
+          $p = Start-Process dist/FreeReader.exe -ArgumentList "--check-speech", "$env:RUNNER_TEMP\speech.txt" -PassThru -Wait
+          Get-Content "$env:RUNNER_TEMP\speech.txt"
+          if (-not (Select-String -Path "$env:RUNNER_TEMP\speech.txt" -Pattern "sapi" -Quiet)) { throw "No speech engine in the exe" }
           # Starts normally and keeps running.
           $env:QT_QPA_PLATFORM = "offscreen"
           $p = Start-Process dist/FreeReader.exe -ArgumentList "--data-folder", "$data" -PassThru
@@ -133,6 +137,8 @@ jobs:
       - uses: jurplel/install-qt-action@v4
         with:
           version: "6.8.3"
+          # Hear Pronunciation: Qt TextToSpeech (and Qt Multimedia, which it needs), through speech-dispatcher.
+          modules: "qtspeech qtmultimedia"
           cache: true
 
       - name: Install build tools and the libraries Qt needs
@@ -140,7 +146,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ninja-build libgl1-mesa-dev libegl1 libxkbcommon0 \
             libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libxcb-render-util0 \
-            libxcb-image0 libfontconfig1 libdbus-1-3 libfuse2 zlib1g-dev xvfb
+            libxcb-image0 libfontconfig1 libdbus-1-3 libfuse2 zlib1g-dev xvfb \
+            libspeechd2 speech-dispatcher espeak-ng
 
       - name: Build
         run: |
@@ -159,10 +166,21 @@ jobs:
           # The app uses only the SQLite driver. The Qt plug-in would bundle every SQL driver, and some (Mimer,
           # MySQL, ODBC) need libraries that aren't installed, which stops the packaging.
           find "$QT_ROOT_DIR/plugins/sqldrivers" -type f ! -name 'libqsqlite.so' -print -delete
+          # Speech only through speech-dispatcher (the system's voices); Qt Multimedia's playback plug-ins (FFmpeg)
+          # aren't needed for that and would add their own large libraries.
+          find "$QT_ROOT_DIR/plugins/texttospeech" -type f ! -name 'libqtexttospeech_speechd.so' -print -delete || true
+          rm -rfv "$QT_ROOT_DIR/plugins/multimedia"
           cp resources/icon.svg FreeReader.svg
           ./linuxdeploy --appdir AppDir --executable build/FreeReader \
             --desktop-file packaging/linux/FreeReader.desktop --icon-file FreeReader.svg \
-            --plugin qt --output appimage
+            --plugin qt
+          # The speech plug-in, if the Qt plug-in for linuxdeploy didn't bring it.
+          if [ ! -f AppDir/usr/plugins/texttospeech/libqtexttospeech_speechd.so ]; then
+            mkdir -p AppDir/usr/plugins/texttospeech
+            cp -v "$QT_ROOT_DIR/plugins/texttospeech/libqtexttospeech_speechd.so" AppDir/usr/plugins/texttospeech/
+          fi
+          ./linuxdeploy --appdir AppDir --deploy-deps-only AppDir/usr/plugins/texttospeech --output appimage
+          find AppDir/usr/plugins -maxdepth 2 | sort
           mkdir -p dist
           mv FreeReader*.AppImage dist/FreeReader-x86_64.AppImage
           ls -l dist
@@ -180,6 +198,10 @@ jobs:
           if ! kill -0 "$pid" 2>/dev/null; then wait "$pid"; echo "The AppImage exited early (code $?)"; exit 1; fi
           kill "$pid"
           echo "FreeReader-x86_64.AppImage started and kept running"
+          # Hear Pronunciation: the speech-dispatcher engine is in the AppImage (voices depend on the system).
+          ./dist/FreeReader-x86_64.AppImage --check-speech "$RUNNER_TEMP/speech.txt" || true
+          cat "$RUNNER_TEMP/speech.txt"
+          grep -q "speechd" "$RUNNER_TEMP/speech.txt"
 
       - name: Check it starts where Qt programs are told to use Wayland
         env:

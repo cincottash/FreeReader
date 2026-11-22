@@ -182,6 +182,11 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
         emit translationSettingsRequested();
     });
     connect(m_translate, &TranslationPopup::speakRequested, this, &ReaderView::speak);
+    connect(m_translate, &TranslationPopup::speechSettingsRequested, this, [this] {
+        // Windows' own page for adding voices.
+        m_lastUrl = QStringLiteral("ms-settings:speech");
+        if (m_interactive) QDesktopServices::openUrl(QUrl(m_lastUrl));
+    });
     m_panel = new AppearancePanel(this);
     m_lookTimer.setSingleShot(true);
     m_lookTimer.setInterval(60);   // sliders move in many small steps; lay out once they pause
@@ -954,22 +959,60 @@ void ReaderView::searchWeb(bool wikipedia)
     if (m_interactive) QDesktopServices::openUrl(url);
 }
 
+QList<QLocale> ReaderView::speechLocales()
+{
+    if (m_speechLocalesForTests) return *m_speechLocalesForTests;
+#ifdef HAVE_TEXT_TO_SPEECH
+    if (!m_interactive) return {};   // tests and screenshots never start the system's speech engine
+    if (!m_speech) m_speech = new QTextToSpeech(this);
+    if (m_speech->state() == QTextToSpeech::Error) return {};
+    return m_speech->availableLocales();
+#else
+    return {};
+#endif
+}
+
+QString ReaderView::speechProblem(const QString& language, bool* canOpenSettings)
+{
+    if (canOpenSettings) *canOpenSettings = false;
+    const QLocale want(language.isEmpty() ? QStringLiteral("en") : language);
+    const QList<QLocale> locales = speechLocales();
+    for (const QLocale& l : locales)
+        if (l.language() == want.language()) return {};
+    if (!m_interactive && !m_speechLocalesForTests) return {};
+    const QString name = QLocale::languageToString(want.language());
+#ifdef Q_OS_WIN
+    if (canOpenSettings) *canOpenSettings = true;
+    // Another language's voice would read the word wrongly: nothing is said, and the fix is a free voice pack.
+    return locales.isEmpty() ? tr("Windows has no voices for reading aloud. Add one (free) in Settings > Time & Language > Speech.")
+                             : tr("No %1 voice is installed. Add one (free) in Windows Settings > Time & Language > Speech > Add voices.").arg(name);
+#else
+    return locales.isEmpty() ? tr("No speech engine was found. Install speech-dispatcher and espeak-ng (for example: sudo apt install "
+                                  "speech-dispatcher espeak-ng), then start FreeReader again.")
+                             : tr("No %1 voice is installed. Install one for speech-dispatcher, for example the espeak-ng package.").arg(name);
+#endif
+}
+
 void ReaderView::speak(const QString& text, const QString& language)
 {
+    bool canOpenSettings = false;
+    const QString problem = speechProblem(language, &canOpenSettings);
+    if (!problem.isEmpty()) {
+        m_translate->showSpeechProblem(problem, canOpenSettings);
+        return;
+    }
 #ifdef HAVE_TEXT_TO_SPEECH
     if (!m_interactive || text.isEmpty()) return;
     if (!m_speech) m_speech = new QTextToSpeech(this);
     const QLocale want(language.isEmpty() ? QStringLiteral("en") : language);
-    // A voice for the book's language when Windows has one; otherwise the default voice.
+    // The book's language, and its country when there is a voice for it (es-ES before es-MX for a book in es-ES).
+    QLocale best;
     for (const QLocale& l : m_speech->availableLocales())
-        if (l.language() == want.language()) {
-            m_speech->setLocale(l);
-            break;
-        }
+        if (l.language() == want.language() && (best.language() != want.language() || l.territory() == want.territory())) best = l;
+    if (best.language() == want.language()) m_speech->setLocale(best);
     m_speech->say(text);
 #else
     Q_UNUSED(text);
-    Q_UNUSED(language);
 #endif
 }
 

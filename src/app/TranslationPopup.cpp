@@ -75,6 +75,18 @@ TranslationPopup::TranslationPopup(QWidget* parent) : QFrame(parent)
     head->addWidget(m_detail, 1, Qt::AlignBaseline);
     head->addWidget(m_speak, 0, Qt::AlignTop);
     m_lay->addLayout(head);
+    m_speechNote = label("tpSpeechNote", "Muted");
+    m_speechNote->setStyleSheet(QStringLiteral("font-size: 12px;"));
+    m_speechNote->hide();
+    m_lay->addWidget(m_speechNote);
+    m_speechSettings = new QPushButton(tr("Open Speech Settings"));
+    m_speechSettings->setObjectName(QStringLiteral("Link"));
+    m_speechSettings->setFocusPolicy(Qt::NoFocus);
+    m_speechSettings->setCursor(Qt::PointingHandCursor);
+    m_speechSettings->setProperty("testId", "tpSpeechSettings");
+    m_speechSettings->hide();
+    m_lay->addWidget(m_speechSettings, 0, Qt::AlignLeft);
+    connect(m_speechSettings, &QPushButton::clicked, this, &TranslationPopup::speechSettingsRequested);
 
     m_translation = label("tpTranslation");
     m_translation->setStyleSheet(QStringLiteral("font-size: 17px;"));
@@ -173,6 +185,8 @@ void TranslationPopup::showLoading(const QString& text, const QString& language,
     const bool word = !m_text.contains(QLatin1Char(' ')) && m_text.size() <= 40;
     setHead(word ? m_text : QString(), QString());
     m_speak->setVisible(false);
+    m_speechNote->hide();
+    m_speechSettings->hide();
     m_translation->setText(tr("Translating…"));
     m_translation->setObjectName(QStringLiteral("Muted"));
     m_translation->style()->polish(m_translation);
@@ -263,6 +277,17 @@ void TranslationPopup::showNothing(const QString& why)
     m_note->show();
     m_settings->show();
     m_source->hide();
+    m_speechNote->hide();
+    m_speechSettings->hide();
+    place();
+}
+
+void TranslationPopup::showSpeechProblem(const QString& text, bool canOpenSettings)
+{
+    if (!isVisible()) return;
+    m_speechNote->setText(text);
+    m_speechNote->show();
+    m_speechSettings->setVisible(canOpenSettings);
     place();
 }
 
