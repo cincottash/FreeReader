@@ -312,7 +312,7 @@ bool naturalLess(const QString& a, const QString& b)
 
 QByteArray imagePage(const QString& title, const QString& imageHref, const QString& lang)
 {
-    return page(title, QStringLiteral("<div><img src=\"%1\" alt=\"%2\"/></div>").arg(escape(imageHref), escape(title)), lang);
+    return page(title, QStringLiteral("<div><img data-page-image=\"1\" src=\"%1\" alt=\"%2\"/></div>").arg(escape(imageHref), escape(title)), lang);
 }
 
 QImage decodeImage(const QByteArray& data, QSize* natural, int maxHeight)

@@ -411,6 +411,9 @@ private:
     // (never the reader's text size), so offsets stay the same at every text size.
     bool inlineImage(const dom::Node* e, const css::ComputedStyle& s, const QString& path)
     {
+        // A whole page's picture (a comic page, a PDF page drawn when it is shown) is never inline: no need to
+        // read it (or draw it) just to learn its size.
+        if (!e->attr("data-page-image").isEmpty()) return false;
         bool ok = false;
         const QByteArray data = m_book.resource(path, &ok);
         if (!ok) return false;

@@ -8,6 +8,9 @@
 #include "core/format/html/HtmlFormat.h"
 #include "core/format/mobi/MobiFormat.h"
 #include "core/format/office/OfficeFormats.h"
+#include "core/format/pdf/PdfFormat.h"
+#include "core/format/djvu/DjvuFormat.h"
+#include "core/format/chm/ChmFormat.h"
 #include "core/format/text/TextFormats.h"
 
 #include <QFile>
@@ -52,6 +55,9 @@ void registerBuiltInFormats()
     done = true;
     // Most specific first: a plug-in that checks the file's bytes before one that goes by its name alone.
     FormatRegistry::instance().add(std::make_unique<EpubFormat>());
+    FormatRegistry::instance().add(std::make_unique<PdfFormat>());
+    FormatRegistry::instance().add(std::make_unique<DjvuFormat>());
+    FormatRegistry::instance().add(std::make_unique<ChmFormat>());
     FormatRegistry::instance().add(std::make_unique<MobiFormat>());
     FormatRegistry::instance().add(std::make_unique<Fb2Format>());
     FormatRegistry::instance().add(std::make_unique<ComicFormat>());
@@ -104,6 +110,17 @@ std::shared_ptr<Book> FormatRegistry::open(const QString& path, QString* error) 
         return nullptr;
     }
     return p->open(path, error);
+}
+
+std::shared_ptr<Book> FormatRegistry::openDetails(const QString& path, QString* error) const
+{
+    if (!QFileInfo::exists(path)) {
+        if (error) *error = QStringLiteral("The file doesn't exist.");
+        return nullptr;
+    }
+    const FormatPlugin* p = pluginFor(path);
+    if (!p) return open(path, error);   // the same message
+    return p->openDetails(path, error);
 }
 
 }  // namespace core

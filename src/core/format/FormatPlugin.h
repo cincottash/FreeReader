@@ -18,6 +18,9 @@ public:
     virtual bool canOpen(const QString& path, const QByteArray& head) const = 0;
     // Opens the file. On failure returns null and a message for the user.
     virtual std::shared_ptr<Book> open(const QString& path, QString* error) const = 0;
+    // For adding to the library: a book with at least its metadata and cover. A format that is slow to read
+    // whole (a long PDF) gives only those; the others open the whole book.
+    virtual std::shared_ptr<Book> openDetails(const QString& path, QString* error) const { return open(path, error); }
 };
 
 class FormatRegistry {
@@ -28,6 +31,7 @@ public:
     QStringList fileSuffixes() const;
     // Picks the plug-in from the file's bytes, then opens it.
     std::shared_ptr<Book> open(const QString& path, QString* error) const;
+    std::shared_ptr<Book> openDetails(const QString& path, QString* error) const;   // see FormatPlugin::openDetails
 
 private:
     std::vector<std::unique_ptr<FormatPlugin>> m_plugins;

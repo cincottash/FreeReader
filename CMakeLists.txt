@@ -47,10 +47,30 @@ if(NOT ANDROID)
     find_package(PkgConfig QUIET)
     if(PkgConfig_FOUND)
         pkg_check_modules(LIBARCHIVE QUIET libarchive)
+        # DjVu (scanned books) through DjVuLibre.
+        pkg_check_modules(DJVU QUIET ddjvuapi)
         # WebP pictures (manga) where Qt has no WebP plug-in; the static build uses Qt's plug-in instead.
         if(NOT STATIC_BUILD)
             pkg_check_modules(WEBP QUIET libwebp)
         endif()
+    endif()
+    # CHM help files through chmlib (no pkg-config file).
+    find_path(CHMLIB_INCLUDE_DIR chm_lib.h)
+    find_library(CHMLIB_LIBRARY NAMES chm)
+endif()
+# PDF and XPS through MuPDF (AGPL-3.0, https://mupdf.com): its source folder, built with "make libs" into
+# MUPDF_BUILD (the workflows show the command). Without it PDF and XPS files get a plain message.
+set(MUPDF_DIR "" CACHE PATH "MuPDF source folder, built with 'make libs' (PDF and XPS)")
+set(MUPDF_BUILD "build/freereader" CACHE STRING "MuPDF's build folder, inside MUPDF_DIR")
+# MuPDF built with the system's FreeType, libjpeg and zlib (USE_SYSTEM_...=yes; the desktops), or with its own
+# copies of everything (Android). Its HTML part is left out (html=no), so it needs no HarfBuzz.
+option(MUPDF_SYSTEM_LIBS "MuPDF was built with the system's FreeType, libjpeg and zlib" ON)
+set(HAVE_MUPDF OFF)
+if(MUPDF_DIR AND EXISTS "${MUPDF_DIR}/${MUPDF_BUILD}/libmupdf.a" AND EXISTS "${MUPDF_DIR}/${MUPDF_BUILD}/libmupdf-third.a")
+    set(HAVE_MUPDF ON)
+    if(MUPDF_SYSTEM_LIBS)
+        find_package(PkgConfig REQUIRED)
+        pkg_check_modules(MUPDF_DEPS REQUIRED freetype2 libjpeg)
     endif()
 endif()
 if(STATIC_BUILD AND MINGW AND TARGET harfbuzz::harfbuzz)
@@ -83,6 +103,10 @@ add_library(freereader_core STATIC
     src/core/format/comic/ComicFormat.cpp
     src/core/format/mobi/MobiFormat.cpp
     src/core/format/office/OfficeFormats.cpp
+    src/core/format/pages/PageBook.cpp
+    src/core/format/pdf/PdfFormat.cpp
+    src/core/format/djvu/DjvuFormat.cpp
+    src/core/format/chm/ChmFormat.cpp
     src/core/layout/Fonts.cpp
     src/core/layout/Hyphenator.cpp
     src/core/layout/Flow.cpp
@@ -138,6 +162,44 @@ if(WEBP_FOUND)
     target_link_directories(freereader_core PUBLIC ${WEBP_LIBRARY_DIRS})
     target_link_libraries(freereader_core PUBLIC ${WEBP_LIBRARIES})
     message(STATUS "libwebp ${WEBP_VERSION}: WebP pictures")
+endif()
+if(DJVU_FOUND)
+    target_compile_definitions(freereader_core PRIVATE HAVE_DJVU)
+    target_include_directories(freereader_core PRIVATE ${DJVU_INCLUDE_DIRS})
+    if(STATIC_BUILD)
+        # Linked in: its functions aren't DLL imports then.
+        target_compile_definitions(freereader_core PRIVATE DDJVUAPI= MINILISPAPI=)
+        target_link_directories(freereader_core PUBLIC ${DJVU_STATIC_LIBRARY_DIRS})
+        target_link_libraries(freereader_core PUBLIC ${DJVU_STATIC_LIBRARIES})
+    else()
+        target_link_directories(freereader_core PUBLIC ${DJVU_LIBRARY_DIRS})
+        target_link_libraries(freereader_core PUBLIC ${DJVU_LIBRARIES})
+    endif()
+    message(STATUS "DjVuLibre ${DJVU_VERSION}: DjVu books")
+endif()
+if(CHMLIB_INCLUDE_DIR AND CHMLIB_LIBRARY)
+    target_compile_definitions(freereader_core PRIVATE HAVE_CHMLIB)
+    target_include_directories(freereader_core PRIVATE ${CHMLIB_INCLUDE_DIR})
+    target_link_libraries(freereader_core PUBLIC ${CHMLIB_LIBRARY})
+    message(STATUS "chmlib: CHM help files")
+endif()
+if(HAVE_MUPDF)
+    target_compile_definitions(freereader_core PRIVATE HAVE_MUPDF)
+    target_include_directories(freereader_core PRIVATE "${MUPDF_DIR}/include")
+    target_link_libraries(freereader_core PUBLIC "${MUPDF_DIR}/${MUPDF_BUILD}/libmupdf.a" "${MUPDF_DIR}/${MUPDF_BUILD}/libmupdf-third.a")
+    if(MUPDF_SYSTEM_LIBS)
+        if(STATIC_BUILD)
+            target_link_directories(freereader_core PUBLIC ${MUPDF_DEPS_STATIC_LIBRARY_DIRS})
+            target_link_libraries(freereader_core PUBLIC ${MUPDF_DEPS_STATIC_LIBRARIES})
+        else()
+            target_link_directories(freereader_core PUBLIC ${MUPDF_DEPS_LIBRARY_DIRS})
+            target_link_libraries(freereader_core PUBLIC ${MUPDF_DEPS_LIBRARIES})
+        endif()
+    endif()
+    target_link_libraries(freereader_core PUBLIC -lz -lm)   # after MuPDF's libraries, which use them
+    message(STATUS "MuPDF in ${MUPDF_DIR}: PDF and XPS")
+else()
+    message(STATUS "No MuPDF (MUPDF_DIR): PDF and XPS files get a message")
 endif()
 # Hyphenation patterns (hyph-utf8: MIT, BSD, LPPL; each file's license header sits next to it).
 file(GLOB HYPH_FILES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/resources/hyphenation/*.txt)

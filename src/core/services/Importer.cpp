@@ -80,7 +80,7 @@ void Importer::add(const QStringList& filesOrFolders, const QSet<QString>& skip)
             QMetaObject::invokeMethod(this, [this, done, n = int(files.size()), name = QFileInfo(f).fileName()] { emit progress(done, n, name); },
                                       Qt::QueuedConnection);
             QString error;
-            std::shared_ptr<Book> book = FormatRegistry::instance().open(f, &error);
+            std::shared_ptr<Book> book = FormatRegistry::instance().openDetails(f, &error);
             if (!book) {
                 ++bad;
                 QMetaObject::invokeMethod(this, [this, f, error] { emit failed(f, error); }, Qt::QueuedConnection);
