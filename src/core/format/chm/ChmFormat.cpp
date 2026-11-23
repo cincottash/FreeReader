@@ -144,6 +144,7 @@ public:
     // library's fingerprint, Search All Books), and takes only 8-bit file names.
     QString copy;   // removed when the book closes
     QHash<QString, QString> names;          // lower-case path -> the path in the file ("/html/a.htm")
+    QHash<QString, qint64> contentsFiles;   // the .hhc files (lower-case path) and their sizes
     int codePage = 1252;
 
     ChmBook() : m_thread([this] { work(); }) {}
@@ -257,8 +258,10 @@ int collect(chmFile*, chmUnitInfo* ui, void* context)
 {
     auto* book = static_cast<ChmBook*>(context);
     const QString p = QString::fromUtf8(ui->path);
-    if (p.startsWith(QLatin1Char('/')) && !p.endsWith(QLatin1Char('/')) && !p.startsWith(QLatin1String("/#")) && !p.startsWith(QLatin1String("/$")))
+    if (p.startsWith(QLatin1Char('/')) && !p.endsWith(QLatin1Char('/')) && !p.startsWith(QLatin1String("/#")) && !p.startsWith(QLatin1String("/$"))) {
         book->names.insert(p.mid(1).toLower(), p);
+        if (p.endsWith(QLatin1String(".hhc"), Qt::CaseInsensitive)) book->contentsFiles.insert(p.mid(1).toLower(), qint64(ui->length));
+    }
     return CHM_ENUMERATOR_CONTINUE;
 }
 
@@ -321,7 +324,7 @@ std::shared_ptr<Book> ChmFormat::open(const QString& path, QString* error) const
     }
 
     // #SYSTEM: the contents file, the first page, the title and the language.
-    QString hhc, home;
+    QString hhc, home, compiledName;
     QByteArray title;
     quint32 lcid = 0;
     for (qsizetype at = 4; at + 4 <= sys.size();) {
@@ -333,6 +336,7 @@ std::shared_ptr<Book> ChmFormat::open(const QString& path, QString* error) const
         if (code == 0) hhc = QString::fromLatin1(s);
         else if (code == 2) home = QString::fromLatin1(s);
         else if (code == 3) title = s;
+        else if (code == 6) compiledName = QString::fromLatin1(s).toLower();
         else if (code == 4 && v.size() >= 4) lcid = quint8(v[0]) | quint8(v[1]) << 8 | quint8(v[2]) << 16 | quint32(quint8(v[3])) << 24;
     }
     if (lcid) {
@@ -340,12 +344,30 @@ std::shared_ptr<Book> ChmFormat::open(const QString& path, QString* error) const
         book->metadata.language = languageOf(lcid);
     }
     if (!title.isEmpty()) book->metadata.title = decodeCodePage(title, book->codePage, {}).simplified();
-    if (hhc.isEmpty())
-        for (auto it = book->names.cbegin(); it != book->names.cend(); ++it)
-            if (it.key().endsWith(QLatin1String(".hhc"))) {
-                hhc = it.key();
-                break;
-            }
+    // No contents file named: of the file's .hhc files, the one named after the help file (its compiled name, or
+    // the file's own name), then one with a usual name (toc, contents), then one at the top level, then the
+    // largest (a help file made of several holds one per part: Microsoft's HTML Help has toc.hhc, htmlref.hhc and
+    // methods.hhc). Always the same one: never the first one a hash table happens to list.
+    if (hhc.isEmpty() || !book->names.contains(cleanLink(hhc).toLower())) {
+        QStringList candidates = book->contentsFiles.keys();
+        const QString own = QFileInfo(path).completeBaseName().toLower();
+        // 2: named after the help file; 1: the usual names of a main contents ("toc.hhc", "contents.hhc"); 0: other.
+        auto rank = [&](const QString& c) {
+            const QString base = QFileInfo(c).completeBaseName();
+            if ((!compiledName.isEmpty() && base == compiledName) || base == own) return 2;
+            if (base == QLatin1String("toc") || base == QLatin1String("contents") || base == QLatin1String("table of contents")) return 1;
+            return 0;
+        };
+        std::sort(candidates.begin(), candidates.end(), [&](const QString& a, const QString& b) {
+            if (rank(a) != rank(b)) return rank(a) > rank(b);
+            const bool ra = !a.contains(QLatin1Char('/')), rb = !b.contains(QLatin1Char('/'));
+            if (ra != rb) return ra;
+            const qint64 sa = book->contentsFiles.value(a), sb = book->contentsFiles.value(b);
+            if (sa != sb) return sa > sb;
+            return a < b;
+        });
+        hhc = candidates.isEmpty() ? QString() : candidates.front();
+    }
 
     // The contents (a sitemap page: nested lists of <object type="text/sitemap"> with Name and Local).
     QStringList order;
