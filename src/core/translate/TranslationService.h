@@ -54,6 +54,7 @@ private:
 
     Library* m_cache = nullptr;
     std::vector<OfflineDictionary*> m_instant;
+    bool cacheFits(const QString& provider, const TranslationRequest& request) const;   // see translate()
     std::vector<TranslationProvider*> m_providers;
     bool m_offlineOnly = false;
     int m_nextId = 1;

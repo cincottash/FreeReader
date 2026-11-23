@@ -28,8 +28,9 @@ int TranslationService::translate(const TranslationRequest& request)
 {
     const int id = m_nextId++;
     if (m_cache) {
-        const QJsonObject cached = m_cache->cachedTranslation(request.cacheKey());
-        if (!cached.isEmpty()) {
+        QString from;
+        const QJsonObject cached = m_cache->cachedTranslation(request.cacheKey(), &from);
+        if (!cached.isEmpty() && cacheFits(from, request)) {
             TranslationResult r = TranslationResult::fromJson(cached);
             r.fromCache = true;
             QTimer::singleShot(0, this, [this, id, r] { emit finished(id, r, {}); });
@@ -46,6 +47,22 @@ int TranslationService::translate(const TranslationRequest& request)
     // offline answer that Gemini's then replaces: the owner's request, 2026-11-23).
     QTimer::singleShot(0, this, [this, id, request] { next(id, request, 0, {}); });
     return id;
+}
+
+bool TranslationService::cacheFits(const QString& provider, const TranslationRequest& request) const
+{
+    // The order decides, never what was kept: a kept answer is used only when no engine before its own in the list
+    // would be asked now, and its own engine is still on (Gemini, then LM Studio, then the offline ones: the
+    // owner's rule, 2026-11-23). One that is only held back (offline only, or paused for its limit) still counts:
+    // its kept answers work with no internet.
+    for (TranslationProvider* p : m_providers) {
+        if (!p) continue;
+        if (p->name() == provider) return p->isSetUp() && p->handles(request);
+        const bool asked = p->isSetUp() && p->handles(request) && !(m_offlineOnly && p->sendsTextOnline()) &&
+                           !pausedUntil(p->name()).isValid();
+        if (asked) return false;
+    }
+    return false;   // an engine that isn't in the list any more
 }
 
 TranslationResult TranslationService::offlineMeaning(const QString& text, const QString& from) const

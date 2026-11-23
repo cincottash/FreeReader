@@ -82,7 +82,8 @@ public:
     void setAppearanceLayer(const QString& scope, const QJsonObject& layer);
 
     // Translation cache: a lookup's answer (TranslationResult JSON) by its key (TranslationRequest::cacheKey).
-    QJsonObject cachedTranslation(const QString& key) const;
+    // `provider`: which engine gave it (TranslationProvider::name()).
+    QJsonObject cachedTranslation(const QString& key, QString* provider = nullptr) const;
     void cacheTranslation(const QString& key, const QString& provider, const QJsonObject& result);
     int cachedTranslationCount() const;
 

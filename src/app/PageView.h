@@ -92,6 +92,8 @@ signals:
     void pageTurnedByUser();
     void selectionMade();                              // a word or passage was selected with the mouse
     void selectionCleared();
+    // A plain click on the page (no drag): pop-ups beside the text close, with or without a selection.
+    void pageClicked();
     void resized();
     void selectionMenuRequested(const QPoint& globalPos);   // right-click on text
     void zoomRequested(int steps);       // Ctrl+wheel over the page: text size

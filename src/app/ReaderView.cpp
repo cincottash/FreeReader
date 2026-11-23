@@ -318,6 +318,12 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
         closeSearch();
         m_pages->setFocus();
     });
+    // A click on the page closes them even when nothing is selected (after a highlight made with the translation
+    // open, the selection is gone but the translation stays: the owner's bug report, 2026-11-23).
+    connect(m_pages, &PageView::pageClicked, this, [this] {
+        m_translate->hide();
+        m_dictCard->hide();
+    });
     connect(m_pages, &PageView::selectionCleared, this, [this] {
         if (m_keepPopup) return;
         m_translate->hide();
@@ -594,6 +600,11 @@ void ReaderView::updateHeaderAndFooter()
 
 void ReaderView::onPositionChanged(const core::Position& p, bool byTurn)
 {
+    // Another screen: what was open beside the words of the last one closes.
+    if (p != m_lastShown) {
+        m_translate->hide();
+        m_dictCard->hide();
+    }
     // Learn the reading speed from forward page turns at a plausible pace.
     if (byTurn && m_lastShown < p && m_lastScreenChars > 200) {
         const double seconds = m_sinceTurn.elapsed() / 1000.0;

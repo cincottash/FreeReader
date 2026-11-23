@@ -569,6 +569,7 @@ void PageView::mouseReleaseEvent(QMouseEvent* e)
         if (hasSelection() && !selectedText().trimmed().isEmpty()) emit selectionMade();
         return;
     }
+    emit pageClicked();
     if (m_pressSide) {
         if (hoverSide(e->position()) == m_pressSide) m_pressSide < 0 ? previousScreen() : nextScreen();
         return;
