@@ -24,6 +24,7 @@
 #include "core/services/KindleImport.h"
 #include "core/translate/OfflineTranslator.h"
 #include "core/translate/OfflineDictionary.h"
+#include "core/translate/DictionaryCardHtml.h"
 #include "core/services/BookIndex.h"
 #include "core/services/WordLog.h"
 #include "core/services/Statistics.h"
@@ -858,53 +859,17 @@ void ReaderView::showDictionary()
 {
     const QString text = m_pages->selectedText().trimmed();
     if (text.isEmpty()) return;
-    const QString lang = languageCode();
-    // A dictionary of definitions in the book's language first (Spanish for a Spanish book), else a translating one
-    // (Spanish -> English). None, or none knows the word: the translation pop-up with its definition first.
-    core::OfflineDictionary* from = nullptr;
-    core::DictionaryCard card;
-    if (m_settings.useDictionary)
-        for (const bool monolingual : {true, false}) {
-            for (core::OfflineDictionary* d : m_dictionaries)
-                if (d && d->info().ok && d->info().language == lang && d->isMonolingual() == monolingual) {
-                    card = d->card(text);
-                    if (!card.isEmpty()) {
-                        from = d;
-                        break;
-                    }
-                }
-            if (from) break;
-        }
-    if (!from) {
+    // No dictionary knows the word (or none is on): the translation pop-up with its definition first.
+    const core::FoundCard f = m_settings.useDictionary ? core::findDictionaryCard(m_dictionaries, text, languageCode()) : core::FoundCard();
+    if (!f.found()) {
         translateSelection(true);
         return;
     }
     m_note->hide();
     m_translate->hide();
-    const core::DictionaryInfo& info = from->info();
-    QString title = info.title;
-    if (title.isEmpty()) {
-        const QString language = QLocale::languageToString(QLocale(info.language).language());
-        title = from->isMonolingual() ? tr("%1 Dictionary").arg(language)
-                                      : tr("%1–%2 Dictionary").arg(language, QLocale::languageToString(QLocale(info.target).language()));
-    }
-    // "Wiktionary (Spanish edition) via wiktextract / kaikki.org": the source itself, not how it was extracted.
-    QString origin = info.source;
-    if (const int via = int(origin.indexOf(QStringLiteral(" via "))); via > 0) origin = origin.left(via);
-    const QString source = info.license.isEmpty() ? origin : tr("%1 (%2)").arg(origin, info.license);
-    // The entry on Wiktionary, in the dictionary's own language edition (the Spanish section of the English one
-    // for a Spanish -> English dictionary).
-    QUrl full;
-    if (!card.headwords.isEmpty()) {
-        const QString edition = info.target.isEmpty() ? info.language : info.target;
-        full = QUrl(QStringLiteral("https://%1.wiktionary.org/wiki/").arg(edition) + QString(card.headwords.first().word).replace(QLatin1Char(' '), QLatin1Char('_')));
-        if (edition != info.language) full.setFragment(QLocale::languageToString(QLocale(info.language).language()));
-    }
-    // A Spanish book answered by Spanish -> English: Spanish definitions can be downloaded.
-    const bool offer = !from->isMonolingual() && lang == QLatin1String("es");
     const QRect anchor = m_pages->rangeRect(m_pages->selectionSpine(), m_pages->selectionStart(), m_pages->selectionEnd());
     m_dictCard->setTheme(m_theme);
-    m_dictCard->showCard(card, title, tr("Source: %1").arg(source), full, anchor, offer);
+    m_dictCard->showCard(f.card, f.title, f.source, f.fullDefinition, anchor, f.offerDefinitions);
 }
 
 void ReaderView::explainSelection()

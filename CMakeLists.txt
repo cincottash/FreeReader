@@ -88,6 +88,7 @@ add_library(freereader_core STATIC
     src/core/translate/AiProviders.cpp
     src/core/translate/TranslationService.cpp
     src/core/translate/OfflineDictionary.cpp
+    src/core/translate/DictionaryCardHtml.cpp
     src/core/translate/DictionaryDownload.cpp
     src/core/translate/OfflineTranslator.cpp
     src/core/translate/SavedWords.cpp
