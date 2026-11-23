@@ -1,5 +1,8 @@
 #include "PageView.h"
 
+#include <cmath>
+#include <numbers>
+
 #include "Icons.h"
 
 #include "core/layout/PageRenderer.h"
@@ -33,6 +36,8 @@ PageView::PageView(core::BookEngine* engine, QWidget* parent) : QWidget(parent),
     connect(&m_resizeTimer, &QTimer::timeout, this, &PageView::applyParams);
     connect(m_engine, &core::BookEngine::layoutReady, this, &PageView::onLayoutReady);
     m_waiting.start();
+    m_blinkTimer.setInterval(60);
+    connect(&m_blinkTimer, &QTimer::timeout, this, &PageView::blinkStep);
     m_turn = new QVariantAnimation(this);
     m_turn->setStartValue(0.0);
     m_turn->setEndValue(1.0);
@@ -405,14 +410,55 @@ void PageView::paintScreen(QPainter& p)
     const layout::RenderColors colors{m_theme.fg, m_theme.muted, m_theme.accent, m_theme.line, m_theme.surface};
     std::vector<layout::Overlay> overlays;
     if (m_highlightSpine == m_anchor.spine) overlays = m_highlights;
-    if (m_selSpine == m_anchor.spine && hasSelection())
-        overlays.push_back({qMin(m_selStart, m_selEnd), qMax(m_selStart, m_selEnd), m_theme.sel});
+    if (m_selSpine == m_anchor.spine && hasSelection()) {
+        QColor sel = m_theme.sel;
+        sel.setAlphaF(float(sel.alphaF() * selectionStrength()));
+        overlays.push_back({qMin(m_selStart, m_selEnd), qMax(m_selStart, m_selEnd), sel});
+        if (selectionBlinks() && !m_blinkTimer.isActive()) {
+            m_blinkClock.start();
+            m_blinkTimer.start();
+        }
+    }
     const int first = firstPage(*cl);
     for (int i = 0; i < m_geo.columns; ++i) {
         const int page = first + i;
         if (page >= int(cl->pages.size())) break;
         layout::paintPage(p, *cl, page, columnRect(i).topLeft(), colors, overlays);
     }
+}
+
+namespace {
+int g_blink = 1;   // 0 never (tests), 1 when the window is active, 2 always (tests: off-screen windows aren't active)
+}
+
+void PageView::setSelectionBlinkForTests(bool on) { g_blink = on ? 2 : 0; }
+
+bool PageView::selectionBlinks() const
+{
+    // Not while it is being dragged out, and only where someone can see it.
+    if (!g_blink || !hasSelection() || m_selSpine != m_anchor.spine || m_dragging || m_pressed || !m_toPix.isNull()) return false;
+    return g_blink == 2 || (isVisible() && window() && window()->isActiveWindow());
+}
+
+double PageView::selectionStrength() const
+{
+    if (!m_blinkTimer.isActive() || !selectionBlinks()) return 1.0;
+    // A soft blink, once a second: full, fading to a fifth, and back.
+    const double phase = 0.5 + 0.5 * std::cos(2.0 * std::numbers::pi * double(m_blinkClock.elapsed() % 1000) / 1000.0);
+    return 0.2 + 0.8 * phase;
+}
+
+void PageView::blinkStep()
+{
+    if (!selectionBlinks()) {
+        m_blinkTimer.stop();
+        update();   // painted steady again
+        return;
+    }
+    // Only the selection's area is painted again.
+    const QRect r = rangeRect(m_selSpine, selectionStart(), selectionEnd()).adjusted(-6, -6, 6, 6);
+    update(r.united(m_blinkRect));
+    m_blinkRect = r;
 }
 
 void PageView::mousePressEvent(QMouseEvent* e)

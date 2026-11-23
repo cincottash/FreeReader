@@ -61,6 +61,9 @@ public:
     int selectionSpine() const { return m_selSpine; }
     int selectionStart() const { return qMin(m_selStart, m_selEnd); }
     int selectionEnd() const { return qMax(m_selStart, m_selEnd); }
+    // How strongly the selection shows now, 0.2..1 (it blinks); 1 while dragging or when it doesn't blink.
+    double selectionStrength() const;
+    static void setSelectionBlinkForTests(bool on);
     // The sentence the selection starts in (the whole selection when it spans sentences).
     QString selectionSentence() const;
 
@@ -153,4 +156,10 @@ private:
     int m_zoomWheel = 0;
     QString m_notice;
     QTimer m_noticeTimer;
+    // The selection (made with the mouse, not a highlight) blinks gently, so it reads as temporary.
+    QTimer m_blinkTimer;
+    QElapsedTimer m_blinkClock;
+    QRect m_blinkRect;   // where the selection was last painted
+    bool selectionBlinks() const;
+    void blinkStep();
 };
