@@ -25,7 +25,8 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 - **Add Books** takes files or a whole folder, or drop them on the window. The files stay where they are.
 - Filter by **Reading**, **Finished**, **Not Started**, by **language**, or by your **collections**: make one with
   **+ New Collection**, then drag books onto it.
-- Search by title or author, sort, and switch between covers and a list.
+- Search by title or author, sort, and switch between covers and a list. Ctrl+wheel over the covers (or Ctrl+= and
+  Ctrl+-) makes them bigger or smaller; they re-flow to fit the window.
 - **Continue Reading** at the bottom reopens the last book where you left off.
 - A book whose file was moved shows **File Not Found**; right-click it to **Locate File…**.
 
@@ -38,7 +39,7 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 - **Right-click** a word (it's selected for you) or a selection and choose **Translate** (or select and press
   Ctrl+E): a pop-up shows what it means in that sentence, other meanings, its dictionary form ("tenía" → tener),
   a definition in Spanish and the whole sentence in English. **Copy** and **Hear Pronunciation** are in the pop-up.
-  The same menu has Look Up in Dictionary, Copy, Search the Web and Search Wikipedia.
+  The same menu has Dictionary, Copy, Search the Web and Search Wikipedia.
 - **Explain This Sentence** (right-click, or Ctrl+Shift+E): the sentence in English with short notes on how it
   works (verb forms, pronouns, idioms, old words).
 - **Show English Alongside** (View menu, Ctrl+Shift+B): the English of every paragraph on the page in a panel
@@ -118,7 +119,11 @@ the publisher's own page numbers when the book has them.
 The **Aa** button sets the font (the book's own, the bundled Literata or Atkinson Hyperlegible, or any font on
 your computer), text size, line spacing, margins, page width, one or two columns, justification and
 hyphenation. **Apply To** decides which books a change is for: all books, all books in that language, or only
-this one.
+this one. Over the page, Ctrl+wheel changes the text size and Ctrl+Shift+wheel the margins; Ctrl+[ and Ctrl+] narrow
+and widen the margins too.
+
+**Page Turns** in the same panel animates turning the page: Slide, Cover, Fade or Page Curl, with its duration and
+how it moves.
 
 ## Themes
 
@@ -154,7 +159,8 @@ Every shortcut can be changed in **Settings** (Ctrl+,).
 | Next Chapter / Previous Chapter | Ctrl+Page Down / Ctrl+Page Up |
 | Go to Beginning of Book | Ctrl+Home |
 | Start / End of Chapter | Home / End |
-| Larger Text / Smaller Text / Default Text Size | Ctrl+= / Ctrl+- / Ctrl+0 |
+| Larger Text / Smaller Text / Default Text Size (covers, in the library) | Ctrl+= / Ctrl+- / Ctrl+0, Ctrl+wheel |
+| Wider Margins / Narrower Margins | Ctrl+] / Ctrl+[, Ctrl+Shift+wheel |
 | Full Screen | F11 |
 | Copy | Ctrl+C |
 | Settings… | Ctrl+, |

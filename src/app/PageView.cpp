@@ -11,6 +11,7 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QTextBoundaryFinder>
+#include <QVariantAnimation>
 #include <QWheelEvent>
 
 #include <climits>
@@ -32,6 +33,137 @@ PageView::PageView(core::BookEngine* engine, QWidget* parent) : QWidget(parent),
     connect(&m_resizeTimer, &QTimer::timeout, this, &PageView::applyParams);
     connect(m_engine, &core::BookEngine::layoutReady, this, &PageView::onLayoutReady);
     m_waiting.start();
+    m_turn = new QVariantAnimation(this);
+    m_turn->setStartValue(0.0);
+    m_turn->setEndValue(1.0);
+    connect(m_turn, &QVariantAnimation::valueChanged, this, [this] { update(); });
+    connect(m_turn, &QVariantAnimation::finished, this, [this] {
+        m_fromPix = m_toPix = QPixmap();
+        update();
+    });
+    setPageTurn(QStringLiteral("none"), 300, QStringLiteral("smooth"));
+    m_noticeTimer.setSingleShot(true);
+    m_noticeTimer.setInterval(1400);
+    connect(&m_noticeTimer, &QTimer::timeout, this, [this] {
+        m_notice.clear();
+        update();
+    });
+}
+
+void PageView::setPageTurn(const QString& style, int ms, const QString& motion)
+{
+    m_turnStyle = style;
+    m_turn->setDuration(qBound(100, ms, 1000));
+    m_turn->setEasingCurve(motion == QLatin1String("even")     ? QEasingCurve::Linear
+                           : motion == QLatin1String("gentle") ? QEasingCurve::InOutSine
+                                                               : QEasingCurve::OutCubic);
+}
+
+bool PageView::isAnimating() const { return m_turn->state() == QAbstractAnimation::Running || !m_toPix.isNull(); }
+
+void PageView::setTurnProgressForTests(double t)
+{
+    if (m_toPix.isNull()) return;
+    m_turn->pause();
+    m_turn->setCurrentTime(int(t * m_turn->duration()));
+    update();
+}
+
+void PageView::showNotice(const QString& text)
+{
+    m_notice = text;
+    m_noticeTimer.start();
+    update();
+}
+
+QPixmap PageView::renderScreen()
+{
+    const qreal dpr = devicePixelRatioF();
+    QPixmap pm(size() * dpr);
+    pm.setDevicePixelRatio(dpr);
+    pm.fill(m_theme.bg);
+    QPainter p(&pm);
+    paintScreen(p);
+    return pm;
+}
+
+bool PageView::turnTo(const core::Position& p, int direction)
+{
+    const bool animate = m_turnStyle != QLatin1String("none") && width() > 0 && height() > 0;
+    QPixmap from;
+    if (animate) from = !m_toPix.isNull() ? m_toPix : renderScreen();   // a turn during a turn starts from its end
+    m_turn->stop();
+    m_fromPix = m_toPix = QPixmap();
+    moveTo(p, true);
+    // A chapter that isn't laid out yet appears without the animation.
+    if (animate && current()) {
+        m_fromPix = from;
+        m_toPix = renderScreen();
+        m_turnDir = direction;
+        m_turn->start();
+    }
+    emit pageTurnedByUser();
+    return true;
+}
+
+void PageView::paintTurn(QPainter& p)
+{
+    const double t = m_turn->currentValue().toDouble();
+    // Turning back is turning forward played backwards: the new screen is the one being turned away.
+    const QPixmap& a = m_turnDir > 0 ? m_fromPix : m_toPix;   // the page that leaves (forward)
+    const QPixmap& b = m_turnDir > 0 ? m_toPix : m_fromPix;   // the page that arrives (forward)
+    const double s = m_turnDir > 0 ? t : 1.0 - t;
+    const qreal w = width(), h = height();
+    p.setRenderHint(QPainter::SmoothPixmapTransform);
+    auto shadow = [&](qreal x, qreal width, bool toRight, qreal strength) {
+        QLinearGradient g(x, 0, toRight ? x + width : x - width, 0);
+        g.setColorAt(0, QColor(0, 0, 0, int(110 * strength)));
+        g.setColorAt(1, QColor(0, 0, 0, 0));
+        p.fillRect(QRectF(toRight ? x : x - width, 0, width, h), g);
+    };
+    if (m_turnStyle == QLatin1String("slide")) {
+        p.drawPixmap(QPointF(-s * w, 0), a);
+        p.drawPixmap(QPointF((1 - s) * w, 0), b);
+    } else if (m_turnStyle == QLatin1String("cover")) {
+        p.drawPixmap(QPointF(0, 0), a);
+        const qreal x = (1 - s) * w;
+        shadow(x, 24, false, 1.0 - s * 0.5);
+        p.drawPixmap(QPointF(x, 0), b);
+    } else if (m_turnStyle == QLatin1String("fade")) {
+        p.drawPixmap(QPointF(0, 0), a);
+        p.setOpacity(s);
+        p.drawPixmap(QPointF(0, 0), b);
+        p.setOpacity(1);
+    } else {   // curl: the page folds back from the right edge, its back lying over the page that is left
+        const qreal x = w * (1 - s);              // the fold
+        const qreal flap = qMin(w - x, x);        // the folded part, lying left of the fold
+        p.drawPixmap(QPointF(0, 0), b);
+        shadow(x, qMin<qreal>(48, w - x), true, 1.0 - s);
+        p.save();
+        p.setClipRect(QRectF(0, 0, x, h));
+        p.drawPixmap(QPointF(0, 0), a);
+        p.restore();
+        if (flap > 1) {
+            const QRectF back(x - flap, 0, flap, h);
+            shadow(x - flap, qMin<qreal>(24, x - flap), false, 0.6);
+            p.fillRect(back, m_theme.bg);
+            // The page's own print showing through its back, mirrored.
+            p.save();
+            p.setClipRect(back);
+            p.setOpacity(0.06);
+            p.translate(2 * x, 0);
+            p.scale(-1, 1);
+            p.drawPixmap(QPointF(0, 0), a);
+            p.restore();
+            QLinearGradient g(x - flap, 0, x, 0);
+            g.setColorAt(0, QColor(255, 255, 255, m_theme.dark ? 18 : 60));
+            g.setColorAt(0.7, QColor(0, 0, 0, 0));
+            g.setColorAt(1, QColor(0, 0, 0, 70));
+            p.fillRect(back, g);
+            p.setPen(QPen(m_theme.line, 1));
+            p.drawLine(QPointF(x - flap, 0), QPointF(x - flap, h));
+        }
+    }
 }
 
 void PageView::setTheme(const Theme& t)
@@ -178,11 +310,9 @@ bool PageView::nextScreen()
     const auto cl = current();
     if (!cl) return false;   // still laying out: ignore, the page appears in a moment
     const int next = firstPage(*cl) + m_geo.columns;
-    if (next < int(cl->pages.size())) moveTo({m_anchor.spine, cl->pages[size_t(next)].start}, true);
-    else if (m_anchor.spine + 1 < int(m_engine->book()->spine.size())) moveTo({m_anchor.spine + 1, 0}, true);
-    else return false;
-    emit pageTurnedByUser();
-    return true;
+    if (next < int(cl->pages.size())) return turnTo({m_anchor.spine, cl->pages[size_t(next)].start}, 1);
+    if (m_anchor.spine + 1 < int(m_engine->book()->spine.size())) return turnTo({m_anchor.spine + 1, 0}, 1);
+    return false;
 }
 
 bool PageView::previousScreen()
@@ -190,11 +320,9 @@ bool PageView::previousScreen()
     const auto cl = current();
     if (!cl) return false;
     const int first = firstPage(*cl);
-    if (first > 0) moveTo({m_anchor.spine, cl->pages[size_t(qMax(0, first - m_geo.columns))].start}, true);
-    else if (m_anchor.spine > 0) moveTo({m_anchor.spine - 1, kEndOfChapter}, true);
-    else return false;
-    emit pageTurnedByUser();
-    return true;
+    if (first > 0) return turnTo({m_anchor.spine, cl->pages[size_t(qMax(0, first - m_geo.columns))].start}, -1);
+    if (m_anchor.spine > 0) return turnTo({m_anchor.spine - 1, kEndOfChapter}, -1);
+    return false;
 }
 
 QRectF PageView::columnRect(int i) const
@@ -234,6 +362,37 @@ void PageView::paintEvent(QPaintEvent*)
 {
     QPainter p(this);
     p.fillRect(rect(), m_theme.bg);
+    if (!m_toPix.isNull()) paintTurn(p);
+    else paintScreen(p);
+
+    if (m_hover != 0 && m_toPix.isNull()) {
+        const float zone = qMax(64.f, m_geo.left - 8.f);
+        const QPointF c(m_hover < 0 ? zone / 2 : width() - zone / 2, height() / 2.0);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setPen(QPen(m_theme.line, 1));
+        p.setBrush(m_theme.surface);
+        p.drawEllipse(c, 22, 22);
+        const QIcon ic = icons::icon(m_hover < 0 ? "chevronLeft" : "chevronRight", m_theme.fg, 22);
+        ic.paint(&p, QRect(int(c.x()) - 11, int(c.y()) - 11, 22, 22));
+    }
+    if (!m_notice.isEmpty()) {
+        p.setRenderHint(QPainter::Antialiasing);
+        QFont f = font();
+        f.setPixelSize(13);
+        f.setWeight(QFont::DemiBold);
+        p.setFont(f);
+        const QFontMetrics fm(f);
+        const QRectF pill(width() / 2.0 - (fm.horizontalAdvance(m_notice) + 32) / 2.0, 10, fm.horizontalAdvance(m_notice) + 32, 30);
+        p.setPen(QPen(m_theme.line, 1));
+        p.setBrush(m_theme.pop);
+        p.drawRoundedRect(pill, 15, 15);
+        p.setPen(m_theme.fg);
+        p.drawText(pill, Qt::AlignCenter, m_notice);
+    }
+}
+
+void PageView::paintScreen(QPainter& p)
+{
     auto cl = current();
     if (!cl) cl = (m_shown && m_shown->spine == m_anchor.spine) ? m_shown : nullptr;
     if (!cl) {
@@ -253,17 +412,6 @@ void PageView::paintEvent(QPaintEvent*)
         const int page = first + i;
         if (page >= int(cl->pages.size())) break;
         layout::paintPage(p, *cl, page, columnRect(i).topLeft(), colors, overlays);
-    }
-
-    if (m_hover != 0) {
-        const float zone = qMax(64.f, m_geo.left - 8.f);
-        const QPointF c(m_hover < 0 ? zone / 2 : width() - zone / 2, height() / 2.0);
-        p.setRenderHint(QPainter::Antialiasing);
-        p.setPen(QPen(m_theme.line, 1));
-        p.setBrush(m_theme.surface);
-        p.drawEllipse(c, 22, 22);
-        const QIcon ic = icons::icon(m_hover < 0 ? "chevronLeft" : "chevronRight", m_theme.fg, 22);
-        ic.paint(&p, QRect(int(c.x()) - 11, int(c.y()) - 11, 22, 22));
     }
 }
 
@@ -420,6 +568,20 @@ QString PageView::selectionSentence() const
 
 void PageView::wheelEvent(QWheelEvent* e)
 {
+    // Ctrl+wheel: text size; Ctrl+Shift+wheel: margins (wheel up: larger, wider).
+    if (e->modifiers() & Qt::ControlModifier) {
+        int d = e->angleDelta().y();
+        if (d == 0) d = e->angleDelta().x();   // some systems turn Shift+wheel into a sideways scroll
+        m_zoomWheel += d;
+        const bool margins = e->modifiers() & Qt::ShiftModifier;
+        while (qAbs(m_zoomWheel) >= 120) {
+            const int step = m_zoomWheel > 0 ? 1 : -1;
+            m_zoomWheel -= step * 120;
+            margins ? emit marginsRequested(step) : emit zoomRequested(step);
+        }
+        e->accept();
+        return;
+    }
     int d = e->angleDelta().y();
     if (d == 0) d = -e->angleDelta().x();
     m_wheel += d;

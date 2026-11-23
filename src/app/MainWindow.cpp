@@ -114,6 +114,7 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     connect(m_engine, &core::BookEngine::openFailed, this, &MainWindow::onOpenFailed);
     connect(m_start, &LibraryView::openRequested, this, &MainWindow::openBook);
     connect(m_start, &LibraryView::settingsLinkClicked, this, &MainWindow::changeDataFolder);
+    connect(m_start, &LibraryView::settingsChanged, this, &MainWindow::saveSettingsSoon);
     m_start->setPrompt([this](const QString& title, const QString& placeholder, std::function<QString(const QString&)> accept) {
         m_palette->showPrompt(title, placeholder, std::move(accept));
     });
@@ -263,9 +264,17 @@ void MainWindow::buildCommands()
         const QString t = m_reader->pages()->selectedText();
         if (!t.isEmpty()) QApplication::clipboard()->setText(t);
     }, [this] { return isReading() && m_reader->pages()->hasSelection(); });
-    addCommand(QStringLiteral("larger"), tr("Larger Text"), QKeySequence(Qt::CTRL | Qt::Key_Equal), [this] { changeTextSize(10); });
-    addCommand(QStringLiteral("smaller"), tr("Smaller Text"), QKeySequence(Qt::CTRL | Qt::Key_Minus), [this] { changeTextSize(-10); });
-    addCommand(QStringLiteral("default-size"), tr("Default Text Size"), QKeySequence(Qt::CTRL | Qt::Key_0), [this] { changeTextSize(0); });
+    addCommand(QStringLiteral("larger"), tr("Larger Text"), QKeySequence(Qt::CTRL | Qt::Key_Equal), [this] { changeTextSize(10); }, nullptr,
+               tr("While reading: larger text (also Ctrl+wheel over the page). In the library: larger covers."));
+    addCommand(QStringLiteral("smaller"), tr("Smaller Text"), QKeySequence(Qt::CTRL | Qt::Key_Minus), [this] { changeTextSize(-10); }, nullptr,
+               tr("While reading: smaller text. In the library: smaller covers."));
+    addCommand(QStringLiteral("default-size"), tr("Default Text Size"), QKeySequence(Qt::CTRL | Qt::Key_0), [this] { changeTextSize(0); }, nullptr,
+               tr("While reading: the default text size. In the library: the default cover size."));
+    addCommand(QStringLiteral("wider-margins"), tr("Wider Margins"), QKeySequence(Qt::CTRL | Qt::Key_BracketRight), [this] { m_reader->stepMargins(16); },
+               reading, tr("More space left and right of the text (also Ctrl+Shift+wheel over the page)."));
+    addCommand(QStringLiteral("narrower-margins"), tr("Narrower Margins"), QKeySequence(Qt::CTRL | Qt::Key_BracketLeft), [this] { m_reader->stepMargins(-16); },
+               reading, tr("Less space left and right of the text."));
+    addCommand(QStringLiteral("default-margins"), tr("Default Margins"), QKeySequence(), [this] { m_reader->stepMargins(0); }, reading);
     addCommand(QStringLiteral("columns-one"), tr("One Column"), QKeySequence(), [this] { setColumns(QStringLiteral("one")); });
     addCommand(QStringLiteral("columns-two"), tr("Two Columns"), QKeySequence(), [this] { setColumns(QStringLiteral("two")); });
     addCommand(QStringLiteral("columns-auto"), tr("Automatic Columns"), QKeySequence(), [this] { setColumns(QStringLiteral("auto")); },
@@ -377,6 +386,11 @@ void MainWindow::buildMenus()
     add(view, "larger");
     add(view, "smaller");
     add(view, "default-size");
+    QMenu* margins = view->addMenu(tr("Margins"));
+    margins->setProperty("testId", "menuMargins");
+    add(margins, "wider-margins");
+    add(margins, "narrower-margins");
+    add(margins, "default-margins");
     QMenu* columns = view->addMenu(tr("Columns"));
     add(columns, "columns-one");
     add(columns, "columns-two");
@@ -671,8 +685,12 @@ void MainWindow::showLibrary()
 
 void MainWindow::changeTextSize(int delta)
 {
-    const int now = m_reader->effectiveAppearance().textSizePct;
-    m_reader->changeAppearance(QStringLiteral("text_size_pct"), delta == 0 ? 100 : qBound(60, now + delta, 300));
+    // In the library: the covers' size; while reading: the text size.
+    if (m_stack->currentWidget() == m_start) {
+        m_start->zoomTo(delta == 0 ? 100 : m_settings.libraryZoomPct + delta);
+        return;
+    }
+    m_reader->stepTextSize(delta);
 }
 
 void MainWindow::setColumns(const QString& mode) { m_reader->changeAppearance(QStringLiteral("columns"), mode); }

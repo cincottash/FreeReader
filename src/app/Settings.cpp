@@ -30,6 +30,10 @@ void fields(Settings& s, F&& f)
     f("reading_speed", s.readingSpeed);
     f("library_list", s.libraryList);
     f("library_sort", s.librarySort);
+    f("library_zoom_pct", s.libraryZoomPct);
+    f("page_turn", s.pageTurn);
+    f("page_turn_ms", s.pageTurnMs);
+    f("page_turn_motion", s.pageTurnMotion);
     f("translate_on_select", s.translateOnSelect);
     f("offline_only", s.offlineOnly);
     f("offline_books", s.offlineBooks);
@@ -82,6 +86,10 @@ bool Settings::load(const QString& path)
     look.clamp();
     readingSpeed = qBound(200, readingSpeed, 6000);
     practiceNewPerDay = qBound(0, practiceNewPerDay, 500);
+    libraryZoomPct = qBound(50, libraryZoomPct, 250);
+    pageTurnMs = qBound(100, pageTurnMs, 1000);
+    if (!QStringList{"none", "slide", "cover", "fade", "curl"}.contains(pageTurn)) pageTurn = QStringLiteral("none");
+    if (!QStringList{"smooth", "even", "gentle"}.contains(pageTurnMotion)) pageTurnMotion = QStringLiteral("smooth");
     {
         QStringList keep;
         for (const QString& d : practiceDirections)

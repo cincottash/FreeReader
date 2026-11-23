@@ -66,6 +66,9 @@ public:
     void changeAppearance(const QString& key, const QJsonValue& value);
     AppearancePanel* appearancePanel() const { return m_panel; }
     void showAppearancePanel();
+    // Text size and margins by a step (0: back to the default), with a short notice on the page.
+    void stepTextSize(int delta);
+    void stepMargins(int delta);
     QString languageCode() const;   // "es" for "es-ES"; empty when the book doesn't say
     QString languageName() const;   // "Spanish"
     void setSettingsNotKept(bool on);

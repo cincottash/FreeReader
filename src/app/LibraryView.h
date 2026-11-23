@@ -65,6 +65,9 @@ public:
     void removeBook(int id);
     void addToCollection(int collectionId, const QList<int>& bookIds);
     void setFinished(int id, bool finished);
+    // Cover size, in % (50..250): Ctrl+wheel over the covers, or Ctrl+= and Ctrl+-. The covers re-flow to fit.
+    void zoomTo(int pct);
+    int zoom() const;
 
     QListView* grid() const { return m_grid; }
     QTreeView* list() const { return m_list; }
@@ -75,10 +78,12 @@ signals:
     void librarySearchRequested(const QString& query);
     void openRequested(const QString& path);
     void settingsLinkClicked();
+    void settingsChanged();   // a library setting changed (the settings file needs saving)
 
 protected:
     void dragEnterEvent(QDragEnterEvent*) override;
     void dropEvent(QDropEvent*) override;
+    bool eventFilter(QObject* watched, QEvent* e) override;
 
 private:
     void rebuildFilters();
@@ -121,4 +126,6 @@ private:
     int m_continueId = 0;
     QStandardItemModel* m_model;
     BookFilter* m_proxy;
+    class QStyledItemDelegate* m_coverDelegate = nullptr;
+    int m_zoomWheel = 0;
 };

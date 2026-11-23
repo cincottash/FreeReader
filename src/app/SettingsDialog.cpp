@@ -805,6 +805,9 @@ void SettingsDialog::fill()
         edit->setMaximumSequenceLength(1);
         edit->setClearButtonEnabled(true);
         edit->setProperty("commandId", c->id);
+        edit->setMinimumHeight(edit->sizeHint().height());
+        // The row as tall as the editor (the theme pads text fields), so its text isn't cut off.
+        it->setSizeHint(1, QSize(200, edit->sizeHint().height() + 6));
         m_list->setItemWidget(it, 1, edit);
         connect(edit, &QKeySequenceEdit::editingFinished, this, [this, edit, id = c->id] {
             const QString err = setShortcut(id, edit->keySequence());

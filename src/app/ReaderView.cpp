@@ -212,6 +212,18 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
         m_panel->showBelow(m_aaButton->mapTo(this, QPoint(m_aaButton->width() + 140, m_aaButton->height() + 4)));
     });
     connect(m_panel, &AppearancePanel::valueChanged, this, &ReaderView::changeAppearance);
+    // Page turns: for all books, saved with the settings.
+    m_panel->setPageTurn(m_settings.pageTurn, m_settings.pageTurnMs, m_settings.pageTurnMotion);
+    m_pages->setPageTurn(m_settings.pageTurn, m_settings.pageTurnMs, m_settings.pageTurnMotion);
+    connect(m_panel, &AppearancePanel::pageTurnChanged, this, [this](const QString& style, int ms, const QString& motion) {
+        m_settings.pageTurn = style;
+        m_settings.pageTurnMs = ms;
+        m_settings.pageTurnMotion = motion;
+        m_pages->setPageTurn(style, ms, motion);
+        emit appearanceChanged();
+    });
+    connect(m_pages, &PageView::zoomRequested, this, [this](int steps) { stepTextSize(steps * 10); });
+    connect(m_pages, &PageView::marginsRequested, this, [this](int steps) { stepMargins(steps * 16); });
     connect(m_panel, &AppearancePanel::themesRequested, this, [this] {
         m_panel->hide();
         emit moreThemesRequested(m_aaButton->mapTo(window(), QPoint(m_aaButton->width() + 140, m_aaButton->height())));
@@ -1017,7 +1029,7 @@ QMenu* ReaderView::buildSelectionMenu()
     QAction* explain = menu->addAction(tr("Explain This Sentence"), this, [this] { explainSelection(); });
     explain->setProperty("testId", "menuExplain");
     explain->setToolTip(tr("The sentence in English, with notes on its grammar and idioms (Gemini or LM Studio)."));
-    QAction* dict = menu->addAction(tr("Look Up in Dictionary"), this, [this] { translateSelection(true); });
+    QAction* dict = menu->addAction(tr("Dictionary"), this, [this] { translateSelection(true); });
     dict->setProperty("testId", "menuDictionary");
     dict->setEnabled(words >= 1 && words <= 4);
     QAction* copy = menu->addAction(tr("Copy"), this, [this] {
@@ -1509,6 +1521,22 @@ void ReaderView::goToSearchHit(int index)
     const core::SearchHit& h = hits[index];
     jumpTo({h.spine, h.start});
     m_pages->selectRange({h.spine, h.start}, {h.spine, h.end});
+}
+
+void ReaderView::stepTextSize(int delta)
+{
+    const int now = effectiveAppearance().textSizePct;
+    const int v = delta == 0 ? 100 : qBound(60, now + delta, 300);
+    changeAppearance(QStringLiteral("text_size_pct"), v);
+    m_pages->showNotice(tr("Text Size: %1 px").arg(qRound(20.0 * v / 100.0)));
+}
+
+void ReaderView::stepMargins(int delta)
+{
+    const int now = effectiveAppearance().marginPx;
+    const int v = delta == 0 ? Appearance().marginPx : qBound(8, now + delta, 200);
+    changeAppearance(QStringLiteral("margin_px"), v);
+    m_pages->showNotice(tr("Margins: %1 px").arg(v));
 }
 
 void ReaderView::showAppearancePanel()

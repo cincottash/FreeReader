@@ -10,6 +10,7 @@
 #include "core/position/Position.h"
 
 #include <QElapsedTimer>
+#include <QPixmap>
 #include <QTimer>
 #include <QWidget>
 
@@ -64,6 +65,17 @@ public:
     // Rectangles of a range on screen (widget coordinates), for pop-up placement.
     QRect rangeRect(int spine, int start, int end) const;
 
+    // Page turn animation (Settings > the Text and Layout panel): style none / slide / cover / fade / curl, how long
+    // a turn takes, and how it moves (smooth / even / gentle).
+    void setPageTurn(const QString& style, int ms, const QString& motion);
+    bool isAnimating() const;
+    // A short message over the page for a moment ("Margins: 72 px").
+    void showNotice(const QString& text);
+    QString notice() const { return m_notice; }
+    // The screen as it is drawn without the animation, arrows or notice (also for pictures of the animation).
+    QPixmap renderScreen();
+    void setTurnProgressForTests(double t);   // freezes the running turn at t (0..1)
+
 signals:
     void positionChanged(const core::Position& p, bool byPageTurn);
     void linkClicked(const LinkClick& link, const QPoint& globalPos);
@@ -74,6 +86,8 @@ signals:
     void selectionCleared();
     void resized();
     void selectionMenuRequested(const QPoint& globalPos);   // right-click on text
+    void zoomRequested(int steps);       // Ctrl+wheel over the page: text size
+    void marginsRequested(int steps);    // Ctrl+Shift+wheel over the page: margins
 
 protected:
     void paintEvent(QPaintEvent*) override;
@@ -103,6 +117,9 @@ private:
     int hoverSide(const QPointF& pos) const;   // -1 left arrow, 1 right arrow, 0 none
     void onLayoutReady(int spine);
     void moveTo(const core::Position& p, bool byTurn);
+    bool turnTo(const core::Position& p, int direction);   // a page turn, animated when chosen
+    void paintScreen(QPainter& p);
+    void paintTurn(QPainter& p);
 
     core::BookEngine* m_engine;
     Theme m_theme = Theme::midnight();
@@ -123,4 +140,12 @@ private:
     int m_wheel = 0;
     int m_highlightSpine = -1;
     std::vector<layout::Overlay> m_highlights;
+
+    QString m_turnStyle = QStringLiteral("none");
+    class QVariantAnimation* m_turn = nullptr;
+    QPixmap m_fromPix, m_toPix;
+    int m_turnDir = 1;
+    int m_zoomWheel = 0;
+    QString m_notice;
+    QTimer m_noticeTimer;
 };

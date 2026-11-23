@@ -20,10 +20,16 @@ struct Settings {
     QString theme = QStringLiteral("midnight");     // a theme key or "system"
     QStringList recentThemes;                        // most recent first; shown as dots in the reader's header
     int readingSpeed = 1100;          // characters per minute, learned from page turns
+    // Page turn animation: none / slide / cover / fade / curl; how long it takes; how it moves (smooth: fast then
+    // slowing down, even: the same speed throughout, gentle: slow start and end).
+    QString pageTurn = QStringLiteral("none");
+    int pageTurnMs = 300;
+    QString pageTurnMotion = QStringLiteral("smooth");
 
     // Library
     bool libraryList = false;         // list view instead of covers
     QString librarySort = QStringLiteral("recent");
+    int libraryZoomPct = 100;         // cover size (Ctrl+wheel in the library), 50..250
 
     // Translation (API keys are never here: they go to the system's credential store)
     // Off: selecting text only selects it (right-click > Translate, or Ctrl+E). A new key replaced "auto_translate"
