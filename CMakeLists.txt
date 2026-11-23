@@ -77,6 +77,7 @@ add_library(freereader_core STATIC
     src/core/services/Secrets.cpp
     src/core/services/WordLog.cpp
     src/core/services/Annotations.cpp
+    src/core/services/Highlighting.cpp
     src/core/services/BookSearch.cpp
     src/core/services/LibrarySearch.cpp
     src/core/services/Statistics.cpp

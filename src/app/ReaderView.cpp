@@ -28,6 +28,7 @@
 #include "core/services/WordLog.h"
 #include "core/services/Statistics.h"
 #include "core/services/Annotations.h"
+#include "core/services/Highlighting.h"
 
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -1196,68 +1197,13 @@ int ReaderView::highlightSelection(const QString& color)
 {
     if (!m_notes || !m_bookId || !m_pages->hasSelection() || m_pages->selectedText().trimmed().isEmpty()) return 0;
     const int spine = m_pages->selectionSpine(), start = m_pages->selectionStart(), end = m_pages->selectionEnd();
-    // Inside an existing highlight: that one changes color (a highlight is never stacked on another). Its own
-    // color again takes the highlight away, as in Kindle (the owner's request, 2026-11-22). A note on it goes
-    // with it only when it has none: one with a note is kept (Remove Highlight still removes it).
-    for (core::Annotation a : m_notes->highlightsAt(m_bookId, spine, start, end))
-        if (a.start <= start && a.end >= end) {
-            if (a.color == color && a.note.trimmed().isEmpty()) {
-                m_notes->remove(a.id);
-                clearSelectionKeepingPopup();
-                refreshAnnotations();
-                return 0;
-            }
-            a.color = color;
-            m_notes->update(a);
-            clearSelectionKeepingPopup();
-            refreshAnnotations();
-            return a.id;
-        }
-    // Whole words, as in Kindle: a selection that starts or ends inside a word takes the whole word.
-    int from = start, to = end;
-    if (const auto layoutNow = m_engine->layout(spine)) {
-        for (const layout::Block& b : layoutNow->flow->blocks) {
-            if (b.kind != layout::Block::Text) continue;
-            auto isWord = [&](int i) { return i >= 0 && i < int(b.text.size()) && (b.text[i].isLetterOrNumber() || b.text[i] == QChar(0x00AD)); };
-            if (from >= b.start && from < b.start + b.length) {
-                int i = from - b.start;
-                while (i > 0 && isWord(i) && isWord(i - 1)) --i;
-                from = b.start + i;
-            }
-            if (to > b.start && to <= b.start + b.length) {
-                int i = to - b.start;
-                while (i < int(b.text.size()) && isWord(i) && isWord(i - 1)) ++i;
-                to = b.start + i;
-            }
-        }
-    }
     const QString sentence = m_pages->selectionSentence();
-    // Overlapping ones are merged into the new highlight, keeping their notes.
-    QStringList notes;
-    for (const core::Annotation& a : m_notes->highlightsAt(m_bookId, spine, from, to)) {
-        from = qMin(from, a.start);
-        to = qMax(to, a.end);
-        if (!a.note.trimmed().isEmpty()) notes << a.note.trimmed();
-        m_notes->remove(a.id);
-    }
-    const auto cl = m_engine->layout(spine);
-    core::Annotation a;
-    a.bookId = m_bookId;
-    a.kind = core::Annotation::Highlight;
-    a.spine = spine;
-    a.start = from;
-    a.end = to;
-    a.text = cl ? cl->flow->textRange(from, to).simplified() : m_pages->selectedText().simplified();
-    a.color = color;
-    a.note = notes.join(QStringLiteral("\n\n"));
-    a.cfi = m_engine->cfiFor({spine, from});
-    if (const auto ix = m_engine->index()) a.pageLabel = ix->pageLabel({spine, from});
-    a.chapter = chapterTitleAt({spine, from});
-    const int id = m_notes->add(a);
-    if (id) markHighlightedWord(a.text, spine, from, to, sentence);
+    const core::HighlightChange c = core::highlightRange(*m_notes, *m_engine, m_bookId, spine, start, end, color,
+                                                         chapterTitleAt({spine, start}), m_pages->selectedText());
+    if (c.id && !c.recolored) markHighlightedWord(c.text, spine, c.from, c.to, sentence);
     clearSelectionKeepingPopup();
     refreshAnnotations();
-    return id;
+    return c.id;
 }
 
 void ReaderView::clearSelectionKeepingPopup()

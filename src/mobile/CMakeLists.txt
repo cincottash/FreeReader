@@ -25,6 +25,7 @@ qt_add_qml_module(freereader_mobile
         qml/LookupSheet.qml
         qml/SettingsPage.qml
         qml/Theme.qml
+        qml/BarButton.qml
     SOURCES
         BookPage.h
         MobileApp.h
