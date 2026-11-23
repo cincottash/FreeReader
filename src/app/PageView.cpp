@@ -432,7 +432,33 @@ void PageView::paintScreen(QPainter& p)
         const int page = first + i;
         if (page >= int(cl->pages.size())) break;
         layout::paintPage(p, *cl, page, columnRect(i).topLeft(), colors, overlays);
+        // Word bookmarks: a small ribbon in the accent color over the word's first letter.
+        if (m_wordMarksSpine != m_anchor.spine) continue;
+        for (const auto& [ws, we] : m_wordMarks) {
+            const std::vector<QRectF> rects = layout::rangeRects(*cl, page, ws, qMin(we, ws + 1));
+            if (rects.empty()) continue;
+            const QRectF r = rects.front().translated(columnRect(i).topLeft());
+            const qreal w = qBound(6.0, r.height() * 0.32, 10.0), h = w * 1.5, x = r.left(), y = r.top() - h * 0.45;
+            QPainterPath ribbon;
+            ribbon.moveTo(x, y);
+            ribbon.lineTo(x + w, y);
+            ribbon.lineTo(x + w, y + h);
+            ribbon.lineTo(x + w / 2, y + h - w * 0.45);
+            ribbon.lineTo(x, y + h);
+            ribbon.closeSubpath();
+            p.save();
+            p.setRenderHint(QPainter::Antialiasing);
+            p.fillPath(ribbon, m_theme.accent);
+            p.restore();
+        }
     }
+}
+
+void PageView::setWordBookmarks(int spine, const std::vector<std::pair<int, int>>& words)
+{
+    m_wordMarksSpine = spine;
+    m_wordMarks = words;
+    update();
 }
 
 namespace {

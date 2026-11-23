@@ -125,7 +125,10 @@ public:
     int addNoteToSelection(const QString& note);   // highlights it (yellow) when it isn't yet
     void setNote(int annotationId, const QString& note);
     void editNote(int annotationId);               // asks for the text (interactive only)
-    bool toggleBookmark();                         // true when the page is bookmarked now
+    bool toggleBookmark();
+    // A bookmark on the selected word (its first word), or off again when it has one. Returns its id (0 when removed).
+    int toggleWordBookmark();
+    int wordBookmarkAtSelection() const;                         // true when the page is bookmarked now
     bool pageIsBookmarked() const;
     void goToAnnotation(int annotationId);
     bool exportNotebook(const QString& path, QString* error);

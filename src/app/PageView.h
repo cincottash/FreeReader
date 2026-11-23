@@ -53,6 +53,9 @@ public:
     // Highlights of one chapter, painted under the selection.
     void setHighlights(int spine, const std::vector<layout::Overlay>& overlays);
     const std::vector<layout::Overlay>& highlights() const { return m_highlights; }
+    // Word bookmarks of one chapter ([start, end) of each word): a small ribbon over the word.
+    void setWordBookmarks(int spine, const std::vector<std::pair<int, int>>& words);
+    const std::vector<std::pair<int, int>>& wordBookmarks() const { return m_wordMarks; }
     int offsetAt(const QPointF& pos) const;   // the character under a point, -1 when none
     // Selects the word under a point (widget coordinates); false when there is no text there.
     bool selectWordAt(const QPointF& pos);
@@ -148,6 +151,8 @@ private:
     int m_wheel = 0;
     int m_highlightSpine = -1;
     std::vector<layout::Overlay> m_highlights;
+    std::vector<std::pair<int, int>> m_wordMarks;
+    int m_wordMarksSpine = -1;
 
     QString m_turnStyle = QStringLiteral("none");
     class QVariantAnimation* m_turn = nullptr;

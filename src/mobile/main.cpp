@@ -102,6 +102,7 @@ int main(int argc, char** argv)
     cli.addOption({QStringLiteral("screen"), QStringLiteral("With --screenshot: library, reader, settings or menu."), QStringLiteral("name")});
     cli.addOption({QStringLiteral("highlight"), QStringLiteral("With --screenshot: highlight a few words in these colors (comma-separated)."), QStringLiteral("colors")});
     cli.addOption({QStringLiteral("bookmark"), QStringLiteral("With --screenshot: bookmark the page.")});
+    cli.addOption({QStringLiteral("bookmark-word"), QStringLiteral("With --screenshot: bookmark a word on the page.")});
     cli.addOption({QStringLiteral("select"), QStringLiteral("With --screenshot: select a word on the page (no lookup).")});
     cli.addOption({QStringLiteral("part"), QStringLiteral("With --screenshot: open contents, notebook, search, look, selection or dictionary."), QStringLiteral("name")});
     cli.process(app);
@@ -181,6 +182,10 @@ int main(int argc, char** argv)
                 }
             }
             if (cli.isSet(QStringLiteral("bookmark"))) mobile.toggleBookmark();
+            if (cli.isSet(QStringLiteral("bookmark-word"))) {
+                if (!selectNear(300)) return fail(QStringLiteral("No word to bookmark."));
+                mobile.toggleWordBookmark(page);
+            }
             if (cli.isSet(QStringLiteral("select")) && !selectNear(80)) return fail(QStringLiteral("No word to select."));
             if (cli.isSet(QStringLiteral("lookup"))) {
                 // The first word a little below the top of the page.

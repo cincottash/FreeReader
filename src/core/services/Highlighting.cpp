@@ -33,6 +33,47 @@ QString contextAround(const QString& sentence, const QString& text)
            (from + 500 < context.size() ? QStringLiteral("…") : QString());
 }
 
+void wholeWords(BookEngine& engine, int spine, int* from, int* to)
+{
+    const auto cl = engine.layout(spine);
+    if (!cl) return;
+    for (const layout::Block& b : cl->flow->blocks) {
+        if (b.kind != layout::Block::Text) continue;
+        auto isWord = [&](int i) { return i >= 0 && i < int(b.text.size()) && (b.text[i].isLetterOrNumber() || b.text[i] == QChar(0x00AD)); };
+        if (*from >= b.start && *from < b.start + b.length) {
+            int i = *from - b.start;
+            while (i > 0 && isWord(i) && isWord(i - 1)) --i;
+            *from = b.start + i;
+        }
+        if (*to > b.start && *to <= b.start + b.length) {
+            int i = *to - b.start;
+            while (i < int(b.text.size()) && isWord(i) && isWord(i - 1)) ++i;
+            *to = b.start + i;
+        }
+    }
+}
+
+void firstWord(BookEngine& engine, int spine, int start, int end, int* from, int* to)
+{
+    *from = start;
+    *to = end;
+    wholeWords(engine, spine, from, to);
+    const auto cl = engine.layout(spine);
+    if (!cl) return;
+    for (const layout::Block& b : cl->flow->blocks) {
+        if (b.kind != layout::Block::Text || *from < b.start || *from >= b.start + b.length) continue;
+        int i = *from - b.start;
+        while (i < int(b.text.size()) && !b.text[i].isLetterOrNumber()) ++i;   // punctuation before it
+        int e = i;
+        while (e < int(b.text.size()) && (b.text[e].isLetterOrNumber() || b.text[e] == QChar(0x00AD))) ++e;
+        if (e > i) {
+            *from = b.start + i;
+            *to = b.start + e;
+        }
+        return;
+    }
+}
+
 HighlightChange highlightRange(Annotations& notes, BookEngine& engine, int bookId, int spine, int start, int end,
                                const QString& color, const QString& chapter, const QString& selectedText)
 {
@@ -59,22 +100,7 @@ HighlightChange highlightRange(Annotations& notes, BookEngine& engine, int bookI
         }
     // Whole words, as in Kindle: a selection that starts or ends inside a word takes the whole word.
     int from = start, to = end;
-    if (const auto cl = engine.layout(spine)) {
-        for (const layout::Block& b : cl->flow->blocks) {
-            if (b.kind != layout::Block::Text) continue;
-            auto isWord = [&](int i) { return i >= 0 && i < int(b.text.size()) && (b.text[i].isLetterOrNumber() || b.text[i] == QChar(0x00AD)); };
-            if (from >= b.start && from < b.start + b.length) {
-                int i = from - b.start;
-                while (i > 0 && isWord(i) && isWord(i - 1)) --i;
-                from = b.start + i;
-            }
-            if (to > b.start && to <= b.start + b.length) {
-                int i = to - b.start;
-                while (i < int(b.text.size()) && isWord(i) && isWord(i - 1)) ++i;
-                to = b.start + i;
-            }
-        }
-    }
+    wholeWords(engine, spine, &from, &to);
     // Overlapping ones are merged into the new highlight, keeping their notes.
     QStringList kept;
     for (const Annotation& a : notes.highlightsAt(bookId, spine, from, to)) {

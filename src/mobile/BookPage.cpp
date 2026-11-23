@@ -6,6 +6,7 @@
 #include "core/services/BookEngine.h"
 
 #include <QPainter>
+#include <QPainterPath>
 #include <QQuickWindow>
 #include <QTextBoundaryFinder>
 
@@ -41,6 +42,14 @@ void BookPage::setApp(MobileApp* app)
         });
         connect(m_app, &MobileApp::annotationsChanged, this, &BookPage::render);
         connect(m_app, &MobileApp::jumpRequested, this, [this](int spine, int offset) { moveTo({spine, offset}); });
+        connect(m_app, &MobileApp::selectRequested, this, [this](int spine, int start, int end) {
+            if (spine != m_anchor.spine) return;
+            m_selSpine = spine;
+            m_selStart = m_selAnchorStart = start;
+            m_selEnd = m_selAnchorEnd = end;
+            selectionMoved();
+            emit selectionChanged();
+        });
         m_anchor = m_app->startPosition();
         applyParams();
     }
@@ -282,7 +291,24 @@ void BookPage::render()
         QPainter p(&img);
         const layout::RenderColors colors{c.fg, c.muted, c.accent, c.line, c.surface};
         const std::vector<layout::Overlay> overlays = m_app ? m_app->highlightsIn(m_anchor.spine) : std::vector<layout::Overlay>();
-        layout::paintPage(p, *cl, cl->pageForOffset(m_anchor.offset), pageRect().topLeft(), colors, overlays);
+        const int page = cl->pageForOffset(m_anchor.offset);
+        layout::paintPage(p, *cl, page, pageRect().topLeft(), colors, overlays);
+        // Word bookmarks: a small ribbon in the accent color over the word's first letter.
+        p.setRenderHint(QPainter::Antialiasing);
+        for (const auto& [ws, we] : m_app ? m_app->wordBookmarksIn(m_anchor.spine) : std::vector<std::pair<int, int>>()) {
+            const std::vector<QRectF> rects = layout::rangeRects(*cl, page, ws, qMin(we, ws + 1));
+            if (rects.empty()) continue;
+            const QRectF r = rects.front().translated(pageRect().topLeft());
+            const qreal w = qBound(6.0, r.height() * 0.32, 12.0), h = w * 1.5, x = r.left(), y = r.top() - h * 0.45;
+            QPainterPath ribbon;
+            ribbon.moveTo(x, y);
+            ribbon.lineTo(x + w, y);
+            ribbon.lineTo(x + w, y + h);
+            ribbon.lineTo(x + w / 2, y + h - w * 0.45);
+            ribbon.lineTo(x, y + h);
+            ribbon.closeSubpath();
+            p.fillPath(ribbon, c.accent);
+        }
     }
     m_image = img;
     update();

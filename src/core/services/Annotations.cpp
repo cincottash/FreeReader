@@ -141,7 +141,14 @@ QList<Annotation> Annotations::highlightsAt(int bookId, int spine, int start, in
 int Annotations::bookmarkAt(int bookId, int spine, int from, int to) const
 {
     for (const Annotation& a : inChapter(bookId, spine))
-        if (a.kind == Annotation::Bookmark && a.start >= from && a.start <= to) return a.id;
+        if (a.kind == Annotation::Bookmark && a.end == a.start && a.start >= from && a.start <= to) return a.id;
+    return 0;
+}
+
+int Annotations::wordBookmarkAt(int bookId, int spine, int start, int end) const
+{
+    for (const Annotation& a : inChapter(bookId, spine))
+        if (isWordBookmark(a) && a.start < qMax(end, start + 1) && a.end > start) return a.id;
     return 0;
 }
 

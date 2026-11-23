@@ -25,6 +25,11 @@ QString vocabularyText(const QString& highlighted);
 // The sentence for a Word List entry: a very long one (old books have them) cut to the part around the word.
 QString contextAround(const QString& sentence, const QString& text);
 
+// [from, to) widened to whole words ("ancha" in "Mancha" -> "Mancha").
+void wholeWords(BookEngine& engine, int spine, int* from, int* to);
+// The first whole word of [start, end) (a word bookmark marks one word).
+void firstWord(BookEngine& engine, int spine, int start, int end, int* from, int* to);
+
 // `chapter`: the chapter's title, kept with the highlight; `selectedText`: used when the chapter isn't laid out.
 HighlightChange highlightRange(Annotations& notes, BookEngine& engine, int bookId, int spine, int start, int end,
                                const QString& color, const QString& chapter, const QString& selectedText);

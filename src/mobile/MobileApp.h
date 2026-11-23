@@ -176,6 +176,10 @@ public:
     Q_INVOKABLE int setNote(QObject* page, const QString& note);  // highlights in yellow when it isn't yet
     Q_INVOKABLE void removeHighlightAt(QObject* page);
     Q_INVOKABLE void toggleBookmark();
+    // A bookmark on the selected word (not the page); off again when it has one.
+    Q_INVOKABLE void toggleWordBookmark(QObject* page);
+    Q_INVOKABLE bool wordBookmarkAt(QObject* page) const;
+    std::vector<std::pair<int, int>> wordBookmarksIn(int spine) const;   // for painting
     Q_INVOKABLE void removeAnnotation(int id);
     Q_INVOKABLE void goToAnnotation(int id);
     Q_INVOKABLE void copyText(const QString& text);
@@ -247,6 +251,7 @@ signals:
     void contentsChanged();
     void searchChanged();
     void jumpRequested(int spine, int offset);
+    void selectRequested(int spine, int start, int end);   // after a jump: the words to show (a highlight, a word bookmark)
     void wordsChanged();
     void practiceChanged();   // the reader goes there (contents, notebook, search)
 

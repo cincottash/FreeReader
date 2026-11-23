@@ -1,5 +1,5 @@
 // What to do with the selected words, after a long press (as in Kindle): highlight in one of four colors (the
-// highlight's own color again takes it away), add a note, the Dictionary card, Translate, Copy. It sits at the top
+// highlight's own color again takes it away), add a note, bookmark the word, the Dictionary card, Translate, Copy. It sits at the top
 // or the bottom of the page, away from the finger.
 import QtQuick
 import QtQuick.Controls
@@ -13,6 +13,7 @@ Popup {
     property BookPage page
     property bool atTop: false
     property string current: ""    // the selection's highlight color, if it is highlighted
+    property bool marked: false    // the word has a word bookmark
     property bool acted: false     // closed by a choice (else the selection goes when it closes)
     signal noteRequested()
     signal dictionaryRequested()
@@ -21,6 +22,7 @@ Popup {
     function show(pressY) {
         acted = false
         current = app.highlightColorAt(page)
+        marked = app.wordBookmarkAt(page)
         atTop = pressY > (parent ? parent.height : 800) / 2
         open()
     }
@@ -72,6 +74,7 @@ Popup {
             Repeater {
                 model: [
                     {"icon": "note", "label": qsTr("Note"), "act": "note"},
+                    {"icon": "bookmark", "label": bar.marked ? qsTr("Unmark") : qsTr("Bookmark"), "act": "bookmark"},
                     {"icon": "dictionary", "label": qsTr("Dictionary"), "act": "dictionary"},
                     {"icon": "translate", "label": qsTr("Translate"), "act": "translate"},
                     {"icon": "copy", "label": qsTr("Copy"), "act": "copy"}
@@ -95,6 +98,7 @@ Popup {
                     onClicked: {
                         bar.acted = true
                         if (modelData.act === "note") bar.noteRequested()
+                        else if (modelData.act === "bookmark") bar.app.toggleWordBookmark(bar.page)
                         else if (modelData.act === "dictionary") bar.dictionaryRequested()
                         else if (modelData.act === "translate") bar.translateRequested()
                         else { bar.app.copyText(bar.page.selectedText); bar.page.clearSelection() }

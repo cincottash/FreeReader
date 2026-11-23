@@ -119,7 +119,9 @@ Drawer {
                             spacing: 2
                             Label {
                                 Layout.fillWidth: true
-                                text: entry.modelData.kind === "bookmark" ? qsTr("Bookmark · %1").arg(entry.modelData.text) : "“" + entry.modelData.text + "”"
+                                text: entry.modelData.kind !== "bookmark" ? "“" + entry.modelData.text + "”"
+                                      : entry.modelData.word ? qsTr("Word Bookmark · %1").arg(entry.modelData.text)
+                                                             : qsTr("Bookmark · %1").arg(entry.modelData.text)
                                 wrapMode: Text.Wrap
                                 maximumLineCount: 4
                                 elide: Text.ElideRight

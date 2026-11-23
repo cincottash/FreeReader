@@ -18,7 +18,7 @@ struct Annotation {
     int id = 0;
     int bookId = 0;
     Kind kind = Highlight;
-    int spine = -1, start = 0, end = 0;   // end == start for a bookmark
+    int spine = -1, start = 0, end = 0;   // a page bookmark: end == start; a word bookmark covers its word
     QString cfi;
     QString text;                          // the quoted text (a bookmark: the first words of the page)
     QString color;                         // highlight color key: pink, orange, yellow, blue
@@ -43,7 +43,10 @@ public:
     QList<Annotation> inChapter(int bookId, int spine) const;
     // Highlights overlapping [start, end) in a chapter.
     QList<Annotation> highlightsAt(int bookId, int spine, int start, int end) const;
-    int bookmarkAt(int bookId, int spine, int from, int to) const;   // the first bookmark in [from, to], or 0
+    int bookmarkAt(int bookId, int spine, int from, int to) const;   // the first page bookmark in [from, to], or 0
+    // The word bookmark overlapping [start, end) of a chapter, or 0.
+    int wordBookmarkAt(int bookId, int spine, int start, int end) const;
+    static bool isWordBookmark(const Annotation& a) { return a.kind == Annotation::Bookmark && a.end > a.start; }
     int count(int bookId) const;
 
     // Markdown: the book's title, then each highlight as a quote with its note and page, and the bookmarks.

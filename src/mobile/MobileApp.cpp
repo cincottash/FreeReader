@@ -216,15 +216,8 @@ MobileApp::MobileApp(const QString& dataFolder, QObject* parent) : QObject(paren
     m_translator->setCache(m_library.get());
     m_translator->setProviders({m_gemini, m_savedWords, m_dictionary, m_dictionaryEn});
     m_translator->setInstant({m_dictionary, m_dictionaryEn});
+    // One answer per lookup, from the first engine that can give it (as on the desktop).
     connect(m_translator, &core::TranslationService::finished, this, &MobileApp::onTranslated);
-    connect(m_translator, &core::TranslationService::interim, this, [this](int id, const core::TranslationResult& r) {
-        if (id != m_lookupId) return;
-        QVariantMap m = m_lookup;
-        m[QStringLiteral("translation")] = r.translation;
-        m[QStringLiteral("source")] = tr("Offline dictionary · asking online…");
-        m_lookup = m;
-        emit lookupChanged();
-    });
 
     m_saveTimer.setSingleShot(true);
     m_saveTimer.setInterval(1500);
@@ -990,6 +983,49 @@ bool MobileApp::pageBookmarked() const
     return m_notes->bookmarkAt(m_bookId, m_position.spine, m_position.offset, qMax(m_position.offset, end - 1)) != 0;
 }
 
+bool MobileApp::wordBookmarkAt(QObject* object) const
+{
+    auto* page = qobject_cast<BookPage*>(object);
+    if (!page || !m_notes || !m_bookId || !page->hasSelection()) return false;
+    return m_notes->wordBookmarkAt(m_bookId, page->selectionSpine(), page->selectionStart(), page->selectionEnd()) != 0;
+}
+
+void MobileApp::toggleWordBookmark(QObject* object)
+{
+    auto* page = qobject_cast<BookPage*>(object);
+    if (!page || !m_notes || !m_bookId || !page->hasSelection()) return;
+    const int spine = page->selectionSpine();
+    if (const int existing = m_notes->wordBookmarkAt(m_bookId, spine, page->selectionStart(), page->selectionEnd())) {
+        m_notes->remove(existing);
+    } else {
+        int from = 0, to = 0;
+        core::firstWord(*m_engine, spine, page->selectionStart(), page->selectionEnd(), &from, &to);
+        if (to <= from) return;
+        core::Annotation b;
+        b.bookId = m_bookId;
+        b.kind = core::Annotation::Bookmark;
+        b.spine = spine;
+        b.start = from;
+        b.end = to;
+        if (const auto cl = m_engine->layout(spine)) b.text = cl->flow->textRange(from, qMin(cl->flow->length, from + 120)).simplified();
+        b.cfi = m_engine->cfiFor({spine, from});
+        if (const auto ix = m_engine->index()) b.pageLabel = ix->pageLabel({spine, from});
+        b.chapter = chapterTitleAt({spine, from});
+        m_notes->add(b);
+    }
+    page->clearSelection();
+    emit annotationsChanged();
+}
+
+std::vector<std::pair<int, int>> MobileApp::wordBookmarksIn(int spine) const
+{
+    std::vector<std::pair<int, int>> out;
+    if (!m_notes || !m_bookId) return out;
+    for (const core::Annotation& a : m_notes->inChapter(m_bookId, spine))
+        if (core::Annotations::isWordBookmark(a)) out.push_back({a.start, a.end});
+    return out;
+}
+
 void MobileApp::removeAnnotation(int id)
 {
     if (!m_notes) return;
@@ -1008,6 +1044,8 @@ void MobileApp::goToAnnotation(int id)
         if (m_engine->positionForCfi(a.cfi, &fromCfi)) p = fromCfi;
     }
     emit jumpRequested(p.spine, p.offset);
+    if (a.kind == core::Annotation::Highlight || core::Annotations::isWordBookmark(a))
+        emit selectRequested(p.spine, p.offset, p.offset + (a.end - a.start));
 }
 
 void MobileApp::copyText(const QString& text)
@@ -1023,6 +1061,7 @@ QVariantList MobileApp::notebook() const
         const bool hl = a.kind == core::Annotation::Highlight;
         out << QVariantMap{{QStringLiteral("id"), a.id},
                            {QStringLiteral("kind"), hl ? QStringLiteral("highlight") : QStringLiteral("bookmark")},
+                           {QStringLiteral("word"), core::Annotations::isWordBookmark(a)},
                            {QStringLiteral("color"), a.color},
                            {QStringLiteral("swatch"), hl ? core::Annotations::colorValue(a.color) : pageColors().accent},
                            {QStringLiteral("text"), a.text},

@@ -1048,6 +1048,11 @@ QMenu* ReaderView::buildSelectionMenu()
             if (id) editNote(id);
         });
         note->setProperty("testId", "menuNote");
+        // A bookmark on the word itself (the header's button marks the page).
+        const bool marked = wordBookmarkAtSelection() != 0;
+        QAction* mark = menu->addAction(marked ? tr("Remove Bookmark Here") : tr("Bookmark Here"), this, [this] { toggleWordBookmark(); });
+        mark->setProperty("testId", "menuBookmarkWord");
+        mark->setToolTip(tr("A bookmark on this word, not the whole page"));
     }
     menu->addSeparator();
     QAction* search = menu->addAction(tr("Search This Book"), this, [this] { openSearch(m_pages->selectedText()); });
@@ -1387,6 +1392,41 @@ bool ReaderView::pageIsBookmarked() const
     return m_notes->bookmarkAt(m_bookId, a.spine, a.offset, e.spine == a.spine ? qMax(a.offset, e.offset - 1) : a.offset) != 0;
 }
 
+int ReaderView::wordBookmarkAtSelection() const
+{
+    if (!m_notes || !m_bookId || !m_pages->hasSelection()) return 0;
+    return m_notes->wordBookmarkAt(m_bookId, m_pages->selectionSpine(), m_pages->selectionStart(), m_pages->selectionEnd());
+}
+
+int ReaderView::toggleWordBookmark()
+{
+    if (!m_notes || !m_bookId || !m_pages->hasSelection() || !m_engine->isOpen()) return 0;
+    if (const int existing = wordBookmarkAtSelection()) {
+        m_notes->remove(existing);
+        refreshAnnotations();
+        return 0;
+    }
+    const int spine = m_pages->selectionSpine();
+    int from = 0, to = 0;
+    core::firstWord(*m_engine, spine, m_pages->selectionStart(), m_pages->selectionEnd(), &from, &to);
+    if (to <= from) return 0;
+    core::Annotation b;
+    b.bookId = m_bookId;
+    b.kind = core::Annotation::Bookmark;
+    b.spine = spine;
+    b.start = from;
+    b.end = to;
+    // The word and what follows it, as the Notebook shows a bookmark.
+    if (const auto cl = m_engine->layout(spine)) b.text = cl->flow->textRange(from, qMin(cl->flow->length, from + 120)).simplified();
+    b.cfi = m_engine->cfiFor({spine, from});
+    if (const auto ix = m_engine->index()) b.pageLabel = ix->pageLabel({spine, from});
+    b.chapter = chapterTitleAt({spine, from});
+    const int id = m_notes->add(b);
+    clearSelectionKeepingPopup();
+    refreshAnnotations();
+    return id;
+}
+
 bool ReaderView::toggleBookmark()
 {
     if (!m_notes || !m_bookId || !m_engine->isOpen()) return false;
@@ -1416,6 +1456,10 @@ void ReaderView::refreshAnnotations()
     const QList<core::Annotation> all = on ? m_notes->forBook(m_bookId) : QList<core::Annotation>();
     const int spine = m_pages->position().spine;
     std::vector<layout::Overlay> overlays;
+    std::vector<std::pair<int, int>> marks;
+    for (const core::Annotation& a : all)
+        if (core::Annotations::isWordBookmark(a) && a.spine == spine) marks.push_back({a.start, a.end});
+    m_pages->setWordBookmarks(spine, marks);
     for (const core::Annotation& a : all) {
         if (a.kind != core::Annotation::Highlight || a.spine != spine) continue;
         QColor c = core::Annotations::colorValue(a.color);
@@ -1440,7 +1484,9 @@ void ReaderView::goToAnnotation(int annotationId)
         if (m_engine->positionForCfi(a.cfi, &fromCfi)) p = fromCfi;
     }
     jumpTo(p);
-    if (a.kind == core::Annotation::Highlight) m_pages->selectRange(p, {p.spine, p.offset + (a.end - a.start)});
+    // A highlight or a word bookmark: its words are selected, so the place shows.
+    if (a.kind == core::Annotation::Highlight || core::Annotations::isWordBookmark(a))
+        m_pages->selectRange(p, {p.spine, p.offset + (a.end - a.start)});
     m_pages->setFocus();
 }
 
