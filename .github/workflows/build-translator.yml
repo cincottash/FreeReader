@@ -1,0 +1,131 @@
+# Builds the offline sentence translator FreeReader downloads on request: Mozilla's Bergamot translator
+# (bergamot-translator, MPL-2.0), the same engine Firefox uses, in its "minimal" variant (no Intel MKL, no Boost).
+# Windows is built with Microsoft's compiler (Bergamot doesn't build with MinGW); FreeReader runs it as a separate
+# program, so the compilers never mix. Each build is tested with Mozilla's Spanish -> English model.
+#
+# Runs on pushes to the translator-helper branch and by hand (Actions > Build Offline Translator > Run workflow).
+# It doesn't publish anything: the artifacts are checked, then attached to a release by hand.
+name: Build Offline Translator
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [translator-helper]
+    paths: [".github/workflows/build-translator.yml"]
+
+env:
+  BERGAMOT_REPO: https://github.com/browsermt/bergamot-translator
+  BERGAMOT_COMMIT: 9271618ebbdc5d21ac4dc4df9e72beb7ce644774   # main, 2024-05-12 (the last change)
+  # Mozilla's es->en "base-memory" model (Firefox's Remote Settings, version 2.0), with its published SHA-256.
+  MODEL_URL: https://firefox-settings-attachments.cdn.mozilla.net/main-workspace/translations-models/d7256ea9-7731-4f15-866c-62998eef93b9.bin
+  MODEL_SHA: 4aed7734152ae0045d1a69ae49c86cfda18f53c61f90e95e1d1de1c7c7c3b033
+  LEX_URL: https://firefox-settings-attachments.cdn.mozilla.net/main-workspace/translations-models/a55a9cf2-8a8c-4942-a528-91e93d081746.bin
+  LEX_SHA: e2610211d3b9577d012638fe7e7e74ed7b4b708ce96b9e792e67c282a6492daa
+  VOCAB_URL: https://firefox-settings-attachments.cdn.mozilla.net/main-workspace/translations-models/8695cc3d-7897-4c29-808b-bc983a93d1cd.spm
+  VOCAB_SHA: 5ae254fa9b15aa182e70fd2a6186b1333c63a29a48043a9224c6aa4fcac058ad
+
+jobs:
+  windows:
+    name: Windows translator
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Get Bergamot
+        shell: bash
+        run: |
+          git init bergamot && cd bergamot
+          git remote add origin "$BERGAMOT_REPO"
+          git fetch --depth 1 origin "$BERGAMOT_COMMIT"
+          git checkout FETCH_HEAD
+          git submodule update --init --recursive --depth 1
+
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build (Microsoft's compiler, static runtime)
+        shell: cmd
+        run: |
+          cmake -S bergamot -B bergamot\build -G Ninja -DCMAKE_BUILD_TYPE=Release -DUSE_WASM_COMPATIBLE_SOURCE=on ^
+            -DCOMPILE_TESTS=off -DUSE_STATIC_LIBS=on -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+          cmake --build bergamot\build --target bergamot
+
+      - name: Test with the Spanish model
+        shell: bash
+        run: |
+          set -e
+          mkdir -p model dist
+          curl -fsSL -o model/model.esen.intgemm.alphas.bin "$MODEL_URL"
+          curl -fsSL -o model/lex.50.50.esen.s2t.bin "$LEX_URL"
+          curl -fsSL -o model/vocab.esen.spm "$VOCAB_URL"
+          echo "$MODEL_SHA *model/model.esen.intgemm.alphas.bin" | sha256sum -c
+          echo "$LEX_SHA *model/lex.50.50.esen.s2t.bin" | sha256sum -c
+          echo "$VOCAB_SHA *model/vocab.esen.spm" | sha256sum -c
+          cp bergamot/3rd_party/ssplit-cpp/nonbreaking_prefixes/nonbreaking_prefix.es model/ || cp bergamot/3rd_party/ssplit-cpp/nonbreaking_prefixes/nonbreaking_prefix.en model/nonbreaking_prefix.es
+          printf '%s\n' "models:" "  - model/model.esen.intgemm.alphas.bin" "vocabs:" "  - model/vocab.esen.spm" "  - model/vocab.esen.spm" \
+            "shortlist:" "  - model/lex.50.50.esen.s2t.bin" "  - false" "beam-size: 1" "normalize: 1.0" "word-penalty: 0" \
+            "max-length-break: 128" "mini-batch-words: 1024" "workspace: 128" "max-length-factor: 2.0" "skip-cost: true" \
+            "quiet: true" "quiet-translation: true" "gemm-precision: int8shiftAlphaAll" "ssplit-mode: paragraph" \
+            "ssplit-prefix-file: model/nonbreaking_prefix.es" > config.yml
+          exe=$(find bergamot/build -name bergamot.exe | head -1)
+          echo "built: $exe ($(stat -c %s "$exe") bytes)"
+          out=$(echo "Me gustaría comprar la casa verde." | "$exe" --model-config-paths config.yml --cpu-threads 1)
+          echo "translation: $out"
+          echo "$out" | grep -qi "green house"
+          objdump -p "$exe" 2>/dev/null | grep "DLL Name" || true
+          cp "$exe" dist/freereader-translator.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: translator-windows-x64
+          path: dist/freereader-translator.exe
+          retention-days: 14
+
+  linux:
+    name: Linux translator
+    # The oldest supported Ubuntu, like the AppImage, so the program runs on older distributions too.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - name: Get Bergamot
+        run: |
+          git init bergamot && cd bergamot
+          git remote add origin "$BERGAMOT_REPO"
+          git fetch --depth 1 origin "$BERGAMOT_COMMIT"
+          git checkout FETCH_HEAD
+          git submodule update --init --recursive --depth 1
+
+      - name: Build (C++ runtime linked in)
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build
+          cmake -S bergamot -B bergamot/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DUSE_WASM_COMPATIBLE_SOURCE=on \
+            -DCOMPILE_TESTS=off -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc"
+          cmake --build bergamot/build --target bergamot
+
+      - name: Test with the Spanish model
+        run: |
+          set -e
+          mkdir -p model dist
+          curl -fsSL -o model/model.esen.intgemm.alphas.bin "$MODEL_URL"
+          curl -fsSL -o model/lex.50.50.esen.s2t.bin "$LEX_URL"
+          curl -fsSL -o model/vocab.esen.spm "$VOCAB_URL"
+          echo "$MODEL_SHA  model/model.esen.intgemm.alphas.bin" | sha256sum -c
+          echo "$LEX_SHA  model/lex.50.50.esen.s2t.bin" | sha256sum -c
+          echo "$VOCAB_SHA  model/vocab.esen.spm" | sha256sum -c
+          cp bergamot/3rd_party/ssplit-cpp/nonbreaking_prefixes/nonbreaking_prefix.es model/ || cp bergamot/3rd_party/ssplit-cpp/nonbreaking_prefixes/nonbreaking_prefix.en model/nonbreaking_prefix.es
+          printf '%s\n' "models:" "  - model/model.esen.intgemm.alphas.bin" "vocabs:" "  - model/vocab.esen.spm" "  - model/vocab.esen.spm" \
+            "shortlist:" "  - model/lex.50.50.esen.s2t.bin" "  - false" "beam-size: 1" "normalize: 1.0" "word-penalty: 0" \
+            "max-length-break: 128" "mini-batch-words: 1024" "workspace: 128" "max-length-factor: 2.0" "skip-cost: true" \
+            "quiet: true" "quiet-translation: true" "gemm-precision: int8shiftAlphaAll" "ssplit-mode: paragraph" \
+            "ssplit-prefix-file: model/nonbreaking_prefix.es" > config.yml
+          exe=bergamot/build/app/bergamot
+          strip "$exe"
+          echo "built: $(stat -c %s "$exe") bytes"; ldd "$exe"
+          out=$(echo "Me gustaría comprar la casa verde." | "$exe" --model-config-paths config.yml --cpu-threads 1)
+          echo "translation: $out"
+          echo "$out" | grep -qi "green house"
+          cp "$exe" dist/freereader-translator
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: translator-linux-x64
+          path: dist/freereader-translator
+          retention-days: 14
