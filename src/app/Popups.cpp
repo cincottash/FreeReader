@@ -60,8 +60,9 @@ void NotePopup::showNote(const QString& text, const QRect& anchor, std::function
     QWidget* p = parentWidget();
     const int w = qMin(420, p->width() - 32);
     m_text->setFixedWidth(w - 32 - 12);
+    m_text->ensurePolished();
     const int textH = m_text->heightForWidth(w - 44);
-    const int h = qMin(qMin(360, p->height() - 32), textH + 90);
+    const int h = qMin(qMin(360, p->height() - 32), textH + 90 + 2 * frameWidth());
     resize(w, h);
     int x = qBound(16, anchor.center().x() - w / 2, p->width() - w - 16);
     int y = anchor.bottom() + 10;

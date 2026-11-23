@@ -47,11 +47,17 @@ struct BookIndex {
     // "31" and "1,072" style page numbers (labels from the book's page list, or stable synthetic pages).
     QString pageLabel(const Position& p) const;
     int pageCount() const;
+    int pageNumber(const Position& p) const;   // 1-based, in the numbering pageLabel() shows (printed or synthetic)
+    int pageNumberAt(qint64 global) const;
     QString lastPageLabel() const;
     Position positionOfPage(int pageNumber) const;   // synthetic or printed page, 1-based
     int tocEntryAt(const Position& p) const;   // the deepest entry the position is in, -1 before the first
 };
 
 std::shared_ptr<BookIndex> buildIndex(const Book& book);
+
+// What is left of the chapter at `p`: the time ("6 min left in chapter", from `readingSpeed` characters a minute)
+// or the pages ("3 pages left in chapter", in the numbering pageLabel() shows).
+QString chapterLeftText(const BookIndex& index, const Position& p, int readingSpeed, bool pages);
 
 }  // namespace core

@@ -119,13 +119,18 @@ public:
         bool moved = false;
     };
     KindleResult importKindle(const core::KindlePlan& plan, const KindleOptions& options);
-    int highlightSelection(const QString& color);   // the highlight's id; an existing one changes color
+    // The highlight's id; an existing one changes color. `chosen`: picked by the reader (it moves to the front of the
+    // dots), not the yellow a note gets.
+    int highlightSelection(const QString& color, bool chosen = true);
     bool removeHighlightAtSelection();
     int highlightAtSelection() const;              // the highlight the selection is in, 0 when none
     int addNoteToSelection(const QString& note);   // highlights it (yellow) when it isn't yet
     void setNote(int annotationId, const QString& note);
     void editNote(int annotationId);               // asks for the text (interactive only)
-    bool toggleBookmark();                         // true when the page is bookmarked now
+    bool toggleBookmark();
+    // A bookmark on the selected word (its first word), or off again when it has one. Returns its id (0 when removed).
+    int toggleWordBookmark();
+    int wordBookmarkAtSelection() const;                         // true when the page is bookmarked now
     bool pageIsBookmarked() const;
     void goToAnnotation(int annotationId);
     bool exportNotebook(const QString& path, QString* error);

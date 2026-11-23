@@ -146,7 +146,7 @@ void NotebookPanel::fill()
             text = QStringLiteral("“%1”").arg(quote);
             if (!a.note.trimmed().isEmpty()) text += QStringLiteral("\n✎ ") + a.note.trimmed();
         } else {
-            text = tr("Bookmark") + QStringLiteral(" · ") + a.text.simplified().left(80);
+            text = (core::Annotations::isWordBookmark(a) ? tr("Word Bookmark") : tr("Bookmark")) + QStringLiteral(" · ") + a.text.simplified().left(80);
         }
         text += QLatin1Char('\n') + tr("Page %1").arg(a.pageLabel) + (a.chapter.isEmpty() ? QString() : QStringLiteral(" · ") + a.chapter);
         auto* it = new QListWidgetItem(hl ? swatch(core::Annotations::colorValue(a.color)) : swatch(m_theme.accent, true), text, m_list);

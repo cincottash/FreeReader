@@ -53,6 +53,9 @@ public:
     // Highlights of one chapter, painted under the selection.
     void setHighlights(int spine, const std::vector<layout::Overlay>& overlays);
     const std::vector<layout::Overlay>& highlights() const { return m_highlights; }
+    // Word bookmarks of one chapter ([start, end) of each word): a small ribbon over the word.
+    void setWordBookmarks(int spine, const std::vector<std::pair<int, int>>& words);
+    const std::vector<std::pair<int, int>>& wordBookmarks() const { return m_wordMarks; }
     int offsetAt(const QPointF& pos) const;   // the character under a point, -1 when none
     // Selects the word under a point (widget coordinates); false when there is no text there.
     bool selectWordAt(const QPointF& pos);
@@ -61,6 +64,9 @@ public:
     int selectionSpine() const { return m_selSpine; }
     int selectionStart() const { return qMin(m_selStart, m_selEnd); }
     int selectionEnd() const { return qMax(m_selStart, m_selEnd); }
+    // How strongly the selection shows now, 0.2..1 (it blinks); 1 while dragging or when it doesn't blink.
+    double selectionStrength() const;
+    static void setSelectionBlinkForTests(bool on);
     // The sentence the selection starts in (the whole selection when it spans sentences).
     QString selectionSentence() const;
 
@@ -86,6 +92,8 @@ signals:
     void pageTurnedByUser();
     void selectionMade();                              // a word or passage was selected with the mouse
     void selectionCleared();
+    // A plain click on the page (no drag): pop-ups beside the text close, with or without a selection.
+    void pageClicked();
     void resized();
     void selectionMenuRequested(const QPoint& globalPos);   // right-click on text
     void zoomRequested(int steps);       // Ctrl+wheel over the page: text size
@@ -145,6 +153,8 @@ private:
     int m_wheel = 0;
     int m_highlightSpine = -1;
     std::vector<layout::Overlay> m_highlights;
+    std::vector<std::pair<int, int>> m_wordMarks;
+    int m_wordMarksSpine = -1;
 
     QString m_turnStyle = QStringLiteral("none");
     class QVariantAnimation* m_turn = nullptr;
@@ -153,4 +163,11 @@ private:
     int m_zoomWheel = 0;
     QString m_notice;
     QTimer m_noticeTimer;
+    // The selection (made with the mouse, not a highlight) blinks gently, so it reads as temporary.
+    QTimer m_blinkTimer;
+    QElapsedTimer m_blinkClock;
+    QRect m_blinkRect;   // where the selection was last painted
+    bool selectionBlinks() const;
+    void blinkStep();
+    float turnZone() const;   // the width of the strip at each side that turns pages
 };

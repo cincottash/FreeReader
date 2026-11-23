@@ -1,5 +1,7 @@
 #include "DictionaryPopup.h"
 
+#include "core/translate/DictionaryCardHtml.h"
+
 #include <QGraphicsDropShadowEffect>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -10,25 +12,6 @@
 #include <QVBoxLayout>
 #include <QtMath>
 
-namespace {
-
-QString roman(int n)
-{
-    static const char* const numerals[] = {"I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"};
-    return n >= 1 && n <= 12 ? QString::fromLatin1(numerals[n - 1]) : QString::number(n);
-}
-
-QString esc(const QString& s) { return s.toHtmlEscaped(); }
-
-// "Del latín tranquillum" -> "Del latín tranquillum."
-QString sentence(QString s)
-{
-    s = s.trimmed();
-    if (!s.isEmpty() && !QStringLiteral(".!?…").contains(s.back())) s += QLatin1Char('.');
-    return s;
-}
-
-}  // namespace
 
 DictionaryPopup::DictionaryPopup(QWidget* parent) : QFrame(parent)
 {
@@ -123,58 +106,7 @@ void DictionaryPopup::setTheme(const Theme& t)
 
 QString DictionaryPopup::toHtml(const core::DictionaryCard& card, const Theme& t)
 {
-    const QString muted = t.muted.name();
-    QString h = QStringLiteral("<div style=\"font-family: 'Literata', Georgia, serif; font-size: 15px; color: %1;\">").arg(t.fg.name());
-    for (int i = 0; i < card.headwords.size(); ++i) {
-        const core::DictionaryHeadword& w = card.headwords[i];
-        if (i) h += QStringLiteral("<hr style=\"color: %1;\"/>").arg(t.line.name());
-        QString ipa;
-        for (const core::DictionaryEntry& e : w.entries)
-            if (!e.pronunciation.isEmpty()) {
-                ipa = e.pronunciation;
-                break;
-            }
-        h += QStringLiteral("<p style=\"margin: 2px 0 2px 0;\"><span style=\"font-size: 21px; font-weight: 600;\">%1</span>").arg(esc(w.word));
-        if (!ipa.isEmpty()) h += QStringLiteral("&nbsp;&nbsp;<span style=\"color: %1;\">%2</span>").arg(muted, esc(ipa));
-        h += QStringLiteral("</p>");
-        if (!w.formOf.isEmpty())
-            h += QStringLiteral("<p style=\"margin: 0 0 4px 0; color: %1;\"><i>%2</i>: %3</p>")
-                     .arg(muted, esc(w.formOf), w.formNote.isEmpty() ? QObject::tr("a form of “%1”.").arg(esc(w.word)) : esc(sentence(w.formNote)));
-        // Forms and origin once when every part of speech shares them (as a printed dictionary puts them first).
-        QString forms, origin;
-        bool sameOrigin = true;
-        for (const core::DictionaryEntry& e : w.entries) {
-            if (forms.isEmpty()) forms = e.forms;
-            if (origin.isEmpty()) origin = e.origin;
-            else if (!e.origin.isEmpty() && e.origin != origin) sameOrigin = false;
-        }
-        if (forms.contains(QLatin1Char(','))) h += QStringLiteral("<p style=\"margin: 2px 0;\">%1.").arg(esc(forms));
-        else if (sameOrigin && !origin.isEmpty()) h += QStringLiteral("<p style=\"margin: 2px 0;\">");
-        if (sameOrigin && !origin.isEmpty()) h += QStringLiteral(" <span style=\"color: %1;\">%2</span>").arg(muted, esc(sentence(origin)));
-        if (forms.contains(QLatin1Char(',')) || (sameOrigin && !origin.isEmpty())) h += QStringLiteral("</p>");
-
-        const bool numbered = w.entries.size() > 1;
-        for (int j = 0; j < w.entries.size(); ++j) {
-            const core::DictionaryEntry& e = w.entries[j];
-            h += QStringLiteral("<p style=\"margin: 8px 0 2px 0;\">");
-            if (numbered) h += QStringLiteral("<b>%1.</b> ").arg(roman(j + 1));
-            h += QStringLiteral("<i>%1</i>").arg(esc(e.partOfSpeech));
-            if (!sameOrigin && !e.origin.isEmpty()) h += QStringLiteral(" <span style=\"color: %1;\">%2</span>").arg(muted, esc(sentence(e.origin)));
-            h += QStringLiteral("</p>");
-            for (int k = 0; k < e.senses.size(); ++k) {
-                const core::DictionarySense& s = e.senses[k];
-                h += QStringLiteral("<p style=\"margin: 3px 0 3px 14px;\">");
-                if (e.senses.size() > 1) h += QStringLiteral("<b>%1.</b> ").arg(k + 1);
-                if (!s.labels.isEmpty()) h += QStringLiteral("<i style=\"color: %1;\">%2.</i> ").arg(muted, esc(s.labels.join(QStringLiteral(", "))));
-                h += esc(s.gloss);
-                for (const QString& x : s.examples)
-                    h += QStringLiteral("<br/><span style=\"color: %1;\"><i>“%2”</i></span>").arg(muted, esc(x));
-                h += QStringLiteral("</p>");
-            }
-        }
-    }
-    h += QStringLiteral("</div>");
-    return h;
+    return core::dictionaryCardHtml(card, t.fg, t.muted, t.line);
 }
 
 void DictionaryPopup::showCard(const core::DictionaryCard& card, const QString& title, const QString& source,
@@ -212,8 +144,21 @@ void DictionaryPopup::place()
     m_lay->activate();
     const int chrome = m_lay->contentsMargins().top() + m_lay->contentsMargins().bottom() + m_title->sizeHint().height() +
                        m_full->sizeHint().height() + (m_source->isVisible() ? m_source->heightForWidth(w - 40) : 0) + 4 * m_lay->spacing() + 8;
-    const int h = qMin(qMax(160, p->height() * 2 / 3), chrome + bodyHeight + 4);
-    setFixedHeight(qMax(120, qMin(h, p->height() - 32)));
+    const int cap = qMin(qMax(160, p->height() * 2 / 3), p->height() - 32);
+    int h = qMax(120, qMin(cap, chrome + bodyHeight + 4 + 2 * frameWidth()));
+    setFixedHeight(h);
+    // As really laid out: while the entry still scrolls and there is room, the card grows by what is hidden.
+    for (int pass = 0; pass < 3 && h < cap; ++pass) {
+        m_lay->activate();
+        m_scroll->widget()->adjustSize();
+        const int hidden = m_scroll->verticalScrollBar()->maximum();
+        int missing = hidden;
+        for (QLabel* l : {m_title, m_source})
+            if (l->isVisibleTo(this)) missing += qMax(0, l->heightForWidth(l->width()) - l->height());
+        if (missing <= 0) break;
+        h = qMin(cap, h + missing);
+        setFixedHeight(h);
+    }
     int x = qBound(16, m_anchor.center().x() - w / 2, qMax(16, p->width() - w - 16));
     int y = m_anchor.bottom() + 10;
     if (y + height() > p->height() - 16) y = m_anchor.top() - height() - 10;

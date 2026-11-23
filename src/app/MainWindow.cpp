@@ -346,7 +346,7 @@ void MainWindow::buildCommands()
            tr("Off: selecting only selects. Right-click > Translate, or Ctrl+E."));
     toggle("use-gemini", tr("Use Gemini (Online)"), &Settings::useGemini, tr("Google's Gemini, asked first."));
     toggle("use-lm-studio", tr("Use LM Studio (This Computer)"), &Settings::useLmStudio, tr("Asked when Gemini can't answer."));
-    toggle("use-dictionary", tr("Use the Offline Dictionary"), &Settings::useDictionary, tr("Single words at once, and when nothing else answers."));
+    toggle("use-dictionary", tr("Use the Offline Dictionary"), &Settings::useDictionary, tr("Single words, when nothing before it in the list answers."));
     toggle("use-offline-translator", tr("Use the Offline Translator"), &Settings::useOfflineTranslator,
            tr("Sentences and pages with no internet, when Gemini and LM Studio can't answer (a download in Settings)."));
     toggle("offline-only", tr("Offline Only"), &Settings::offlineOnly, tr("No text is sent over the internet: Gemini is never asked."));

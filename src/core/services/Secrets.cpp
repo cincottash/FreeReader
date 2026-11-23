@@ -6,8 +6,16 @@
 #ifdef Q_OS_WIN
 #include <windows.h>
 #include <wincred.h>
-#elif defined(Q_OS_UNIX)
+#elif defined(Q_OS_UNIX) && !defined(Q_OS_ANDROID)
 #include <QLibrary>
+#endif
+#ifdef Q_OS_ANDROID
+#include <QDir>
+#include <QFile>
+#include <QJniEnvironment>
+#include <QJniObject>
+#include <QSaveFile>
+#include <QStandardPaths>
 #endif
 
 namespace core::secrets {
@@ -24,7 +32,135 @@ QHash<QString, QString>& memory()
 
 QString target(const QString& name) { return QStringLiteral(APP_NAME "/") + name; }
 
-#if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
+#ifdef Q_OS_ANDROID
+// Android: the value is encrypted (AES-GCM) with a key that lives in the Android Keystore and never leaves it;
+// only the encrypted bytes are kept, in the app's own private folder.
+const char* const kKeyAlias = "FreeReaderSecrets";
+
+QString secretFile(const QString& name)
+{
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + QStringLiteral("/secrets");
+    QDir().mkpath(dir);
+    QString safe = name;
+    safe.replace(QLatin1Char('/'), QLatin1Char('_'));
+    return dir + QLatin1Char('/') + safe + QStringLiteral(".bin");
+}
+
+bool clearJavaException()
+{
+    QJniEnvironment env;
+    return env.checkAndClearExceptions(QJniEnvironment::OutputMode::Silent);
+}
+
+// The Keystore's AES key, made on first use.
+QJniObject keystoreKey()
+{
+    QJniObject alias = QJniObject::fromString(QString::fromLatin1(kKeyAlias));
+    QJniObject store = QJniObject::callStaticObjectMethod("java/security/KeyStore", "getInstance", "(Ljava/lang/String;)Ljava/security/KeyStore;",
+                                                          QJniObject::fromString(QStringLiteral("AndroidKeyStore")).object<jstring>());
+    if (clearJavaException() || !store.isValid()) return {};
+    store.callMethod<void>("load", "(Ljava/security/KeyStore$LoadStoreParameter;)V", nullptr);
+    if (clearJavaException()) return {};
+    const jboolean has = store.callMethod<jboolean>("containsAlias", "(Ljava/lang/String;)Z", alias.object<jstring>());
+    if (clearJavaException()) return {};
+    if (!has) {
+        QJniEnvironment env;
+        // new KeyGenParameterSpec.Builder(alias, PURPOSE_ENCRYPT | PURPOSE_DECRYPT).setBlockModes("GCM")
+        //     .setEncryptionPaddings("NoPadding").build()
+        QJniObject builder("android/security/keystore/KeyGenParameterSpec$Builder", "(Ljava/lang/String;I)V", alias.object<jstring>(), jint(3));
+        auto strings = [&env](const char* s) {
+            jobjectArray a = env->NewObjectArray(1, env->FindClass("java/lang/String"), nullptr);
+            env->SetObjectArrayElement(a, 0, QJniObject::fromString(QString::fromLatin1(s)).object<jstring>());
+            return a;
+        };
+        jobjectArray modes = strings("GCM"), paddings = strings("NoPadding");
+        builder.callObjectMethod("setBlockModes", "([Ljava/lang/String;)Landroid/security/keystore/KeyGenParameterSpec$Builder;", modes);
+        builder.callObjectMethod("setEncryptionPaddings", "([Ljava/lang/String;)Landroid/security/keystore/KeyGenParameterSpec$Builder;", paddings);
+        env->DeleteLocalRef(modes);
+        env->DeleteLocalRef(paddings);
+        QJniObject spec = builder.callObjectMethod("build", "()Landroid/security/keystore/KeyGenParameterSpec;");
+        QJniObject generator = QJniObject::callStaticObjectMethod("javax/crypto/KeyGenerator", "getInstance",
+                                                                  "(Ljava/lang/String;Ljava/lang/String;)Ljavax/crypto/KeyGenerator;",
+                                                                  QJniObject::fromString(QStringLiteral("AES")).object<jstring>(),
+                                                                  QJniObject::fromString(QStringLiteral("AndroidKeyStore")).object<jstring>());
+        if (clearJavaException() || !generator.isValid() || !spec.isValid()) return {};
+        generator.callMethod<void>("init", "(Ljava/security/spec/AlgorithmParameterSpec;)V", spec.object());
+        generator.callObjectMethod("generateKey", "()Ljavax/crypto/SecretKey;");
+        if (clearJavaException()) return {};
+    }
+    QJniObject key = store.callObjectMethod("getKey", "(Ljava/lang/String;[C)Ljava/security/Key;", alias.object<jstring>(), nullptr);
+    if (clearJavaException()) return {};
+    return key;
+}
+
+QByteArray toBytes(const QJniObject& array)
+{
+    if (!array.isValid()) return {};
+    QJniEnvironment env;
+    auto a = static_cast<jbyteArray>(array.object());
+    const jsize n = env->GetArrayLength(a);
+    QByteArray out(n, Qt::Uninitialized);
+    env->GetByteArrayRegion(a, 0, n, reinterpret_cast<jbyte*>(out.data()));
+    return out;
+}
+
+jbyteArray toJava(QJniEnvironment& env, const QByteArray& bytes)
+{
+    jbyteArray a = env->NewByteArray(jsize(bytes.size()));
+    env->SetByteArrayRegion(a, 0, jsize(bytes.size()), reinterpret_cast<const jbyte*>(bytes.constData()));
+    return a;
+}
+
+QJniObject cipher()
+{
+    return QJniObject::callStaticObjectMethod("javax/crypto/Cipher", "getInstance", "(Ljava/lang/String;)Ljavax/crypto/Cipher;",
+                                              QJniObject::fromString(QStringLiteral("AES/GCM/NoPadding")).object<jstring>());
+}
+
+// The file: a version byte, the 12-byte IV, then the encrypted value with its tag.
+bool androidWrite(const QString& name, const QString& value)
+{
+    const QJniObject key = keystoreKey();
+    QJniObject c = cipher();
+    if (!key.isValid() || !c.isValid()) return false;
+    c.callMethod<void>("init", "(ILjava/security/Key;)V", jint(1), key.object());   // ENCRYPT_MODE
+    if (clearJavaException()) return false;
+    QJniEnvironment env;
+    jbyteArray plain = toJava(env, value.toUtf8());
+    const QByteArray sealed = toBytes(c.callObjectMethod("doFinal", "([B)[B", plain));
+    env->DeleteLocalRef(plain);
+    const QByteArray iv = toBytes(c.callObjectMethod("getIV", "()[B"));
+    if (clearJavaException() || sealed.isEmpty() || iv.size() != 12) return false;
+    QSaveFile f(secretFile(name));
+    if (!f.open(QIODevice::WriteOnly)) return false;
+    f.write(QByteArray(1, '\x01') + iv + sealed);
+    return f.commit();
+}
+
+QString androidRead(const QString& name)
+{
+    QFile f(secretFile(name));
+    if (!f.open(QIODevice::ReadOnly)) return {};
+    const QByteArray data = f.readAll();
+    if (data.size() < 1 + 12 + 16 || data.at(0) != '\x01') return {};
+    const QJniObject key = keystoreKey();
+    QJniObject c = cipher();
+    if (!key.isValid() || !c.isValid()) return {};
+    QJniEnvironment env;
+    jbyteArray iv = toJava(env, data.mid(1, 12));
+    QJniObject spec("javax/crypto/spec/GCMParameterSpec", "(I[B)V", jint(128), iv);
+    env->DeleteLocalRef(iv);
+    c.callMethod<void>("init", "(ILjava/security/Key;Ljava/security/spec/AlgorithmParameterSpec;)V", jint(2), key.object(), spec.object());   // DECRYPT_MODE
+    if (clearJavaException()) return {};
+    jbyteArray sealed = toJava(env, data.mid(13));
+    const QByteArray plain = toBytes(c.callObjectMethod("doFinal", "([B)[B", sealed));
+    env->DeleteLocalRef(sealed);
+    if (clearJavaException()) return {};
+    return QString::fromUtf8(plain);
+}
+#endif
+
+#if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS) && !defined(Q_OS_ANDROID)
 // libsecret is loaded when needed, so the app runs (keys kept for the session) where it isn't installed.
 struct SecretSchemaAttribute {
     const char* name;
@@ -91,6 +227,8 @@ bool available()
     if (g_memoryOnly) return true;
 #ifdef Q_OS_WIN
     return true;
+#elif defined(Q_OS_ANDROID)
+    return true;
 #elif defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
     return libsecret().ok;
 #else
@@ -114,6 +252,8 @@ QString read(const QString& name)
         value = QString::fromUtf8(reinterpret_cast<const char*>(cred->CredentialBlob), int(cred->CredentialBlobSize));
     CredFree(cred);
     return value.trimmed();
+#elif defined(Q_OS_ANDROID)
+    return androidRead(name).trimmed();
 #elif defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
     if (!libsecret().ok) return {};
     const QByteArray n = name.toUtf8();
@@ -152,6 +292,14 @@ bool write(const QString& name, const QString& value, QString* error)
     }
     memory().remove(name);
     return true;
+#elif defined(Q_OS_ANDROID)
+    if (!androidWrite(name, value)) {
+        memory().insert(name, value);   // for this session only
+        if (error) *error = QStringLiteral("The phone's key store refused it, so the key is kept until the app closes.");
+        return false;
+    }
+    memory().remove(name);
+    return true;
 #elif defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
     if (!libsecret().ok) {
         memory().insert(name, value);   // for this session only
@@ -181,6 +329,9 @@ bool remove(const QString& name)
 #ifdef Q_OS_WIN
     const std::wstring t = target(name).toStdWString();
     return CredDeleteW(t.c_str(), CRED_TYPE_GENERIC, 0) || GetLastError() == ERROR_NOT_FOUND;
+#elif defined(Q_OS_ANDROID)
+    QFile::remove(secretFile(name));
+    return true;
 #elif defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
     if (!libsecret().ok) return true;
     const QByteArray n = name.toUtf8();

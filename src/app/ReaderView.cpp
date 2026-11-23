@@ -24,10 +24,12 @@
 #include "core/services/KindleImport.h"
 #include "core/translate/OfflineTranslator.h"
 #include "core/translate/OfflineDictionary.h"
+#include "core/translate/DictionaryCardHtml.h"
 #include "core/services/BookIndex.h"
 #include "core/services/WordLog.h"
 #include "core/services/Statistics.h"
 #include "core/services/Annotations.h"
+#include "core/services/Highlighting.h"
 
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -75,14 +77,6 @@ QToolButton* iconButton(const char* icon, const QString& tip, const Theme& t)
     return b;
 }
 
-QString minutesText(qint64 chars, int speed)
-{
-    const double minutes = double(chars) / double(qMax(1, speed));
-    if (minutes < 1) return QObject::tr("Less than 1 min left in chapter");
-    const int m = int(std::lround(minutes));
-    if (m < 60) return QObject::tr("%1 min left in chapter").arg(QLocale().toString(m));
-    return QObject::tr("%1 h %2 min left in chapter").arg(QLocale().toString(m / 60)).arg(m % 60);
-}
 
 }  // namespace
 
@@ -316,6 +310,12 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
         closeSearch();
         m_pages->setFocus();
     });
+    // A click on the page closes them even when nothing is selected (after a highlight made with the translation
+    // open, the selection is gone but the translation stays: the owner's bug report, 2026-11-23).
+    connect(m_pages, &PageView::pageClicked, this, [this] {
+        m_translate->hide();
+        m_dictCard->hide();
+    });
     connect(m_pages, &PageView::selectionCleared, this, [this] {
         if (m_keepPopup) return;
         m_translate->hide();
@@ -338,6 +338,11 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
         delete menu;
     });
     connect(m_engine, &core::BookEngine::indexReady, this, &ReaderView::onIndexReady);
+    connect(m_footer, &FooterBar::statClicked, this, [this] {
+        m_settings.footerPagesLeft = !m_settings.footerPagesLeft;
+        updateHeaderAndFooter();
+        emit appearanceChanged();   // the settings file needs saving
+    });
     connect(m_footer, &FooterBar::jumpRequested, this, [this](double f) {
         const auto ix = m_engine->index();
         if (ix) jumpTo(ix->fromGlobal(qint64(f * double(ix->total))));
@@ -581,17 +586,21 @@ void ReaderView::updateHeaderAndFooter()
     QStringList stats;
     stats << tr("Page %1 of %2").arg(ix->pageLabel(pos), ix->lastPageLabel());
     stats << QLocale().toString(int(std::floor(fraction * 100 + 1e-6))) + QStringLiteral("%");
-    // Time left in the chapter, from the reading speed learned from page turns.
-    const qint64 g = ix->global(pos);
-    qint64 next = ix->total;
-    for (const auto& t : ix->toc)
-        if (t.spine >= 0 && t.global > g && t.global < next) next = t.global;
-    stats << minutesText(next - g, m_settings.readingSpeed);
+    // What is left of the chapter: the time (from the reading speed learned from page turns) or the pages (in the
+    // numbering "Page X of Y" uses); a click on it switches between the two.
+    stats << core::chapterLeftText(*ix, pos, m_settings.readingSpeed, m_settings.footerPagesLeft);
     m_footer->setProgress(fraction, stats);
+    m_footer->setClickableStat(int(stats.size()) - 1, m_settings.footerPagesLeft ? tr("Click to show the time left in the chapter")
+                                                                                  : tr("Click to show the pages left in the chapter"));
 }
 
 void ReaderView::onPositionChanged(const core::Position& p, bool byTurn)
 {
+    // Another screen: what was open beside the words of the last one closes.
+    if (p != m_lastShown) {
+        m_translate->hide();
+        m_dictCard->hide();
+    }
     // Learn the reading speed from forward page turns at a plausible pace.
     if (byTurn && m_lastShown < p && m_lastScreenChars > 200) {
         const double seconds = m_sinceTurn.elapsed() / 1000.0;
@@ -808,10 +817,6 @@ void ReaderView::setTranslator(core::TranslationService* service)
         connect(service, &core::TranslationService::asking, this, [this](int id, const QString& provider) {
             if (id == m_lookupId) m_translate->showAsking(provider);
         });
-    if (service)
-        connect(service, &core::TranslationService::interim, this, [this](int id, const core::TranslationResult& r) {
-            if (id == m_lookupId) m_translate->showResult(r, m_dictionaryFirst, true);
-        });
 }
 
 bool ReaderView::bookIsOffline() const
@@ -861,53 +866,17 @@ void ReaderView::showDictionary()
 {
     const QString text = m_pages->selectedText().trimmed();
     if (text.isEmpty()) return;
-    const QString lang = languageCode();
-    // A dictionary of definitions in the book's language first (Spanish for a Spanish book), else a translating one
-    // (Spanish -> English). None, or none knows the word: the translation pop-up with its definition first.
-    core::OfflineDictionary* from = nullptr;
-    core::DictionaryCard card;
-    if (m_settings.useDictionary)
-        for (const bool monolingual : {true, false}) {
-            for (core::OfflineDictionary* d : m_dictionaries)
-                if (d && d->info().ok && d->info().language == lang && d->isMonolingual() == monolingual) {
-                    card = d->card(text);
-                    if (!card.isEmpty()) {
-                        from = d;
-                        break;
-                    }
-                }
-            if (from) break;
-        }
-    if (!from) {
+    // No dictionary knows the word (or none is on): the translation pop-up with its definition first.
+    const core::FoundCard f = m_settings.useDictionary ? core::findDictionaryCard(m_dictionaries, text, languageCode()) : core::FoundCard();
+    if (!f.found()) {
         translateSelection(true);
         return;
     }
     m_note->hide();
     m_translate->hide();
-    const core::DictionaryInfo& info = from->info();
-    QString title = info.title;
-    if (title.isEmpty()) {
-        const QString language = QLocale::languageToString(QLocale(info.language).language());
-        title = from->isMonolingual() ? tr("%1 Dictionary").arg(language)
-                                      : tr("%1–%2 Dictionary").arg(language, QLocale::languageToString(QLocale(info.target).language()));
-    }
-    // "Wiktionary (Spanish edition) via wiktextract / kaikki.org": the source itself, not how it was extracted.
-    QString origin = info.source;
-    if (const int via = int(origin.indexOf(QStringLiteral(" via "))); via > 0) origin = origin.left(via);
-    const QString source = info.license.isEmpty() ? origin : tr("%1 (%2)").arg(origin, info.license);
-    // The entry on Wiktionary, in the dictionary's own language edition (the Spanish section of the English one
-    // for a Spanish -> English dictionary).
-    QUrl full;
-    if (!card.headwords.isEmpty()) {
-        const QString edition = info.target.isEmpty() ? info.language : info.target;
-        full = QUrl(QStringLiteral("https://%1.wiktionary.org/wiki/").arg(edition) + QString(card.headwords.first().word).replace(QLatin1Char(' '), QLatin1Char('_')));
-        if (edition != info.language) full.setFragment(QLocale::languageToString(QLocale(info.language).language()));
-    }
-    // A Spanish book answered by Spanish -> English: Spanish definitions can be downloaded.
-    const bool offer = !from->isMonolingual() && lang == QLatin1String("es");
     const QRect anchor = m_pages->rangeRect(m_pages->selectionSpine(), m_pages->selectionStart(), m_pages->selectionEnd());
     m_dictCard->setTheme(m_theme);
-    m_dictCard->showCard(card, title, tr("Source: %1").arg(source), full, anchor, offer);
+    m_dictCard->showCard(f.card, f.title, f.source, f.fullDefinition, anchor, f.offerDefinitions);
 }
 
 void ReaderView::explainSelection()
@@ -998,25 +967,12 @@ int ReaderView::markHighlightedWord(const QString& highlighted, int spine, int s
 {
     if (!m_words || !m_bookId || !m_settings.practiceHighlights) return 0;
     // Words and short phrases only (up to 4 words); a highlighted passage is a quote, not vocabulary.
-    QString text = highlighted.simplified();
-    while (!text.isEmpty() && !text.front().isLetterOrNumber()) text.remove(0, 1);
-    while (!text.isEmpty() && !text.back().isLetterOrNumber()) text.chop(1);
-    int letters = 0;
-    for (const QChar c : text)
-        if (c.isLetter()) ++letters;
-    if (letters < 2 || text.size() > 60 || text.split(QLatin1Char(' '), Qt::SkipEmptyParts).size() > 4) return 0;
+    const QString text = core::vocabularyText(highlighted);
+    if (text.isEmpty()) return 0;
     // No lookup: the offline dictionary's meaning when it has one, else none yet.
     core::TranslationResult meaning = m_translator ? m_translator->offlineMeaning(text, languageCode()) : core::TranslationResult();
     meaning.text = text;
-    // A very long sentence (old books have them) is cut to the part around the word.
-    QString context = sentence.simplified();
-    if (context.size() > 600) {
-        const int at = int(context.indexOf(text, 0, Qt::CaseInsensitive));
-        const int from = at < 0 ? 0 : qMax(0, at - 250);
-        context = (from > 0 ? QStringLiteral("…") : QString()) + context.mid(from, 500).trimmed() +
-                  (from + 500 < context.size() ? QStringLiteral("…") : QString());
-    }
-    const int id = m_words->mark(meaning, wordPlace(spine, start, end, context));
+    const int id = m_words->mark(meaning, wordPlace(spine, start, end, core::contextAround(sentence, text)));
     if (id) emit wordLogged();
     return id;
 }
@@ -1037,7 +993,8 @@ QMenu* ReaderView::buildSelectionMenu()
         auto* h = new QHBoxLayout(row);
         h->setContentsMargins(10, 6, 10, 6);
         h->setSpacing(10);
-        for (const QString& c : core::Annotations::colors()) {
+        // The most recently used color first: the easiest dot to reach (the owner's request, 2026-11-23).
+        for (const QString& c : core::Annotations::colorsInOrder(m_settings.highlightOrder)) {
             auto* dot = new QToolButton;
             dot->setObjectName(QStringLiteral("Icon"));
             dot->setFixedSize(30, 30);
@@ -1095,10 +1052,15 @@ QMenu* ReaderView::buildSelectionMenu()
         const bool hasNote = current && !m_notes->get(current).note.isEmpty();
         QAction* note = menu->addAction(hasNote ? tr("Edit Note…") : tr("Add Note…"), this, [this] {
             int id = highlightAtSelection();
-            if (!id) id = highlightSelection(QStringLiteral("yellow"));
+            if (!id) id = highlightSelection(QStringLiteral("yellow"), false);
             if (id) editNote(id);
         });
         note->setProperty("testId", "menuNote");
+        // A bookmark on the word itself (the header's button marks the page).
+        const bool marked = wordBookmarkAtSelection() != 0;
+        QAction* mark = menu->addAction(marked ? tr("Remove Bookmark Here") : tr("Bookmark Here"), this, [this] { toggleWordBookmark(); });
+        mark->setProperty("testId", "menuBookmarkWord");
+        mark->setToolTip(tr("A bookmark on this word, not the whole page"));
     }
     menu->addSeparator();
     QAction* search = menu->addAction(tr("Search This Book"), this, [this] { openSearch(m_pages->selectedText()); });
@@ -1196,72 +1158,22 @@ int ReaderView::highlightAtSelection() const
     return hits.isEmpty() ? 0 : hits.first().id;
 }
 
-int ReaderView::highlightSelection(const QString& color)
+int ReaderView::highlightSelection(const QString& color, bool chosen)
 {
     if (!m_notes || !m_bookId || !m_pages->hasSelection() || m_pages->selectedText().trimmed().isEmpty()) return 0;
     const int spine = m_pages->selectionSpine(), start = m_pages->selectionStart(), end = m_pages->selectionEnd();
-    // Inside an existing highlight: that one changes color (a highlight is never stacked on another). Its own
-    // color again takes the highlight away, as in Kindle (the owner's request, 2026-11-22). A note on it goes
-    // with it only when it has none: one with a note is kept (Remove Highlight still removes it).
-    for (core::Annotation a : m_notes->highlightsAt(m_bookId, spine, start, end))
-        if (a.start <= start && a.end >= end) {
-            if (a.color == color && a.note.trimmed().isEmpty()) {
-                m_notes->remove(a.id);
-                clearSelectionKeepingPopup();
-                refreshAnnotations();
-                return 0;
-            }
-            a.color = color;
-            m_notes->update(a);
-            clearSelectionKeepingPopup();
-            refreshAnnotations();
-            return a.id;
-        }
-    // Whole words, as in Kindle: a selection that starts or ends inside a word takes the whole word.
-    int from = start, to = end;
-    if (const auto layoutNow = m_engine->layout(spine)) {
-        for (const layout::Block& b : layoutNow->flow->blocks) {
-            if (b.kind != layout::Block::Text) continue;
-            auto isWord = [&](int i) { return i >= 0 && i < int(b.text.size()) && (b.text[i].isLetterOrNumber() || b.text[i] == QChar(0x00AD)); };
-            if (from >= b.start && from < b.start + b.length) {
-                int i = from - b.start;
-                while (i > 0 && isWord(i) && isWord(i - 1)) --i;
-                from = b.start + i;
-            }
-            if (to > b.start && to <= b.start + b.length) {
-                int i = to - b.start;
-                while (i < int(b.text.size()) && isWord(i) && isWord(i - 1)) ++i;
-                to = b.start + i;
-            }
-        }
-    }
     const QString sentence = m_pages->selectionSentence();
-    // Overlapping ones are merged into the new highlight, keeping their notes.
-    QStringList notes;
-    for (const core::Annotation& a : m_notes->highlightsAt(m_bookId, spine, from, to)) {
-        from = qMin(from, a.start);
-        to = qMax(to, a.end);
-        if (!a.note.trimmed().isEmpty()) notes << a.note.trimmed();
-        m_notes->remove(a.id);
+    const core::HighlightChange c = core::highlightRange(*m_notes, *m_engine, m_bookId, spine, start, end, color,
+                                                         chapterTitleAt({spine, start}), m_pages->selectedText());
+    if (c.id && !c.recolored) markHighlightedWord(c.text, spine, c.from, c.to, sentence);
+    // A color used (not one clicked again to take a highlight away) moves to the front of the dots.
+    if (c.id && chosen) {
+        m_settings.highlightOrder = core::Annotations::usedColor(m_settings.highlightOrder, color);
+        emit appearanceChanged();   // the settings file needs saving
     }
-    const auto cl = m_engine->layout(spine);
-    core::Annotation a;
-    a.bookId = m_bookId;
-    a.kind = core::Annotation::Highlight;
-    a.spine = spine;
-    a.start = from;
-    a.end = to;
-    a.text = cl ? cl->flow->textRange(from, to).simplified() : m_pages->selectedText().simplified();
-    a.color = color;
-    a.note = notes.join(QStringLiteral("\n\n"));
-    a.cfi = m_engine->cfiFor({spine, from});
-    if (const auto ix = m_engine->index()) a.pageLabel = ix->pageLabel({spine, from});
-    a.chapter = chapterTitleAt({spine, from});
-    const int id = m_notes->add(a);
-    if (id) markHighlightedWord(a.text, spine, from, to, sentence);
     clearSelectionKeepingPopup();
     refreshAnnotations();
-    return id;
+    return c.id;
 }
 
 void ReaderView::clearSelectionKeepingPopup()
@@ -1447,7 +1359,7 @@ bool ReaderView::removeHighlightAtSelection()
 int ReaderView::addNoteToSelection(const QString& note)
 {
     int id = highlightAtSelection();
-    if (!id) id = highlightSelection(QStringLiteral("yellow"));
+    if (!id) id = highlightSelection(QStringLiteral("yellow"), false);
     if (!id) return 0;
     setNote(id, note);
     return id;
@@ -1493,6 +1405,42 @@ bool ReaderView::pageIsBookmarked() const
     return m_notes->bookmarkAt(m_bookId, a.spine, a.offset, e.spine == a.spine ? qMax(a.offset, e.offset - 1) : a.offset) != 0;
 }
 
+int ReaderView::wordBookmarkAtSelection() const
+{
+    if (!m_notes || !m_bookId || !m_pages->hasSelection()) return 0;
+    return m_notes->wordBookmarkAt(m_bookId, m_pages->selectionSpine(), m_pages->selectionStart(), m_pages->selectionEnd());
+}
+
+int ReaderView::toggleWordBookmark()
+{
+    if (!m_notes || !m_bookId || !m_pages->hasSelection() || !m_engine->isOpen()) return 0;
+    if (const int existing = wordBookmarkAtSelection()) {
+        m_notes->remove(existing);
+        clearSelectionKeepingPopup();   // the word was selected only for the bookmark (the owner's request, 2026-11-23)
+        refreshAnnotations();
+        return 0;
+    }
+    const int spine = m_pages->selectionSpine();
+    int from = 0, to = 0;
+    core::firstWord(*m_engine, spine, m_pages->selectionStart(), m_pages->selectionEnd(), &from, &to);
+    if (to <= from) return 0;
+    core::Annotation b;
+    b.bookId = m_bookId;
+    b.kind = core::Annotation::Bookmark;
+    b.spine = spine;
+    b.start = from;
+    b.end = to;
+    // The word and what follows it, as the Notebook shows a bookmark.
+    if (const auto cl = m_engine->layout(spine)) b.text = cl->flow->textRange(from, qMin(cl->flow->length, from + 120)).simplified();
+    b.cfi = m_engine->cfiFor({spine, from});
+    if (const auto ix = m_engine->index()) b.pageLabel = ix->pageLabel({spine, from});
+    b.chapter = chapterTitleAt({spine, from});
+    const int id = m_notes->add(b);
+    clearSelectionKeepingPopup();
+    refreshAnnotations();
+    return id;
+}
+
 bool ReaderView::toggleBookmark()
 {
     if (!m_notes || !m_bookId || !m_engine->isOpen()) return false;
@@ -1522,6 +1470,10 @@ void ReaderView::refreshAnnotations()
     const QList<core::Annotation> all = on ? m_notes->forBook(m_bookId) : QList<core::Annotation>();
     const int spine = m_pages->position().spine;
     std::vector<layout::Overlay> overlays;
+    std::vector<std::pair<int, int>> marks;
+    for (const core::Annotation& a : all)
+        if (core::Annotations::isWordBookmark(a) && a.spine == spine) marks.push_back({a.start, a.end});
+    m_pages->setWordBookmarks(spine, marks);
     for (const core::Annotation& a : all) {
         if (a.kind != core::Annotation::Highlight || a.spine != spine) continue;
         QColor c = core::Annotations::colorValue(a.color);
@@ -1546,7 +1498,9 @@ void ReaderView::goToAnnotation(int annotationId)
         if (m_engine->positionForCfi(a.cfi, &fromCfi)) p = fromCfi;
     }
     jumpTo(p);
-    if (a.kind == core::Annotation::Highlight) m_pages->selectRange(p, {p.spine, p.offset + (a.end - a.start)});
+    // A highlight or a word bookmark: its words are selected, so the place shows.
+    if (a.kind == core::Annotation::Highlight || core::Annotations::isWordBookmark(a))
+        m_pages->selectRange(p, {p.spine, p.offset + (a.end - a.start)});
     m_pages->setFocus();
 }
 

@@ -24,8 +24,7 @@ public:
     // `anchor`: the selection's rectangle in the parent's coordinates. `language`: the book's language code.
     void showLoading(const QString& text, const QString& language, const QRect& anchor);
     void showAsking(const QString& provider);
-    // `interim`: the offline dictionary's answer while the online one is on its way (still loading).
-    void showResult(const core::TranslationResult& r, bool dictionaryFirst = false, bool interim = false);
+    void showResult(const core::TranslationResult& r, bool dictionaryFirst = false);
     void showNothing(const QString& why);
     // Explain This Sentence: the sentence in English, then the notes on how it works.
     void showExplanation(const core::TranslationResult& r);

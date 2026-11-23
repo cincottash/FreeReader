@@ -1,5 +1,8 @@
 #include "PageView.h"
 
+#include <cmath>
+#include <numbers>
+
 #include "Icons.h"
 
 #include "core/layout/PageRenderer.h"
@@ -33,6 +36,8 @@ PageView::PageView(core::BookEngine* engine, QWidget* parent) : QWidget(parent),
     connect(&m_resizeTimer, &QTimer::timeout, this, &PageView::applyParams);
     connect(m_engine, &core::BookEngine::layoutReady, this, &PageView::onLayoutReady);
     m_waiting.start();
+    m_blinkTimer.setInterval(60);
+    connect(&m_blinkTimer, &QTimer::timeout, this, &PageView::blinkStep);
     m_turn = new QVariantAnimation(this);
     m_turn->setStartValue(0.0);
     m_turn->setEndValue(1.0);
@@ -350,9 +355,16 @@ layout::Hit PageView::hitAt(const QPointF& pos, int* column) const
     return layout::hitTest(*cl, page, pos - columnRect(col).topLeft());
 }
 
+float PageView::turnZone() const
+{
+    // Only a strip at the window's edge turns pages (the owner's request, 2026-11-23: clicks in the white margin
+    // beside the text turned pages by mistake): 56 px, less when the margin is narrower, at least 24.
+    return qBound(24.f, m_geo.left - 8.f, 56.f);
+}
+
 int PageView::hoverSide(const QPointF& pos) const
 {
-    const float zone = qMax(64.f, m_geo.left - 8.f);
+    const float zone = turnZone();
     if (pos.x() < zone && canGoPrevious()) return -1;
     if (pos.x() > width() - zone && canGoNext()) return 1;
     return 0;
@@ -366,8 +378,9 @@ void PageView::paintEvent(QPaintEvent*)
     else paintScreen(p);
 
     if (m_hover != 0 && m_toPix.isNull()) {
-        const float zone = qMax(64.f, m_geo.left - 8.f);
-        const QPointF c(m_hover < 0 ? zone / 2 : width() - zone / 2, height() / 2.0);
+        const float zone = turnZone();
+        const float cx = qMax(zone / 2, 24.f);   // the whole arrow shows, even beside a narrow strip
+        const QPointF c(m_hover < 0 ? cx : width() - cx, height() / 2.0);
         p.setRenderHint(QPainter::Antialiasing);
         p.setPen(QPen(m_theme.line, 1));
         p.setBrush(m_theme.surface);
@@ -405,14 +418,81 @@ void PageView::paintScreen(QPainter& p)
     const layout::RenderColors colors{m_theme.fg, m_theme.muted, m_theme.accent, m_theme.line, m_theme.surface};
     std::vector<layout::Overlay> overlays;
     if (m_highlightSpine == m_anchor.spine) overlays = m_highlights;
-    if (m_selSpine == m_anchor.spine && hasSelection())
-        overlays.push_back({qMin(m_selStart, m_selEnd), qMax(m_selStart, m_selEnd), m_theme.sel});
+    if (m_selSpine == m_anchor.spine && hasSelection()) {
+        QColor sel = m_theme.sel;
+        sel.setAlphaF(float(sel.alphaF() * selectionStrength()));
+        overlays.push_back({qMin(m_selStart, m_selEnd), qMax(m_selStart, m_selEnd), sel});
+        if (selectionBlinks() && !m_blinkTimer.isActive()) {
+            m_blinkClock.start();
+            m_blinkTimer.start();
+        }
+    }
     const int first = firstPage(*cl);
     for (int i = 0; i < m_geo.columns; ++i) {
         const int page = first + i;
         if (page >= int(cl->pages.size())) break;
         layout::paintPage(p, *cl, page, columnRect(i).topLeft(), colors, overlays);
+        // Word bookmarks: a small ribbon in the accent color over the word's first letter.
+        if (m_wordMarksSpine != m_anchor.spine) continue;
+        for (const auto& [ws, we] : m_wordMarks) {
+            const std::vector<QRectF> rects = layout::rangeRects(*cl, page, ws, qMin(we, ws + 1));
+            if (rects.empty()) continue;
+            const QRectF r = rects.front().translated(columnRect(i).topLeft());
+            const qreal w = qBound(6.0, r.height() * 0.32, 10.0), h = w * 1.5, x = r.left(), y = r.top() - h * 0.45;
+            QPainterPath ribbon;
+            ribbon.moveTo(x, y);
+            ribbon.lineTo(x + w, y);
+            ribbon.lineTo(x + w, y + h);
+            ribbon.lineTo(x + w / 2, y + h - w * 0.45);
+            ribbon.lineTo(x, y + h);
+            ribbon.closeSubpath();
+            p.save();
+            p.setRenderHint(QPainter::Antialiasing);
+            p.fillPath(ribbon, m_theme.accent);
+            p.restore();
+        }
     }
+}
+
+void PageView::setWordBookmarks(int spine, const std::vector<std::pair<int, int>>& words)
+{
+    m_wordMarksSpine = spine;
+    m_wordMarks = words;
+    update();
+}
+
+namespace {
+int g_blink = 1;   // 0 never (tests), 1 when the window is active, 2 always (tests: off-screen windows aren't active)
+}
+
+void PageView::setSelectionBlinkForTests(bool on) { g_blink = on ? 2 : 0; }
+
+bool PageView::selectionBlinks() const
+{
+    // Not while it is being dragged out, and only where someone can see it.
+    if (!g_blink || !hasSelection() || m_selSpine != m_anchor.spine || m_dragging || m_pressed || !m_toPix.isNull()) return false;
+    return g_blink == 2 || (isVisible() && window() && window()->isActiveWindow());
+}
+
+double PageView::selectionStrength() const
+{
+    if (!m_blinkTimer.isActive() || !selectionBlinks()) return 1.0;
+    // A soft blink, once a second: full, fading to a fifth, and back.
+    const double phase = 0.5 + 0.5 * std::cos(2.0 * std::numbers::pi * double(m_blinkClock.elapsed() % 1000) / 1000.0);
+    return 0.2 + 0.8 * phase;
+}
+
+void PageView::blinkStep()
+{
+    if (!selectionBlinks()) {
+        m_blinkTimer.stop();
+        update();   // painted steady again
+        return;
+    }
+    // Only the selection's area is painted again.
+    const QRect r = rangeRect(m_selSpine, selectionStart(), selectionEnd()).adjusted(-6, -6, 6, 6);
+    update(r.united(m_blinkRect));
+    m_blinkRect = r;
 }
 
 void PageView::mousePressEvent(QMouseEvent* e)
@@ -489,6 +569,7 @@ void PageView::mouseReleaseEvent(QMouseEvent* e)
         if (hasSelection() && !selectedText().trimmed().isEmpty()) emit selectionMade();
         return;
     }
+    emit pageClicked();
     if (m_pressSide) {
         if (hoverSide(e->position()) == m_pressSide) m_pressSide < 0 ? previousScreen() : nextScreen();
         return;

@@ -1,6 +1,8 @@
 // Renders resources/icon.svg to packaging/icon.ico (16-256 px, PNG-compressed entries) for the Windows exe.
-// Build and run it once after changing the SVG; see the README ("Changing the icon").
+// Build and run it once after changing the SVG; see the README ("Changing the icon"). With --android <res folder>
+// it writes the Android launcher icons instead.
 #include <QBuffer>
+#include <QDir>
 #include <QFile>
 #include <QGuiApplication>
 #include <QImage>
@@ -19,6 +21,22 @@ int main(int argc, char* argv[])
     if (!svg.isValid()) {
         qWarning("can't read %s", argv[1]);
         return 1;
+    }
+    // make_icon <icon.svg> --android <res folder>: the Android launcher icon, res/mipmap-<density>/ic_launcher.png.
+    if (QByteArray(argv[2]) == "--android" && argc > 3) {
+        const struct { const char* density; int size; } densities[] = {{"mdpi", 48}, {"hdpi", 72}, {"xhdpi", 96}, {"xxhdpi", 144}, {"xxxhdpi", 192}};
+        for (const auto& d : densities) {
+            const QString dir = QString::fromLocal8Bit(argv[3]) + QStringLiteral("/mipmap-") + QLatin1String(d.density);
+            QDir().mkpath(dir);
+            QImage img(d.size, d.size, QImage::Format_ARGB32_Premultiplied);
+            img.fill(Qt::transparent);
+            QPainter p(&img);
+            p.setRenderHint(QPainter::Antialiasing);
+            svg.render(&p);
+            p.end();
+            if (!img.save(dir + QStringLiteral("/ic_launcher.png"), "PNG")) return 1;
+        }
+        return 0;
     }
     const int sizes[] = {16, 20, 24, 32, 40, 48, 64, 128, 256};
     QList<QByteArray> pngs;

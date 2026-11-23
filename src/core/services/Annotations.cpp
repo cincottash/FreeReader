@@ -141,7 +141,33 @@ QList<Annotation> Annotations::highlightsAt(int bookId, int spine, int start, in
 int Annotations::bookmarkAt(int bookId, int spine, int from, int to) const
 {
     for (const Annotation& a : inChapter(bookId, spine))
-        if (a.kind == Annotation::Bookmark && a.start >= from && a.start <= to) return a.id;
+        if (a.kind == Annotation::Bookmark && a.end == a.start && a.start >= from && a.start <= to) return a.id;
+    return 0;
+}
+
+QStringList Annotations::colorsInOrder(const QStringList& order)
+{
+    QStringList out;
+    for (const QString& c : order)
+        if (colors().contains(c) && !out.contains(c)) out << c;
+    for (const QString& c : colors())
+        if (!out.contains(c)) out << c;
+    return out;
+}
+
+QStringList Annotations::usedColor(const QStringList& order, const QString& color)
+{
+    QStringList out = colorsInOrder(order);
+    if (!out.contains(color)) return out;
+    out.removeAll(color);
+    out.prepend(color);
+    return out;
+}
+
+int Annotations::wordBookmarkAt(int bookId, int spine, int start, int end) const
+{
+    for (const Annotation& a : inChapter(bookId, spine))
+        if (isWordBookmark(a) && a.start < qMax(end, start + 1) && a.end > start) return a.id;
     return 0;
 }
 

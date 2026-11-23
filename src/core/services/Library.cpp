@@ -398,13 +398,14 @@ QJsonObject Library::appearanceLayer(const QString& scope) const
     return QJsonDocument::fromJson(q.value(0).toString().toUtf8()).object();
 }
 
-QJsonObject Library::cachedTranslation(const QString& key) const
+QJsonObject Library::cachedTranslation(const QString& key, QString* provider) const
 {
     if (!m_open) return {};
     QSqlQuery q(QSqlDatabase::database(m_connection));
-    q.prepare(QStringLiteral("SELECT json FROM translation_cache WHERE key=?"));
+    q.prepare(QStringLiteral("SELECT json, provider FROM translation_cache WHERE key=?"));
     q.addBindValue(key);
     if (!q.exec() || !q.next()) return {};
+    if (provider) *provider = q.value(1).toString();
     return QJsonDocument::fromJson(q.value(0).toString().toUtf8()).object();
 }
 

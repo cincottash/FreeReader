@@ -27,7 +27,17 @@ if(STATIC_BUILD AND MINGW)
     set(CMAKE_CXX_STANDARD_LIBRARIES "${CMAKE_CXX_STANDARD_LIBRARIES} -lbz2 -lbrotlidec -lbrotlicommon -lws2_32 -lcrypt32 -liphlpapi -lbcrypt")
 endif()
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Widgets Svg Sql Concurrent Network)
+# The touch app (Qt Quick) for phones and tablets; Android builds only that one. On desktops it can be built too,
+# for testing (-DBUILD_MOBILE=ON).
+if(ANDROID)
+    set(BUILD_MOBILE ON)
+endif()
+option(BUILD_MOBILE "Build the touch app (Qt Quick)" OFF)
+
+find_package(Qt6 6.5 REQUIRED COMPONENTS Sql Concurrent Network Gui)
+if(NOT ANDROID)
+    find_package(Qt6 6.5 REQUIRED COMPONENTS Widgets Svg)
+endif()
 # Spoken pronunciation in the translation pop-up, when this Qt has the module.
 find_package(Qt6 QUIET COMPONENTS TextToSpeech)
 find_package(ZLIB REQUIRED)
@@ -67,16 +77,19 @@ add_library(freereader_core STATIC
     src/core/services/Secrets.cpp
     src/core/services/WordLog.cpp
     src/core/services/Annotations.cpp
+    src/core/services/Highlighting.cpp
     src/core/services/BookSearch.cpp
     src/core/services/LibrarySearch.cpp
     src/core/services/Statistics.cpp
     src/core/services/KindleImport.cpp
     src/core/practice/Scheduler.cpp
     src/core/practice/Answer.cpp
+    src/core/practice/Session.cpp
     src/core/translate/Translation.cpp
     src/core/translate/AiProviders.cpp
     src/core/translate/TranslationService.cpp
     src/core/translate/OfflineDictionary.cpp
+    src/core/translate/DictionaryCardHtml.cpp
     src/core/translate/DictionaryDownload.cpp
     src/core/translate/OfflineTranslator.cpp
     src/core/translate/SavedWords.cpp
@@ -91,6 +104,11 @@ endif()
 file(GLOB HYPH_FILES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/resources/hyphenation/*.txt)
 qt_add_resources(freereader_core hyphenation PREFIX "/" BASE resources FILES ${HYPH_FILES})
 
+if(BUILD_MOBILE)
+    add_subdirectory(src/mobile)
+endif()
+
+if(NOT ANDROID)
 # The screens (everything but main.cpp), in a library so local whole-app tests can link them.
 file(GLOB UI_SOURCES CONFIGURE_DEPENDS src/app/*.cpp)
 list(REMOVE_ITEM UI_SOURCES "${CMAKE_SOURCE_DIR}/src/app/main.cpp")
@@ -154,10 +172,11 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 
 install(TARGETS app RUNTIME DESTINATION bin)
+endif()   # NOT ANDROID
 
 # Local tests (kept out of the repository).
 option(BUILD_LOCAL_TESTS "Build the local tests when the tests folder exists" ON)
-if(BUILD_LOCAL_TESTS AND EXISTS "${CMAKE_SOURCE_DIR}/tests/CMakeLists.txt")
+if(BUILD_LOCAL_TESTS AND NOT ANDROID AND EXISTS "${CMAKE_SOURCE_DIR}/tests/CMakeLists.txt")
     enable_testing()
     add_subdirectory(tests)
 endif()

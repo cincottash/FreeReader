@@ -1,5 +1,6 @@
-// API keys in the system's credential store: Windows Credential Manager, or the Secret Service (GNOME Keyring,
-// KWallet) on Linux. Never in the settings file or the library database.
+// API keys in the system's credential store: Windows Credential Manager, the Secret Service (GNOME Keyring,
+// KWallet) on Linux, the Android Keystore on Android (it holds the key that encrypts them). Never in the settings
+// file or the library database.
 #pragma once
 
 #include <QString>

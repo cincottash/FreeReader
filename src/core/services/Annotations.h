@@ -18,7 +18,7 @@ struct Annotation {
     int id = 0;
     int bookId = 0;
     Kind kind = Highlight;
-    int spine = -1, start = 0, end = 0;   // end == start for a bookmark
+    int spine = -1, start = 0, end = 0;   // a page bookmark: end == start; a word bookmark covers its word
     QString cfi;
     QString text;                          // the quoted text (a bookmark: the first words of the page)
     QString color;                         // highlight color key: pink, orange, yellow, blue
@@ -33,6 +33,11 @@ public:
     bool isOpen() const;
 
     static QStringList colors() { return {"pink", "orange", "yellow", "blue"}; }
+    // The colors as the highlight dots show them: the most recently used first, the others in their order before.
+    // `order` is what the settings kept (unknown keys are dropped, missing ones added in their usual place).
+    static QStringList colorsInOrder(const QStringList& order);
+    // `color` was just used: it moves to the front; the others keep their order.
+    static QStringList usedColor(const QStringList& order, const QString& color);
     static QColor colorValue(const QString& key);   // the swatch color
 
     int add(const Annotation& a);                   // returns the id (0 on failure)
@@ -43,7 +48,10 @@ public:
     QList<Annotation> inChapter(int bookId, int spine) const;
     // Highlights overlapping [start, end) in a chapter.
     QList<Annotation> highlightsAt(int bookId, int spine, int start, int end) const;
-    int bookmarkAt(int bookId, int spine, int from, int to) const;   // the first bookmark in [from, to], or 0
+    int bookmarkAt(int bookId, int spine, int from, int to) const;   // the first page bookmark in [from, to], or 0
+    // The word bookmark overlapping [start, end) of a chapter, or 0.
+    int wordBookmarkAt(int bookId, int spine, int start, int end) const;
+    static bool isWordBookmark(const Annotation& a) { return a.kind == Annotation::Bookmark && a.end > a.start; }
     int count(int bookId) const;
 
     // Markdown: the book's title, then each highlight as a quote with its note and page, and the bookmarks.

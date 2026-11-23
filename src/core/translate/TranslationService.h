@@ -45,7 +45,6 @@ public:
 
 signals:
     void asking(int id, const QString& provider);
-    void interim(int id, const core::TranslationResult& result);   // the offline dictionary's answer, before the final one
     // `result.isEmpty()` when nobody could answer; `why` then says what each provider reported.
     void finished(int id, const core::TranslationResult& result, const QString& why);
 
@@ -55,6 +54,7 @@ private:
 
     Library* m_cache = nullptr;
     std::vector<OfflineDictionary*> m_instant;
+    bool cacheFits(const QString& provider, const TranslationRequest& request) const;   // see translate()
     std::vector<TranslationProvider*> m_providers;
     bool m_offlineOnly = false;
     int m_nextId = 1;

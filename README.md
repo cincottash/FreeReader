@@ -52,16 +52,17 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 - **Show English Alongside** (View menu, Ctrl+Shift+B): the English of every paragraph on the page in a panel
   beside it, a page at a time; pages you've seen stay translated.
 - Prefer the pop-up as soon as you select? Turn on **Settings ▸ Translation ▸ Translate When Text Is Selected**.
-- Answers come from **Google's Gemini** (free tier, no card needed), then **LM Studio** on your own computer when
-  Gemini can't answer (optional), then what your **Word List** already says, then the **offline dictionaries** and
-  the **offline translator**. Every Gemini and LM Studio answer is kept, so looking up the same words again costs
-  nothing and works offline. Each one can be switched off in **Settings ▸ Translation**.
+- Answers come from one engine at a time, always in this order: **Google's Gemini** (free tier, no card needed),
+  then **LM Studio** on your own computer (optional), then what your **Word List** already says, then the **offline
+  dictionaries** and the **offline translator**. The next one is asked only when the one before can't answer or is
+  switched off (**Settings ▸ Translation**). Every Gemini and LM Studio answer is kept, so looking up the same words
+  again costs nothing and works offline; a kept answer follows the same order (Gemini's is used while Gemini is on).
 - **Set it up once:** get a free key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey), then
   paste it in **Settings ▸ Translation ▸ Translation Settings…**. The key is kept in Windows Credential Manager
   (or the system's key store on Linux), never in a file. **Test** looks up one word to check it works.
 - **Offline Only** (for all books, or just the open one) never sends text over the internet.
-- **Offline dictionaries** (optional downloads in the translation settings) answer single words at once, with no
-  internet:
+- **Offline dictionaries** (optional downloads in the translation settings) answer single words with no internet,
+  when the engines before them can't:
   - **Spanish → English** (31 MB): 120,000 words from [Wiktionary](https://en.wiktionary.org) (CC BY-SA 4.0),
     with verb forms ("tenía" → tener). [Release](https://github.com/cincottash/FreeReader/releases/tag/dictionary-es-en-1).
   - **English definitions** (11 MB), for English books: 160,000 words and names from
@@ -97,9 +98,12 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 
 ![Highlights on the page and the Notebook](.github/readme/notebook.png)
 
-- **Highlight** in pink, orange, yellow or blue from the dots at the top of the right-click menu. Highlights cover
-  whole words; right-click one to change its color, add a note or remove it (its own color again removes it too).
-- **Bookmark This Page** (Ctrl+D, or the bookmark button).
+- **Highlight** in pink, orange, yellow or blue from the dots at the top of the right-click menu; the color you
+  used last is the first dot. Highlights cover whole words; right-click one to change its color, add a note or
+  remove it (its own color again removes it too). A selection made with the mouse blinks gently until it's
+  highlighted or cleared, so it doesn't look like a highlight.
+- **Bookmark This Page** (Ctrl+D, or the bookmark button), or **Bookmark Here** (right-click a word): a bookmark on
+  that word, marked with a small ribbon. Going to it from the Notebook selects the word.
 - **Notebook** (Ctrl+Shift+N): the book's highlights, notes and bookmarks in reading order, filtered by kind or
   color. Click one to go there; **Export…** saves them as Markdown, or as JSON for other tools.
 - **File ▸ Import Kindle Highlights…** brings highlights, notes and bookmarks from a Kindle (a Bookcision JSON
@@ -115,10 +119,13 @@ FreeReader never changes your book files: highlights and notes live in its own d
 
 ## Reading
 
-- **Turn pages:** arrow keys, Page Up and Page Down, Space, the mouse wheel, or the arrows at the edges of the page.
+- **Turn pages:** arrow keys, Page Up and Page Down, Space, the mouse wheel, or the arrows at the window's left and
+  right edges (only a narrow strip there: a click in the margin beside the text does nothing).
 - **Contents:** the list button in the header (Ctrl+T). The current chapter is marked.
 - **Go to a page or point:** Ctrl+G, then a page number or a percentage such as `45%`. Click the progress bar
   to jump there. **Back to Page …** (or Alt+Left) returns to where you were.
+- **Time or pages left:** the footer shows the time left in the chapter, from your reading speed (learned as you
+  turn pages). Click it to show the pages left in the chapter instead, and again to switch back.
 - **Footnotes** open in a small pop-up next to the reference. **Pictures** open full size when clicked.
 - **Menus:** File, View, Go, Settings and Help at the top left. Ctrl+K lists every command with a search box.
 
