@@ -36,6 +36,7 @@ qt_add_qml_module(freereader_mobile
         qml/Navigator.qml
         qml/SearchSheet.qml
         qml/ThemeList.qml
+        qml/WordsPage.qml
     SOURCES
         BookPage.h
         MobileApp.h
@@ -50,8 +51,11 @@ qt_add_resources(freereader_mobile mobile_resources PREFIX "/" BASE ${CMAKE_SOUR
     FILES ${CMAKE_SOURCE_DIR}/resources/icon.svg ${MOBILE_FONT_FILES})
 
 if(ANDROID)
+    # The app's own Android files (manifest, icons), when there are any; else Qt's defaults.
+    if(EXISTS ${CMAKE_SOURCE_DIR}/android/AndroidManifest.xml)
+        set_target_properties(freereader_mobile PROPERTIES QT_ANDROID_PACKAGE_SOURCE_DIR ${CMAKE_SOURCE_DIR}/android)
+    endif()
     set_target_properties(freereader_mobile PROPERTIES
-        QT_ANDROID_PACKAGE_SOURCE_DIR ${CMAKE_SOURCE_DIR}/android
         QT_ANDROID_TARGET_SDK_VERSION 35
         QT_ANDROID_MIN_SDK_VERSION 28
         QT_ANDROID_VERSION_NAME ${APP_VERSION}

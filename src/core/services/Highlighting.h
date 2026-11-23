@@ -19,6 +19,12 @@ struct HighlightChange {
     QString text;             // its text
 };
 
+// A highlight as vocabulary for the Word List: its text without punctuation around it, when it is a word or a short
+// phrase (up to 4 words); empty for a passage (a quote, not vocabulary) or for no letters.
+QString vocabularyText(const QString& highlighted);
+// The sentence for a Word List entry: a very long one (old books have them) cut to the part around the word.
+QString contextAround(const QString& sentence, const QString& text);
+
 // `chapter`: the chapter's title, kept with the highlight; `selectedText`: used when the chapter isn't laid out.
 HighlightChange highlightRange(Annotations& notes, BookEngine& engine, int bookId, int spine, int start, int end,
                                const QString& color, const QString& chapter, const QString& selectedText);

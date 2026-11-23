@@ -1,5 +1,7 @@
 #include "PracticeView.h"
 
+#include "core/practice/Session.h"
+
 #include "Icons.h"
 #include "Settings.h"
 
@@ -52,22 +54,6 @@ QLabel* sectionTitle(const QString& text)
     l->setObjectName(QStringLiteral("PanelTitle"));
     l->setStyleSheet(QStringLiteral("padding: 14px 0 4px 0;"));
     return l;
-}
-
-// The sentence as rich text with `word` in bold (first occurrence, any case).
-QString withBold(const QString& sentence, const QString& word)
-{
-    const int at = word.isEmpty() ? -1 : int(sentence.indexOf(word, 0, Qt::CaseInsensitive));
-    if (at < 0) return sentence.toHtmlEscaped();
-    return sentence.left(at).toHtmlEscaped() + QStringLiteral("<b>") + sentence.mid(at, word.size()).toHtmlEscaped() + QStringLiteral("</b>") +
-           sentence.mid(at + int(word.size())).toHtmlEscaped();
-}
-
-QString withGap(const QString& sentence, const QString& word)
-{
-    const int at = int(sentence.indexOf(word, 0, Qt::CaseInsensitive));
-    if (at < 0) return sentence;
-    return sentence.left(at) + QStringLiteral("_____") + sentence.mid(at + int(word.size()));
 }
 
 QString count(int n, const QString& one, const QString& many) { return QStringLiteral("%1 %2").arg(QLocale().toString(n), n == 1 ? one : many); }
@@ -506,37 +492,18 @@ void PracticeView::showCard()
     m_lookUp->setEnabled(true);
     m_lookUp->hide();
     const QString d = m_card.direction;
-    const bool sentenceFront = m_settings.practiceSentenceFront && !m_word.sentence.isEmpty() && !m_word.passage;
-    QString detail;
-    m_frontSentence->clear();
-    if (d == QLatin1String("recall")) {
-        m_front->setText(m_word.translation);
-        detail = m_word.partOfSpeech;
-        if (sentenceFront && !m_word.sentenceTranslation.isEmpty()) m_frontSentence->setText(m_word.sentenceTranslation.toHtmlEscaped());
-    } else if (d == QLatin1String("definition")) {
-        m_front->setText(m_word.definition);
-        detail = m_word.partOfSpeech;
-    } else if (d == QLatin1String("cloze")) {
-        m_front->setText(withGap(m_word.sentence, m_word.text));
-        detail = tr("Meaning: %1").arg(m_word.translation);
-    } else {
-        m_front->setText(m_word.text);
-        QStringList parts;
-        if (!m_word.lemma.isEmpty() && m_word.lemma.compare(m_word.text, Qt::CaseInsensitive) != 0) parts << tr("from %1").arg(m_word.lemma);
-        if (!m_word.partOfSpeech.isEmpty()) parts << m_word.partOfSpeech;
-        detail = parts.join(QStringLiteral(" · "));
-        if (sentenceFront) m_frontSentence->setText(withBold(m_word.sentence, m_word.text));
-    }
+    const core::practice::CardFace face = core::practice::cardFace(m_word, d, m_settings.practiceSentenceFront, m_settings.practiceTyped, m_theme.muted);
+    m_frontSentence->setText(face.frontSentenceHtml);
+    m_front->setText(face.front);
+    const QString detail = face.frontDetail;
     QFont ff = m_front->font();
-    ff.setPixelSize(d == QLatin1String("cloze") || m_front->text().size() > 60 ? 18 : 28);
+    ff.setPixelSize(face.frontIsLong ? 18 : 28);
     m_front->setFont(ff);
     m_frontDetail->setText(detail);
     m_frontDetail->setVisible(!detail.isEmpty());
     m_frontSentence->setVisible(!m_frontSentence->text().isEmpty());
 
-    // Typing a long passage's translation isn't practice: those cards are always flipped.
-    // A word with no meaning yet has nothing to check a typed answer against: flipped too.
-    const bool typed = m_settings.practiceTyped && !m_word.passage && !m_word.translation.isEmpty();
+    const bool typed = face.typed;
     m_answer->clear();
     m_answer->setVisible(typed);
     m_check->setVisible(typed);
@@ -552,18 +519,13 @@ void PracticeView::showCard()
     else setFocus();
 }
 
-QStringList PracticeView::acceptedAnswers() const
-{
-    if (m_card.direction == QLatin1String("recognize")) return QStringList{m_word.translation} + m_word.alternatives;
-    if (m_card.direction == QLatin1String("cloze")) return {m_word.text, m_word.lemma};
-    return {m_word.headword(), m_word.text};
-}
+QStringList PracticeView::acceptedAnswers() const { return core::practice::acceptedAnswers(m_word, m_card.direction); }
 
 void PracticeView::checkTyped()
 {
     if (m_revealed || page() != CardPage) return;
     using core::practice::AnswerMatch;
-    const QString lang = m_card.direction == QLatin1String("recognize") ? QStringLiteral("en") : m_word.language;
+    const QString lang = core::practice::answerLanguage(m_word, m_card.direction);
     const core::practice::AnswerCheck c = core::practice::checkAnswer(m_answer->text(), acceptedAnswers(), lang);
     switch (c.match) {
     case AnswerMatch::Correct:
@@ -636,44 +598,16 @@ void PracticeView::revealAnswer()
 {
     if (m_revealed || page() != CardPage) return;
     m_revealed = true;
-    const QString d = m_card.direction;
-    QStringList detail;
+    const core::practice::CardFace face = core::practice::cardFace(m_word, m_card.direction, m_settings.practiceSentenceFront,
+                                                                   m_settings.practiceTyped, m_theme.muted);
     m_lookUp->setVisible(m_word.translation.isEmpty() && m_translator);
-    if (d == QLatin1String("recognize") && m_word.translation.isEmpty()) {
-        // A highlighted word that no dictionary knew.
-        m_backMain->setText(tr("No meaning saved yet."));
-        detail << tr("Look it up, or type a meaning in the Word List.");
-    } else if (d == QLatin1String("recognize")) {
-        m_backMain->setText(m_word.translation);
-        if (!m_word.alternatives.isEmpty()) detail << tr("Also: %1").arg(m_word.alternatives.join(QStringLiteral(", ")));
-        if (!m_word.definition.isEmpty()) detail << m_word.definition;
-    } else {
-        m_backMain->setText(d == QLatin1String("cloze") ? m_word.text : m_word.headword());
-        if (!m_word.lemma.isEmpty() && m_word.lemma.compare(m_word.text, Qt::CaseInsensitive) != 0)
-            detail << (d == QLatin1String("cloze") ? tr("from %1").arg(m_word.lemma) : tr("As read: %1").arg(m_word.text));
-        if (!m_word.partOfSpeech.isEmpty()) detail << m_word.partOfSpeech;
-        if (d != QLatin1String("recall")) detail << m_word.translation;
-        else if (!m_word.definition.isEmpty()) detail << m_word.definition;
-    }
-    m_backDetail->setText(detail.join(QLatin1Char('\n')));
-    m_backDetail->setVisible(!detail.isEmpty());
-    QString sentence;
-    if (!m_word.sentence.isEmpty() && !m_word.passage) {
-        // What the front already showed isn't repeated.
-        const bool frontHasSpanish = !m_frontSentence->isHidden() && d == QLatin1String("recognize");
-        const bool frontHasEnglish = !m_frontSentence->isHidden() && d == QLatin1String("recall");
-        if (!frontHasSpanish && d != QLatin1String("cloze")) sentence = withBold(m_word.sentence, m_word.text);
-        if (d == QLatin1String("cloze")) sentence = withBold(m_word.sentence, m_word.text);
-        if (!m_word.sentenceTranslation.isEmpty() && !frontHasEnglish)
-            sentence += (sentence.isEmpty() ? QString() : QStringLiteral("<br>")) +
-                        QStringLiteral("<span style='color:%1'>%2</span>").arg(m_theme.muted.name(), m_word.sentenceTranslation.toHtmlEscaped());
-    }
-    m_backSentence->setText(sentence);
-    m_backSentence->setVisible(!sentence.isEmpty());
-    QString source = m_word.bookTitle;
-    if (!m_word.pageLabel.isEmpty()) source += (source.isEmpty() ? QString() : QStringLiteral(" · ")) + tr("p. %1").arg(m_word.pageLabel);
-    m_backSource->setText(source);
-    m_backSource->setVisible(!source.isEmpty());
+    m_backMain->setText(face.back);
+    m_backDetail->setText(face.backDetail.join(QLatin1Char('\n')));
+    m_backDetail->setVisible(!face.backDetail.isEmpty());
+    m_backSentence->setText(face.backSentenceHtml);
+    m_backSentence->setVisible(!face.backSentenceHtml.isEmpty());
+    m_backSource->setText(face.source);
+    m_backSource->setVisible(!face.source.isEmpty());
     m_backBox->show();
     m_show->hide();
     m_check->hide();
@@ -699,21 +633,9 @@ void PracticeView::rate(Rating r)
 {
     if (!m_revealed || page() != CardPage || m_card.id == 0) return;
     const QDateTime t = now();
-    core::PracticeCard after = m_card;
-    after.memory = m_scheduler.review(m_card.memory, r, t);
-    m_log->saveReview(m_card, after, r, t);
+    core::practice::answerCard(*m_log, m_scheduler, m_queue, m_card, r, t);
     ++m_done;
     ++m_ratings[int(r)];
-    // A card forgotten again and again (8 times) is set aside: it needs a better meaning or a note, not more drill.
-    const bool leech = r == Rating::Again && after.memory.lapses >= 8;
-    if (leech) m_log->setSuspended(after.id, true);
-    // Back within the next 20 minutes (Again, learning steps): later in this session.
-    if (!leech && after.memory.due <= t.addSecs(20 * 60)) {
-        int at = int(m_queue.size());
-        // Not straight away: at least a few cards later when there are some.
-        if (m_queue.size() > 3) at = std::min(int(m_queue.size()), 3 + int(m_queue.size()) / 3);
-        m_queue.insert(at, after);
-    }
     m_answer->setReadOnly(false);
     m_card = {};
     showCard();

@@ -11,6 +11,7 @@ Page {
     property MobileApp app
     property Theme theme
     signal settingsRequested()
+    signal wordsRequested()
 
     background: Rectangle { color: page.theme.bg }
 
@@ -27,6 +28,16 @@ Page {
                 font.weight: Font.DemiBold
                 color: page.theme.fg
                 Layout.fillWidth: true
+            }
+            ToolButton {
+                id: wordsButton
+                objectName: "wordsButton"
+                text: qsTr("Words")
+                font.pixelSize: page.theme.body
+                implicitHeight: page.theme.touch
+                contentItem: Label { text: wordsButton.text; color: page.theme.accent; font: wordsButton.font; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                background: Item {}
+                onClicked: page.wordsRequested()
             }
             ToolButton {
                 id: settingsButton

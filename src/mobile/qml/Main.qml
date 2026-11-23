@@ -15,9 +15,29 @@ ApplicationWindow {
 
     Theme { id: appTheme; colors: win.app.colors }
 
+    // The controls (buttons, fields, sliders) in the theme's colors: a highlighted button in the accent color.
+    palette.window: appTheme.bg
+    palette.windowText: appTheme.fg
+    palette.base: appTheme.pop
+    palette.alternateBase: appTheme.surface
+    palette.text: appTheme.fg
+    palette.button: appTheme.surface
+    palette.buttonText: appTheme.fg
+    palette.dark: appTheme.accent
+    palette.brightText: appTheme.accentText
+    palette.mid: appTheme.line
+    palette.midlight: appTheme.surface
+    palette.light: appTheme.pop
+    palette.highlight: appTheme.accent
+    palette.highlightedText: appTheme.accentText
+    palette.placeholderText: appTheme.muted
+    palette.toolTipBase: appTheme.pop
+    palette.toolTipText: appTheme.fg
+
     // The screenshot mode opens a screen by name.
     function showScreen(name) {
         if (name === "settings") stack.push(settingsScreen)
+        else if (name === "words" || name === "practice") { stack.push(wordsScreen); if (name === "practice") stack.currentItem.startPractice() }
         else if (name === "menu" && stack.currentItem && stack.currentItem.showChrome) stack.currentItem.showChrome(true)
         else if (name.startsWith("part:") && stack.currentItem && stack.currentItem.showPart) stack.currentItem.showPart(name.substring(5))
     }
@@ -29,6 +49,7 @@ ApplicationWindow {
             app: win.app
             theme: appTheme
             onSettingsRequested: stack.push(settingsScreen)
+            onWordsRequested: stack.push(wordsScreen)
         }
     }
 
@@ -38,6 +59,14 @@ ApplicationWindow {
             app: win.app
             theme: appTheme
             onSettingsRequested: stack.push(settingsScreen)
+            onCloseRequested: stack.pop()
+        }
+    }
+    Component {
+        id: wordsScreen
+        WordsPage {
+            app: win.app
+            theme: appTheme
             onCloseRequested: stack.pop()
         }
     }

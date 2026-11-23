@@ -7,6 +7,7 @@
 #include "app/Theme.h"
 #include "core/layout/PageRenderer.h"
 #include "core/services/BookSearch.h"
+#include "core/practice/Session.h"
 #include "core/position/Position.h"
 #include "core/translate/Translation.h"
 
@@ -100,6 +101,12 @@ class MobileApp : public QObject {
     Q_PROPERTY(QVariantList searchResults READ searchResults NOTIFY searchChanged)
     Q_PROPERTY(bool searching READ isSearching NOTIFY searchChanged)
     Q_PROPERTY(QString searchSummary READ searchSummary NOTIFY searchChanged)
+    // The Word List: {id, headword, text, translation, partOfSpeech, sentence, book, page, starred, needsMeaning}.
+    Q_PROPERTY(QVariantList words READ words NOTIFY wordsChanged)
+    Q_PROPERTY(int wordCount READ wordCount NOTIFY wordsChanged)
+    // Practice: {active, direction, front, frontDetail, frontSentence, frontIsLong, back, backDetail, backSentence,
+    // source, needsMeaning, revealed, progress, intervals [again, hard, good, easy], done, summary, dueNow, newAvailable}.
+    Q_PROPERTY(QVariantMap practice READ practice NOTIFY practiceChanged)
     Q_PROPERTY(QString version READ version CONSTANT)
 public:
     MobileApp(const QString& dataFolder, QObject* parent = nullptr);
@@ -180,6 +187,20 @@ public:
     QVariantList searchResults() const;
     bool isSearching() const { return m_searchId > 0; }
     QString searchSummary() const { return m_searchSummary; }
+
+    // Word List
+    QVariantList words() const;
+    int wordCount() const;
+    Q_INVOKABLE void removeWord(int id);
+    Q_INVOKABLE void setWordStarred(int id, bool on);
+    Q_INVOKABLE void setWordMeaning(int id, const QString& meaning);
+    // Practice (flashcards, the same cards and schedule as the desktop)
+    QVariantMap practice() const;
+    Q_INVOKABLE void refreshPractice();   // the counts on the start screen
+    Q_INVOKABLE bool startPractice();
+    Q_INVOKABLE void revealCard();
+    Q_INVOKABLE void rateCard(int rating);   // 1 Again, 2 Hard, 3 Good, 4 Easy
+    Q_INVOKABLE void endPractice();
     Q_INVOKABLE void openLink(const QString& url);
     QString version() const;
 
@@ -213,7 +234,9 @@ signals:
     void bookmarkChanged();   // the page moved, or its bookmark changed
     void contentsChanged();
     void searchChanged();
-    void jumpRequested(int spine, int offset);   // the reader goes there (contents, notebook, search)
+    void jumpRequested(int spine, int offset);
+    void wordsChanged();
+    void practiceChanged();   // the reader goes there (contents, notebook, search)
 
 private:
     void setMessage(const QString& text);
@@ -247,6 +270,9 @@ private:
     int m_searchId = 0;
     QList<core::SearchHit> m_hits;
     QString m_searchSummary;
+    std::unique_ptr<core::practice::Session> m_session;
+    bool m_revealed = false;
+    QString m_practiceSummary;
     core::TranslationService* m_translator;
     double m_downloadProgress = -1;
 

@@ -960,25 +960,12 @@ int ReaderView::markHighlightedWord(const QString& highlighted, int spine, int s
 {
     if (!m_words || !m_bookId || !m_settings.practiceHighlights) return 0;
     // Words and short phrases only (up to 4 words); a highlighted passage is a quote, not vocabulary.
-    QString text = highlighted.simplified();
-    while (!text.isEmpty() && !text.front().isLetterOrNumber()) text.remove(0, 1);
-    while (!text.isEmpty() && !text.back().isLetterOrNumber()) text.chop(1);
-    int letters = 0;
-    for (const QChar c : text)
-        if (c.isLetter()) ++letters;
-    if (letters < 2 || text.size() > 60 || text.split(QLatin1Char(' '), Qt::SkipEmptyParts).size() > 4) return 0;
+    const QString text = core::vocabularyText(highlighted);
+    if (text.isEmpty()) return 0;
     // No lookup: the offline dictionary's meaning when it has one, else none yet.
     core::TranslationResult meaning = m_translator ? m_translator->offlineMeaning(text, languageCode()) : core::TranslationResult();
     meaning.text = text;
-    // A very long sentence (old books have them) is cut to the part around the word.
-    QString context = sentence.simplified();
-    if (context.size() > 600) {
-        const int at = int(context.indexOf(text, 0, Qt::CaseInsensitive));
-        const int from = at < 0 ? 0 : qMax(0, at - 250);
-        context = (from > 0 ? QStringLiteral("…") : QString()) + context.mid(from, 500).trimmed() +
-                  (from + 500 < context.size() ? QStringLiteral("…") : QString());
-    }
-    const int id = m_words->mark(meaning, wordPlace(spine, start, end, context));
+    const int id = m_words->mark(meaning, wordPlace(spine, start, end, core::contextAround(sentence, text)));
     if (id) emit wordLogged();
     return id;
 }

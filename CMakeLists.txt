@@ -84,6 +84,7 @@ add_library(freereader_core STATIC
     src/core/services/KindleImport.cpp
     src/core/practice/Scheduler.cpp
     src/core/practice/Answer.cpp
+    src/core/practice/Session.cpp
     src/core/translate/Translation.cpp
     src/core/translate/AiProviders.cpp
     src/core/translate/TranslationService.cpp

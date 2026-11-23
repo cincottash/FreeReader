@@ -11,6 +11,28 @@
 
 namespace core {
 
+QString vocabularyText(const QString& highlighted)
+{
+    QString text = highlighted.simplified();
+    while (!text.isEmpty() && !text.front().isLetterOrNumber()) text.remove(0, 1);
+    while (!text.isEmpty() && !text.back().isLetterOrNumber()) text.chop(1);
+    int letters = 0;
+    for (const QChar c : text)
+        if (c.isLetter()) ++letters;
+    if (letters < 2 || text.size() > 60 || text.split(QLatin1Char(' '), Qt::SkipEmptyParts).size() > 4) return {};
+    return text;
+}
+
+QString contextAround(const QString& sentence, const QString& text)
+{
+    QString context = sentence.simplified();
+    if (context.size() <= 600) return context;
+    const int at = int(context.indexOf(text, 0, Qt::CaseInsensitive));
+    const int from = at < 0 ? 0 : qMax(0, at - 250);
+    return (from > 0 ? QStringLiteral("…") : QString()) + context.mid(from, 500).trimmed() +
+           (from + 500 < context.size() ? QStringLiteral("…") : QString());
+}
+
 HighlightChange highlightRange(Annotations& notes, BookEngine& engine, int bookId, int spine, int start, int end,
                                const QString& color, const QString& chapter, const QString& selectedText)
 {

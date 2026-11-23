@@ -487,10 +487,168 @@ void MobileApp::onTranslated(int id, const core::TranslationResult& r, const QSt
             if (const auto ix = m_engine->index()) place.pageLabel = ix->pageLabel(at);
             place.chapter = chapterTitleAt(at);
             m_words->record(r, place);
+            emit wordsChanged();
         }
     }
     m_lookup = m;
     emit lookupChanged();
+}
+
+// ---------------------------------------------------------------- Word List and practice
+
+QVariantList MobileApp::words() const
+{
+    QVariantList out;
+    if (!m_words) return out;
+    for (const core::WordEntry& w : m_words->words()) {
+        out << QVariantMap{{QStringLiteral("id"), w.id},
+                           {QStringLiteral("headword"), w.headword()},
+                           {QStringLiteral("text"), w.text},
+                           {QStringLiteral("translation"), w.translation},
+                           {QStringLiteral("partOfSpeech"), w.partOfSpeech},
+                           {QStringLiteral("sentence"), w.sentence},
+                           {QStringLiteral("book"), w.bookTitle},
+                           {QStringLiteral("page"), w.pageLabel},
+                           {QStringLiteral("starred"), w.starred},
+                           {QStringLiteral("needsMeaning"), w.translation.isEmpty()}};
+    }
+    return out;
+}
+
+int MobileApp::wordCount() const { return m_words ? m_words->count() : 0; }
+
+void MobileApp::removeWord(int id)
+{
+    if (!m_words) return;
+    m_words->remove(id);
+    emit wordsChanged();
+    refreshPractice();
+}
+
+void MobileApp::setWordStarred(int id, bool on)
+{
+    if (!m_words) return;
+    core::WordEntry w = m_words->word(id);
+    if (w.id == 0) return;
+    w.starred = on;
+    m_words->update(w);
+    emit wordsChanged();
+}
+
+void MobileApp::setWordMeaning(int id, const QString& meaning)
+{
+    if (!m_words) return;
+    core::WordEntry w = m_words->word(id);
+    if (w.id == 0) return;
+    w.translation = meaning.trimmed();
+    m_words->update(w);
+    emit wordsChanged();
+    refreshPractice();
+}
+
+namespace {
+
+core::WordLog::Filter practiceFilter(const Settings& s)
+{
+    core::WordLog::Filter f;
+    f.directions = s.practiceDirections.isEmpty() ? QStringList{QStringLiteral("recognize")} : s.practiceDirections;
+    f.passages = s.practicePassages;
+    return f;
+}
+
+QString directionName(const QString& d, const QString& language)
+{
+    const QString lang = language.isEmpty() || language == QLatin1String("und") ? QObject::tr("Book language")
+                                                                                 : QLocale::languageToString(QLocale(language).language());
+    if (d == QLatin1String("recall")) return QObject::tr("English → %1").arg(lang);
+    if (d == QLatin1String("definition")) return QObject::tr("Definition → Word");
+    if (d == QLatin1String("cloze")) return QObject::tr("Fill the Gap");
+    return QObject::tr("%1 → English").arg(lang);
+}
+
+}  // namespace
+
+QVariantMap MobileApp::practice() const
+{
+    QVariantMap m;
+    if (!m_words) return m;
+    const QDateTime now = QDateTime::currentDateTimeUtc();
+    const core::PracticeCounts c = m_words->counts(practiceFilter(m_settings), now);
+    m[QStringLiteral("dueNow")] = c.dueNow;
+    m[QStringLiteral("newAvailable")] = c.newAvailable;
+    m[QStringLiteral("words")] = c.words;
+    m[QStringLiteral("summary")] = m_practiceSummary;
+    const bool active = m_session && m_session->isActive();
+    m[QStringLiteral("active")] = active;
+    if (!active) return m;
+    const core::WordEntry& w = m_session->word();
+    const QString d = m_session->card().direction;
+    const core::practice::CardFace f = core::practice::cardFace(w, d, m_settings.practiceSentenceFront, false, pageColors().muted);
+    m[QStringLiteral("direction")] = directionName(d, w.language);
+    m[QStringLiteral("front")] = f.front;
+    m[QStringLiteral("frontDetail")] = f.frontDetail;
+    m[QStringLiteral("frontSentence")] = f.frontSentenceHtml;
+    m[QStringLiteral("frontIsLong")] = f.frontIsLong;
+    m[QStringLiteral("back")] = f.back;
+    m[QStringLiteral("backDetail")] = f.backDetail.join(QLatin1Char('\n'));
+    m[QStringLiteral("backSentence")] = f.backSentenceHtml;
+    m[QStringLiteral("source")] = f.source;
+    m[QStringLiteral("needsMeaning")] = f.needsMeaning;
+    m[QStringLiteral("revealed")] = m_revealed;
+    m[QStringLiteral("progress")] = tr("%1 of %2").arg(m_session->done() + 1).arg(m_session->done() + m_session->remaining() + 1);
+    QVariantList intervals;
+    for (int r = 1; r <= 4; ++r)
+        intervals << core::practice::Scheduler::describeInterval(
+            now, m_session->scheduler().preview(m_session->card().memory, core::practice::Rating(r), now));
+    m[QStringLiteral("intervals")] = intervals;
+    return m;
+}
+
+void MobileApp::refreshPractice() { emit practiceChanged(); }
+
+bool MobileApp::startPractice()
+{
+    if (!m_words) return false;
+    if (!m_session) m_session = std::make_unique<core::practice::Session>(m_words.get());
+    m_practiceSummary.clear();
+    m_revealed = false;
+    const bool ok = m_session->start(practiceFilter(m_settings), m_settings.practiceNewPerDay, QDateTime::currentDateTimeUtc());
+    if (!ok) m_practiceSummary = tr("Nothing to practise now. Look up or highlight words while reading, then come back.");
+    emit practiceChanged();
+    return ok;
+}
+
+void MobileApp::revealCard()
+{
+    if (!m_session || !m_session->isActive()) return;
+    m_revealed = true;
+    emit practiceChanged();
+}
+
+void MobileApp::rateCard(int rating)
+{
+    if (!m_session || !m_session->isActive() || !m_revealed || rating < 1 || rating > 4) return;
+    m_session->rate(core::practice::Rating(rating), QDateTime::currentDateTimeUtc());
+    m_revealed = false;
+    if (!m_session->isActive()) endPractice();
+    else emit practiceChanged();
+}
+
+void MobileApp::endPractice()
+{
+    if (!m_session) return;
+    using core::practice::Rating;
+    const int done = m_session->done();
+    m_practiceSummary = done == 0 ? tr("No cards answered.")
+                                  : tr("Done for now: %n card(s).", nullptr, done) + QLatin1Char('\n') +
+                                        tr("Again %1 · Hard %2 · Good %3 · Easy %4")
+                                            .arg(m_session->ratings(Rating::Again))
+                                            .arg(m_session->ratings(Rating::Hard))
+                                            .arg(m_session->ratings(Rating::Good))
+                                            .arg(m_session->ratings(Rating::Easy));
+    m_session->clear();
+    m_revealed = false;
+    emit practiceChanged();
 }
 
 // ---------------------------------------------------------------- settings
@@ -707,9 +865,31 @@ int MobileApp::highlight(QObject* object, const QString& color)
     auto* page = qobject_cast<BookPage*>(object);
     if (!page || !m_notes || !m_bookId || !page->hasSelection()) return 0;
     const int spine = page->selectionSpine();
+    const QString sentence = page->selectionSentence();
     const core::HighlightChange c = core::highlightRange(*m_notes, *m_engine, m_bookId, spine, page->selectionStart(),
                                                          page->selectionEnd(), color, chapterTitleAt({spine, page->selectionStart()}),
                                                          page->selectedText());
+    // A highlighted word or short phrase joins the Word List (no lookup: the offline dictionary's meaning, if any).
+    if (c.id && !c.recolored && m_words && m_settings.practiceHighlights) {
+        const QString text = core::vocabularyText(c.text);
+        if (!text.isEmpty()) {
+            core::TranslationResult meaning = m_translator->offlineMeaning(text, languageCode());
+            meaning.text = text;
+            core::WordPlace place;
+            place.bookId = m_bookId;
+            place.bookTitle = m_title;
+            place.language = languageCode();
+            place.spine = spine;
+            place.start = c.from;
+            place.end = c.to;
+            place.sentence = core::contextAround(sentence, text);
+            const core::Position at{spine, c.from};
+            place.cfi = m_engine->cfiFor(at);
+            if (const auto ix = m_engine->index()) place.pageLabel = ix->pageLabel(at);
+            place.chapter = chapterTitleAt(at);
+            if (m_words->mark(meaning, place)) emit wordsChanged();
+        }
+    }
     page->clearSelection();
     emit annotationsChanged();
     return c.id;

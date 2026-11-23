@@ -188,7 +188,8 @@ int main(int argc, char** argv)
         }
     }
     const QString screen = cli.value(QStringLiteral("screen"));
-    if (screen == QLatin1String("settings") || screen == QLatin1String("menu"))
+    if (screen == QLatin1String("settings") || screen == QLatin1String("menu") || screen == QLatin1String("words") ||
+        screen == QLatin1String("practice"))
         QMetaObject::invokeMethod(window, "showScreen", Q_ARG(QVariant, screen));
     if (cli.isSet(QStringLiteral("part")))
         QMetaObject::invokeMethod(window, "showScreen", Q_ARG(QVariant, QStringLiteral("part:") + cli.value(QStringLiteral("part"))));
