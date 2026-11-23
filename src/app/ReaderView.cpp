@@ -413,11 +413,11 @@ Appearance ReaderView::effectiveAppearance() const
     Appearance a = m_settings.look;
     const core::Book* book = m_engine->book();
     if (book && book->metadata.pictures) {
-        // Comics and scanned pages: the picture as large as the window allows (thin margins, no line length). Two
-        // pages side by side when the window is wide, except right to left, where they would be in the wrong order.
+        // Comics and scanned pages: the picture as large as the window allows (thin margins, no line length), one
+        // page at a time (each page is a chapter of its own, so a second column would stay empty).
         a.marginPx = 12;
         a.pageWidthEm = 80;
-        a.columns = pagesRightToLeft() ? QStringLiteral("one") : QStringLiteral("auto");
+        a.columns = QStringLiteral("one");
         if (m_library && m_bookId) a.merge(m_library->appearanceLayer(QStringLiteral("book:%1").arg(m_bookId)));
         return a;
     }

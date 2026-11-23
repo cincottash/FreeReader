@@ -1,13 +1,14 @@
 # FreeReader
 
-An e-book reader for DRM-free EPUB books, for Windows (tested) and Linux (experimental), built to make reading in
+An e-book reader for DRM-free books (EPUB, Kindle, FB2, comics, documents and more), for Windows (tested) and Linux (experimental), built to make reading in
 another language easy: right-click a word or a passage and its English meaning appears next to it. Every word you
 look up or highlight is saved, ready to practise as flashcards.
 
 ![FreeReader showing Don Quijote with the contents panel open](.github/screenshot.png)
 
 **Status:** early development (phase 4 of 7). The library, reading, themes, text settings, translation, the word
-log, flashcard practice, highlights, notes, bookmarks and search work. A Linux release and more formats come next.
+log, flashcard practice, highlights, notes, bookmarks and search work, in many book formats. PDF and a Linux
+release come next.
 
 ## Download
 
@@ -18,12 +19,29 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 | Windows 10 and 11 | `FreeReader.exe` (one file, nothing to install) | Tested |
 | Linux | `FreeReader-x86_64.AppImage` | Experimental |
 
+## Book formats
+
+| Kind | Files |
+| --- | --- |
+| E-books | EPUB (2 and 3), KEPUB, FB2 (also `.fb2.zip`, `.fbz`) |
+| Kindle (without DRM) | MOBI, AZW, AZW3 (KF8), PRC, Palm PDB |
+| Comics, manga, graphic novels | CBZ, CBR, CB7, CBT, a ZIP of pictures; JPEG, PNG, GIF, WebP pages |
+| Documents | Word (DOCX; the text of old `.doc` files), OpenDocument (ODT), RTF |
+| Text and web pages | TXT, Markdown, HTML, calibre's HTMLZ and TXTZ, a zipped web page (Project Gutenberg's `-h.zip`) |
+
+- Everything works the same in every format: translation, highlights, notes, the word log, search.
+- **Comics** fill the window, one page at a time. **Manga** turn right to left (from the
+  comic's ComicInfo.xml, or **View ▸ Pages Right to Left**): the left edge and the Left key go forward.
+- Plain text finds its chapters ("Capítulo I", "CHAPTER 2"); a book that doesn't say its language gets it from its
+  words.
+- Books with DRM (Adobe, Kindle) can't be opened; FreeReader says so and where they can be read.
+
 ## Library
 
 <img src=".github/readme/library.png" align="right" width="420" alt="The library with two books">
 
 - **Add Books** takes files or a whole folder, or drop them on the window. The files stay where they are.
-- A folder added with **Add Folder…** is kept: each time FreeReader starts, the EPUB books put there since are added
+- A folder added with **Add Folder…** is kept: each time FreeReader starts, the books put there since are added
   (Settings ▸ General lists the folders). A book already in the library, even under another name, isn't added
   twice; a book whose file moved is found again.
 - Filter by **Reading**, **Finished**, **Not Started**, by **language**, or by your **collections**: make one with
@@ -205,8 +223,8 @@ desktop yet. It runs through X11; on a Wayland desktop it uses XWayland, which m
 <summary>Command line</summary>
 
 ```
-FreeReader [book.epub] [--data-folder FOLDER]
-FreeReader [book.epub] --screenshot out.png [--page N | --percent P] [--turn N] [--size WxH]
+FreeReader [book] [--data-folder FOLDER]
+FreeReader [book] --screenshot out.png [--page N | --percent P] [--turn N] [--size WxH]
            [--columns one|two|auto] [--text-size PERCENT] [--font FAMILY] [--theme KEY]
            [--contents] [--palette] [--appearance] [--theme-list] [--add-books FOLDER] [--list-view]
 FreeReader --check-translation result.txt
@@ -238,8 +256,9 @@ cmake --build build
 <details>
 <summary>How it works</summary>
 
-- `src/core/format`: format plug-ins turn a file into a book (metadata, contents, chapters, resources). EPUB 2
-  and 3 first.
+- `src/core/format`: format plug-ins turn a file into a book (metadata, contents, chapters, resources). EPUB is
+  read as it is; every other format is turned into HTML chapters in memory (`Convert.h`), so the rest of the app
+  doesn't know the difference. 7-Zip and RAR comics use libarchive.
 - `src/core/html`, `src/core/css`: a forgiving HTML parser and the CSS subset books use, with the cascade.
 - `src/core/layout`: FreeReader's own layout engine. Each chapter becomes a flow of paragraphs, images and
   tables with stable character positions, laid out into pages on background threads (with hyphenation by
