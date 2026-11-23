@@ -7,7 +7,8 @@ look up or highlight is saved, ready to practise as flashcards.
 ![FreeReader showing Don Quijote with the contents panel open](.github/screenshot.png)
 
 **Status:** early development (phase 4 of 7). The library, reading, themes, text settings, translation, the word
-log, flashcard practice, highlights, notes, bookmarks and search work, in many book formats, PDF included.
+log, flashcard practice, highlights, notes, bookmarks and search work, in many book formats, PDF included. A
+phone app (Android) with the same reader is being built; it isn't released yet.
 
 ## Download
 
@@ -31,19 +32,28 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 | Help files | CHM |
 
 - Everything works the same in every format: translation, highlights, notes, the word log, search.
-- A **PDF** with text reads like any other book: the text flows to the window and the text size. Paragraphs run
-  on across lines and pages, poems keep their lines, and page headers, footers and numbers are left out. The
-  PDF's bookmarks are the contents, and **Go to Page** uses its page numbers.
-- **Scanned books** (a PDF of page pictures, DjVu) are shown page by page, like comics.
-- **Comics** fill the window, one page at a time. **Manga** turn right to left (from the
-  comic's ComicInfo.xml, or **View ▸ Pages Right to Left**): the left edge and the Left key go forward.
+
+![A PDF of the Spanish Constitution read as flowing text, with its bookmarks as the contents](.github/readme/pdf.png)
+
+- A **PDF** with text reads like any other book: the text flows to the window and the text size, so every word
+  can be translated. Paragraphs run on across lines and pages, words split at a line's end are joined again,
+  poems keep their lines, and page headers, footers and numbers are left out. Headings come from the type size.
+  The PDF's bookmarks are the contents, and **Go to Page** uses its page numbers.
+- **Scanned books** (a PDF of page pictures, DjVu) are shown page by page, like comics. A long PDF is added to the
+  library quickly: only its details and cover are read until you open it.
+- **Comics** fill the window, one page at a time; the page numbers are the pictures, and the footer counts the
+  pages left. **Manga** turn right to left (from the comic's ComicInfo.xml, or **View ▸ Pages Right to Left** for
+  one book): the left edge and the Left key go forward.
+
+  ![A comic page filling the window](.github/readme/comic.png)
+- **CHM** help files open in the order of their own contents.
 - Plain text finds its chapters ("Capítulo I", "CHAPTER 2"); a book that doesn't say its language gets it from its
   words.
 - Books with DRM (Adobe, Kindle) can't be opened; FreeReader says so and where they can be read.
 
 ## Library
 
-<img src=".github/readme/library.png" align="right" width="420" alt="The library with two books">
+<img src=".github/readme/library.png" align="right" width="420" alt="The library with a Kindle book, a PDF, an EPUB and two comics">
 
 - **Add Books** takes files or a whole folder, or drop them on the window. The files stay where they are.
 - A folder added with **Add Folder…** is kept: each time FreeReader starts, the books put there since are added
@@ -102,9 +112,14 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
   [Bergamot](https://github.com/browsermt/bergamot-translator), the engine Firefox translates with, and Mozilla's
   Spanish → English model (both MPL 2.0). Its English is plainer than Gemini's and weaker on old Spanish, so it isn't
   kept: Gemini's answer replaces it once online. [Release](https://github.com/cincottash/FreeReader/releases/tag/offline-translator-1).
-- **Hear Pronunciation** uses the computer's own voices. Windows: add a voice for the book's language (free) in
-  Settings ▸ Time & Language ▸ Speech; the pop-up says when one is missing. Linux: speech-dispatcher with
-  espeak-ng.
+- <img src=".github/readme/selection-menu.png" align="right" width="200" alt="The right-click menu of a selection, with Read Aloud">
+  **Read Aloud** (right-click a selection, or the command list) reads the selected words in the book's language;
+  **Stop Reading Aloud** in the same menu stops it.
+- **Hear Pronunciation** and Read Aloud use the computer's own voices. Windows: add a voice for the book's
+  language (free) in Settings ▸ Time & Language ▸ Speech; the pop-up says when one is missing. Linux:
+  speech-dispatcher with espeak-ng.
+
+<br clear="right">
 
 ## Practice
 
@@ -156,6 +171,8 @@ FreeReader never changes your book files: highlights and notes live in its own d
   turn pages). Click it to show the pages left in the chapter instead, and again to switch back.
 - **Footnotes** open in a small pop-up next to the reference. **Pictures** open full size when clicked.
 - **Menus:** File, View, Go, Settings and Help at the top left. Ctrl+K lists every command with a search box.
+- **Settings** (Ctrl+,): Translation, Keyboard Shortcuts and General (the app data folder, the library folders,
+  resetting text and layout). Changes show at once; **OK** keeps them and **Cancel** puts back what you changed.
 
 Page numbers stay the same whatever the text size or the window: one page is 1,800 characters of the book, or
 the publisher's own page numbers when the book has them.
