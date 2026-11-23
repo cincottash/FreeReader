@@ -35,6 +35,8 @@ class LmStudioProvider;
 class TranslationService;
 class WordLog;
 class OfflineDictionary;
+class OfflineTranslator;
+class SavedWords;
 class Annotations;
 }
 
@@ -111,6 +113,9 @@ public:
     core::OfflineDictionary* dictionary() const { return m_dictionary; }
     core::OfflineDictionary* englishDictionary() const { return m_dictionaryEn; }
     static QString dictionaryFile(const QString& language);   // <data folder>/dictionaries/<language>-en.sqlite
+    static QString translatorFolder();   // <data folder>/translator: the program and one folder per language
+    core::OfflineTranslator* offlineTranslator() const { return m_offline; }
+    core::SavedWords* savedWords() const { return m_savedWords; }
     SettingsDialog* settingsDialog() const;
 
 private:
@@ -145,6 +150,8 @@ private:
     core::TranslationService* m_translator;
     core::OfflineDictionary* m_dictionary;
     core::OfflineDictionary* m_dictionaryEn;
+    core::SavedWords* m_savedWords = nullptr;
+    core::OfflineTranslator* m_offline = nullptr;
     std::vector<std::unique_ptr<Command>> m_commands;
     QString m_openingPath;
     QString m_lastError;

@@ -28,6 +28,7 @@ namespace core {
 class GeminiProvider;
 class LmStudioProvider;
 class OfflineDictionary;
+class OfflineTranslator;
 }
 
 class SettingsDialog : public QDialog {
@@ -64,6 +65,14 @@ public:
     void cancelDictionaryDownload(const QString& language = QStringLiteral("es"));
     bool isDownloadingDictionary(const QString& language = QString()) const;   // empty: either
     void setDictionarySource(const core::DictionaryDownload::Source& s, const QString& language = QStringLiteral("es"));
+    // The offline sentence translator: a pack (the program and its Spanish -> English model) downloaded from
+    // FreeReader's GitHub releases into the translator's folder.
+    void setOfflineTranslator(core::OfflineTranslator* translator);
+    void downloadTranslator();
+    void cancelTranslatorDownload();
+    void removeTranslator();
+    bool isDownloadingTranslator() const;
+    void setTranslatorSource(const core::DictionaryDownload::Source& s);
     QString lastMessage() const;
 
 signals:
@@ -119,4 +128,14 @@ private:
     void installDownloaded(const QString& language, const QString& file, const QString& error);
     QCheckBox* m_useDict;
     QCheckBox* m_auto;
+
+    core::OfflineTranslator* m_translatorEngine = nullptr;
+    core::DictionaryDownload::Source m_translatorSource;
+    core::DictionaryDownload* m_translatorDownload = nullptr;
+    QCheckBox* m_useTranslator;
+    QLabel* m_translatorStatus;
+    QPushButton* m_translatorGet;
+    QPushButton* m_translatorRemove;
+    class QProgressBar* m_translatorProgress;
+    void installTranslator(const QString& folder, const QString& error);
 };

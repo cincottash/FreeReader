@@ -1,0 +1,214 @@
+# Builds the offline sentence translator FreeReader downloads on request: Mozilla's Bergamot translator
+# (bergamot-translator, MPL-2.0), the same engine Firefox uses, in its "minimal" variant (no Intel MKL, no Boost).
+# Windows is built with Microsoft's compiler (Bergamot doesn't build with MinGW); FreeReader runs it as a separate
+# program, so the compilers never mix. Each build is tested with Mozilla's Spanish -> English model.
+#
+# Runs on pushes to the translator-helper branch and by hand (Actions > Build Offline Translator > Run workflow).
+# It doesn't publish anything: the artifacts are checked, then attached to a release by hand.
+name: Build Offline Translator
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [translator-helper]
+    paths: [".github/workflows/build-translator.yml"]
+
+env:
+  # CMake 4 refuses projects that ask for a minimum older than 3.5. Bergamot's bundled libraries do, including pcre2,
+  # which is configured as a separate project and only sees this setting through the environment.
+  CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+  BERGAMOT_REPO: https://github.com/browsermt/bergamot-translator
+  BERGAMOT_COMMIT: 9271618ebbdc5d21ac4dc4df9e72beb7ce644774   # main, 2024-05-12 (the last change)
+  # Mozilla's es->en "base-memory" model (Firefox's Remote Settings, version 2.0), with its published SHA-256.
+  MODEL_URL: https://firefox-settings-attachments.cdn.mozilla.net/main-workspace/translations-models/d7256ea9-7731-4f15-866c-62998eef93b9.bin
+  MODEL_SHA: 4aed7734152ae0045d1a69ae49c86cfda18f53c61f90e95e1d1de1c7c7c3b033
+  LEX_URL: https://firefox-settings-attachments.cdn.mozilla.net/main-workspace/translations-models/a55a9cf2-8a8c-4942-a528-91e93d081746.bin
+  LEX_SHA: e2610211d3b9577d012638fe7e7e74ed7b4b708ce96b9e792e67c282a6492daa
+  VOCAB_URL: https://firefox-settings-attachments.cdn.mozilla.net/main-workspace/translations-models/8695cc3d-7897-4c29-808b-bc983a93d1cd.spm
+  VOCAB_SHA: 5ae254fa9b15aa182e70fd2a6186b1333c63a29a48043a9224c6aa4fcac058ad
+  # Makes the pack FreeReader downloads: the program, the model in es-en/, every license file in Bergamot's source
+  # tree (its bundled libraries included) under licenses/, and a README saying what it all is.
+  # Arguments: the program, the zip to write. Run from the folder holding bergamot/ and model/.
+  PACK_PY: |
+    import hashlib, os, sys, zipfile
+    program, out = sys.argv[1], sys.argv[2]
+    exe_name = "freereader-translator.exe" if program.endswith(".exe") else "freereader-translator"
+    commit = os.environ["BERGAMOT_COMMIT"]
+    z = zipfile.ZipFile(out, "w")
+    def add_bytes(name, data, executable=False):
+        info = zipfile.ZipInfo(name, date_time=(2026, 11, 23, 0, 0, 0))
+        info.compress_type = zipfile.ZIP_DEFLATED
+        info.external_attr = (0o100755 if executable else 0o100644) << 16
+        z.writestr(info, data)
+        print("  %-60s %10d" % (name, len(data)))
+    def add(src, name, executable=False):
+        with open(src, "rb") as f:
+            add_bytes(name, f.read(), executable)
+    add(program, exe_name, True)
+    for f in ["model.esen.intgemm.alphas.bin", "lex.50.50.esen.s2t.bin", "vocab.esen.spm", "nonbreaking_prefix.es"]:
+        add(os.path.join("model", f), "es-en/" + f)
+    licenses = 0
+    for root, dirs, files in os.walk("bergamot"):
+        dirs[:] = sorted(d for d in dirs if d not in (".git", "build", "test", "tests", "examples", "doc", "docs"))
+        for f in sorted(files):
+            if f.upper().startswith(("LICENSE", "LICENCE", "COPYING", "NOTICE")):
+                rel = os.path.relpath(os.path.join(root, f), "bergamot").replace(os.sep, "/")
+                add(os.path.join(root, f), "licenses/" + rel)
+                licenses += 1
+    if licenses < 3: sys.exit("too few license files found: %d" % licenses)
+    readme = (
+      "FreeReader's offline translator\n"
+      "===============================\n\n"
+      "FreeReader downloads this when asked (Settings > Translation > Offline Translator) and uses it to translate\n"
+      "Spanish sentences into English without the internet. Nothing else needs it.\n\n"
+      "%s\n"
+      "  Bergamot translator, the engine Firefox translates with: https://github.com/browsermt/bergamot-translator\n"
+      "  Built unchanged from commit %s (its \"minimal\" variant) by FreeReader's Build Offline Translator\n"
+      "  workflow. License: Mozilla Public License 2.0 (licenses/LICENSE). The source code is at the address above.\n"
+      "  It contains Marian, SentencePiece, intgemm, ssplit, PCRE2 and other libraries, each under its own license:\n"
+      "  every license file from the source tree is in licenses/, at its path in the source.\n\n"
+      "es-en/model.*, lex.*, vocab.*\n"
+      "  Mozilla's Spanish -> English translation model (\"base-memory\", version 2.0), from Firefox's translation\n"
+      "  models: https://github.com/mozilla/firefox-translations-models. License: Mozilla Public License 2.0.\n\n"
+      "es-en/nonbreaking_prefix.es\n"
+      "  From ssplit-cpp (in Bergamot's source, 3rd_party/ssplit-cpp; license in licenses/3rd_party/ssplit-cpp/).\n"
+    ) % (exe_name, commit)
+    add_bytes("README.txt", readme.encode("utf-8"))
+    z.close()
+    data = open(out, "rb").read()
+    unpacked = sum(i.file_size for i in zipfile.ZipFile(out).infolist())
+    print("pack: %s size=%d sha256=%s unpacked=%d licenses=%d" % (os.path.basename(out), len(data), hashlib.sha256(data).hexdigest(), unpacked, licenses))
+
+jobs:
+  windows:
+    name: Windows translator
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Get Bergamot
+        shell: bash
+        run: |
+          git init bergamot && cd bergamot
+          git remote add origin "$BERGAMOT_REPO"
+          git fetch --depth 1 origin "$BERGAMOT_COMMIT"
+          git checkout FETCH_HEAD
+          git submodule update --init --recursive --depth 1
+
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      # pcre2 (used to split sentences) from vcpkg, as Bergamot's own Windows build does: static, release only, with
+      # the static runtime. The copy Bergamot would build itself comes out as a Debug library here.
+      - name: pcre2 from vcpkg
+        shell: pwsh
+        run: |
+          Add-Content "$env:VCPKG_INSTALLATION_ROOT\triplets\x64-windows-static.cmake" "set(VCPKG_BUILD_TYPE release)"
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install pcre2:x64-windows-static
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Get-ChildItem "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static\lib" -Filter "pcre2*" | ForEach-Object { "found: $($_.Name)" }
+
+      # BUILD_ARCH: the default ("native") would build for the CI machine's processor (AVX2), and the program could
+      # crash on older computers. x86-64-v2 runs on every 64-bit PC since about 2009; the matrix code (intgemm) still
+      # picks AVX2 or AVX-512 when the computer has it.
+      - name: Build (Microsoft's compiler, static runtime)
+        shell: cmd
+        run: |
+          cmake -S bergamot -B bergamot\build -G Ninja -DCMAKE_BUILD_TYPE=Release -DUSE_WASM_COMPATIBLE_SOURCE=on ^
+            -DCOMPILE_TESTS=off -DUSE_STATIC_LIBS=on -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded -DBUILD_ARCH=x86-64-v2 ^
+            -DSSPLIT_USE_INTERNAL_PCRE2=off -DCMAKE_PREFIX_PATH=%VCPKG_INSTALLATION_ROOT%\installed\x64-windows-static
+          cmake --build bergamot\build --target bergamot
+
+      - name: Test with the Spanish model
+        shell: bash
+        run: |
+          set -e
+          mkdir -p model dist
+          curl -fsSL -o model/model.esen.intgemm.alphas.bin "$MODEL_URL"
+          curl -fsSL -o model/lex.50.50.esen.s2t.bin "$LEX_URL"
+          curl -fsSL -o model/vocab.esen.spm "$VOCAB_URL"
+          echo "$MODEL_SHA *model/model.esen.intgemm.alphas.bin" | sha256sum -c
+          echo "$LEX_SHA *model/lex.50.50.esen.s2t.bin" | sha256sum -c
+          echo "$VOCAB_SHA *model/vocab.esen.spm" | sha256sum -c
+          cp bergamot/3rd_party/ssplit-cpp/nonbreaking_prefixes/nonbreaking_prefix.es model/ || cp bergamot/3rd_party/ssplit-cpp/nonbreaking_prefixes/nonbreaking_prefix.en model/nonbreaking_prefix.es
+          printf '%s\n' "models:" "  - model/model.esen.intgemm.alphas.bin" "vocabs:" "  - model/vocab.esen.spm" "  - model/vocab.esen.spm" \
+            "shortlist:" "  - model/lex.50.50.esen.s2t.bin" "  - false" "beam-size: 1" "normalize: 1.0" "word-penalty: 0" \
+            "max-length-break: 128" "mini-batch-words: 1024" "workspace: 128" "max-length-factor: 2.0" "skip-cost: true" \
+            "quiet: true" "quiet-translation: true" "gemm-precision: int8shiftAlphaAll" "ssplit-mode: paragraph" \
+            "ssplit-prefix-file: model/nonbreaking_prefix.es" > config.yml
+          exe=$(find bergamot/build -name bergamot.exe | head -1)
+          echo "built: $exe ($(stat -c %s "$exe") bytes)"
+          out=$(echo "Me gustaría comprar la casa verde." | "$exe" --model-config-paths config.yml --cpu-threads 1)
+          echo "translation: $out"
+          echo "$out" | grep -qi "green house"
+          objdump -p "$exe" 2>/dev/null | grep "DLL Name" || true
+          # Two paragraphs come back as two (FreeReader's bilingual view relies on it).
+          two=$(printf 'Hola, amigo.\n\nLa casa es verde.\n' | "$exe" --model-config-paths config.yml --cpu-threads 1 | tr -d '\r')
+          echo "two paragraphs: $two"
+          [ "$(printf '%s\n' "$two" | grep -c .)" = 2 ]
+          cp "$exe" dist/freereader-translator.exe
+
+      - name: Pack
+        shell: bash
+        run: python -c "$PACK_PY" dist/freereader-translator.exe dist/FreeReader-offline-translator-windows-x64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: translator-windows-x64
+          path: dist/
+          retention-days: 14
+
+  linux:
+    name: Linux translator
+    # The oldest supported Ubuntu, like the AppImage, so the program runs on older distributions too.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - name: Get Bergamot
+        run: |
+          git init bergamot && cd bergamot
+          git remote add origin "$BERGAMOT_REPO"
+          git fetch --depth 1 origin "$BERGAMOT_COMMIT"
+          git checkout FETCH_HEAD
+          git submodule update --init --recursive --depth 1
+
+      - name: Build (C++ runtime linked in; BUILD_ARCH as for Windows)
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build
+          cmake -S bergamot -B bergamot/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DUSE_WASM_COMPATIBLE_SOURCE=on \
+            -DCOMPILE_TESTS=off -DBUILD_ARCH=x86-64-v2 -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc"
+          cmake --build bergamot/build --target bergamot
+
+      - name: Test with the Spanish model
+        run: |
+          set -e
+          mkdir -p model dist
+          curl -fsSL -o model/model.esen.intgemm.alphas.bin "$MODEL_URL"
+          curl -fsSL -o model/lex.50.50.esen.s2t.bin "$LEX_URL"
+          curl -fsSL -o model/vocab.esen.spm "$VOCAB_URL"
+          echo "$MODEL_SHA  model/model.esen.intgemm.alphas.bin" | sha256sum -c
+          echo "$LEX_SHA  model/lex.50.50.esen.s2t.bin" | sha256sum -c
+          echo "$VOCAB_SHA  model/vocab.esen.spm" | sha256sum -c
+          cp bergamot/3rd_party/ssplit-cpp/nonbreaking_prefixes/nonbreaking_prefix.es model/ || cp bergamot/3rd_party/ssplit-cpp/nonbreaking_prefixes/nonbreaking_prefix.en model/nonbreaking_prefix.es
+          printf '%s\n' "models:" "  - model/model.esen.intgemm.alphas.bin" "vocabs:" "  - model/vocab.esen.spm" "  - model/vocab.esen.spm" \
+            "shortlist:" "  - model/lex.50.50.esen.s2t.bin" "  - false" "beam-size: 1" "normalize: 1.0" "word-penalty: 0" \
+            "max-length-break: 128" "mini-batch-words: 1024" "workspace: 128" "max-length-factor: 2.0" "skip-cost: true" \
+            "quiet: true" "quiet-translation: true" "gemm-precision: int8shiftAlphaAll" "ssplit-mode: paragraph" \
+            "ssplit-prefix-file: model/nonbreaking_prefix.es" > config.yml
+          exe=bergamot/build/app/bergamot
+          strip "$exe"
+          echo "built: $(stat -c %s "$exe") bytes"; ldd "$exe"
+          out=$(echo "Me gustaría comprar la casa verde." | "$exe" --model-config-paths config.yml --cpu-threads 1)
+          echo "translation: $out"
+          echo "$out" | grep -qi "green house"
+          two=$(printf 'Hola, amigo.\n\nLa casa es verde.\n' | "$exe" --model-config-paths config.yml --cpu-threads 1)
+          echo "two paragraphs: $two"
+          [ "$(printf '%s\n' "$two" | grep -c .)" = 2 ]
+          cp "$exe" dist/freereader-translator
+
+      - name: Pack
+        run: python3 -c "$PACK_PY" dist/freereader-translator dist/FreeReader-offline-translator-linux-x64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: translator-linux-x64
+          path: dist/
+          retention-days: 14

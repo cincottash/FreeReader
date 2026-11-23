@@ -37,6 +37,7 @@ struct Settings {
     QString lmStudioAddress = QStringLiteral("http://localhost:1234");
     QString lmStudioModel;            // empty: whichever model is loaded in LM Studio
     bool useDictionary = true;        // the offline dictionary, when one is installed
+    bool useOfflineTranslator = true; // the offline sentence translator (Bergamot), when downloaded
 
     // Practice (flashcards)
     QStringList practiceDirections = {QStringLiteral("recognize"), QStringLiteral("recall")};

@@ -39,6 +39,7 @@ void fields(Settings& s, F&& f)
     f("lm_studio_address", s.lmStudioAddress);
     f("lm_studio_model", s.lmStudioModel);
     f("use_dictionary", s.useDictionary);
+    f("use_offline_translator", s.useOfflineTranslator);
     f("practice_directions", s.practiceDirections);
     f("practice_typed", s.practiceTyped);
     f("practice_sentence_front", s.practiceSentenceFront);

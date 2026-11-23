@@ -36,6 +36,23 @@ DictionaryDownload::Source DictionaryDownload::englishDefinitions()
     return s;
 }
 
+DictionaryDownload::Source DictionaryDownload::offlineTranslator()
+{
+    Source s;   // entry empty: the whole pack is unpacked into a folder
+#if defined(Q_OS_WIN) && defined(Q_PROCESSOR_X86_64)
+    s.url = QUrl(QStringLiteral("https://github.com/cincottash/FreeReader/releases/download/offline-translator-1/FreeReader-offline-translator-windows-x64.zip"));
+    s.sha256 = "3bf4d6861b487f6ad9746e594cf40933b9c5999d897b6a5d6994e59dec25a785";
+    s.size = 30277946;
+    s.unpackedSize = 48009153;
+#elif defined(Q_OS_LINUX) && !defined(Q_OS_ANDROID) && defined(Q_PROCESSOR_X86_64)
+    s.url = QUrl(QStringLiteral("https://github.com/cincottash/FreeReader/releases/download/offline-translator-1/FreeReader-offline-translator-linux-x64.zip"));
+    s.sha256 = "37d60635125e8193e8419e01e98e9e59b6b3aa97e213b9abca5bd0a02cac57fb";
+    s.size = 31105442;
+    s.unpackedSize = 48934585;
+#endif
+    return s;
+}
+
 DictionaryDownload::DictionaryDownload(QObject* parent) : QObject(parent), m_net(new QNetworkAccessManager(this)) {}
 
 DictionaryDownload::~DictionaryDownload()
@@ -134,6 +151,27 @@ void DictionaryDownload::start(const Source& source, const QString& outFile)
             ZipArchive archive;
             QString why;
             if (!archive.open(zip, &why)) return QObject::tr("The download can't be unpacked: %1").arg(why);
+            if (entry.isEmpty()) {
+                // A pack (the offline translator): every file into the folder `out`, never outside it.
+                QDir dir(out);
+                if (!dir.mkpath(QStringLiteral("."))) return QObject::tr("The folder for the download can't be made.");
+                const QString base = QFileInfo(dir.absolutePath()).canonicalFilePath();
+                for (const QString& name : archive.names()) {
+                    if (name.endsWith(QLatin1Char('/'))) continue;
+                    if (name.contains(QLatin1String("..")) || name.startsWith(QLatin1Char('/')) || name.contains(QLatin1Char(':')))
+                        return QObject::tr("The download contains a file in the wrong place, so it wasn't installed.");
+                    const QString path = dir.absoluteFilePath(name);
+                    QDir().mkpath(QFileInfo(path).absolutePath());
+                    if (!QFileInfo(QFileInfo(path).absolutePath()).canonicalFilePath().startsWith(base))
+                        return QObject::tr("The download contains a file in the wrong place, so it wasn't installed.");
+                    bool ok = false;
+                    const QByteArray data = archive.read(name, &ok);
+                    QSaveFile f(path);
+                    if (!ok || !f.open(QIODevice::WriteOnly) || f.write(data) != data.size() || !f.commit())
+                        return QObject::tr("The download can't be saved: %1").arg(f.errorString());
+                }
+                return {};
+            }
             bool ok = false;
             const QByteArray data = archive.read(entry, &ok);
             if (!ok || data.isEmpty()) return QObject::tr("The download doesn't contain the dictionary.");

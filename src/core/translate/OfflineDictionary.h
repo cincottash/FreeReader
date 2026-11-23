@@ -39,6 +39,7 @@ public:
     bool isSetUp() const override { return m_info.ok && m_enabled; }
     // Only words in its own language (a Spanish book never asks the English dictionary).
     bool handles(const TranslationRequest& request) const override;
+    bool cacheable() const override { return false; }
     // A dictionary of definitions in the same language (English -> English), not a translating one.
     bool isMonolingual() const { return !m_info.target.isEmpty() && m_info.target == m_info.language; }
     void setEnabled(bool on) { m_enabled = on; }

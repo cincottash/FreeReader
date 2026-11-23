@@ -601,7 +601,7 @@ void PracticeView::setTranslator(core::TranslationService* service)
         core::TranslationResult got = r;
         got.text = m_word.text;
         if (r.translation.trimmed().isEmpty() || !m_log->fillMeaning(m_word.id, got)) {
-            const bool allOff = !m_settings.useGemini && !m_settings.useLmStudio && !m_settings.useDictionary;
+            const bool allOff = !m_settings.useGemini && !m_settings.useLmStudio && !m_settings.useDictionary && !m_settings.useOfflineTranslator;
             m_backDetail->setText(allOff ? tr("Every translation engine is turned off (Settings > Translation).")
                                          : why.isEmpty() ? tr("No answer.") : why);
             m_backDetail->show();
