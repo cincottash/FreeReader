@@ -29,6 +29,7 @@ void fields(Settings& s, F&& f)
     f("recent_themes", s.recentThemes);
     f("reading_speed", s.readingSpeed);
     f("footer_pages_left", s.footerPagesLeft);
+    f("highlight_order", s.highlightOrder);
     f("library_list", s.libraryList);
     f("library_sort", s.librarySort);
     f("library_zoom_pct", s.libraryZoomPct);

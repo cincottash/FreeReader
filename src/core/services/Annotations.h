@@ -33,6 +33,11 @@ public:
     bool isOpen() const;
 
     static QStringList colors() { return {"pink", "orange", "yellow", "blue"}; }
+    // The colors as the highlight dots show them: the most recently used first, the others in their order before.
+    // `order` is what the settings kept (unknown keys are dropped, missing ones added in their usual place).
+    static QStringList colorsInOrder(const QStringList& order);
+    // `color` was just used: it moves to the front; the others keep their order.
+    static QStringList usedColor(const QStringList& order, const QString& color);
     static QColor colorValue(const QString& key);   // the swatch color
 
     int add(const Annotation& a);                   // returns the id (0 on failure)

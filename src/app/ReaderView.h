@@ -119,7 +119,9 @@ public:
         bool moved = false;
     };
     KindleResult importKindle(const core::KindlePlan& plan, const KindleOptions& options);
-    int highlightSelection(const QString& color);   // the highlight's id; an existing one changes color
+    // The highlight's id; an existing one changes color. `chosen`: picked by the reader (it moves to the front of the
+    // dots), not the yellow a note gets.
+    int highlightSelection(const QString& color, bool chosen = true);
     bool removeHighlightAtSelection();
     int highlightAtSelection() const;              // the highlight the selection is in, 0 when none
     int addNoteToSelection(const QString& note);   // highlights it (yellow) when it isn't yet

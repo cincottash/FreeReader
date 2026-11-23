@@ -913,6 +913,12 @@ int MobileApp::highlight(QObject* object, const QString& color)
             if (m_words->mark(meaning, place)) emit wordsChanged();
         }
     }
+    // A color used (not one tapped again to take a highlight away) moves to the front of the dots.
+    if (c.id) {
+        m_settings.highlightOrder = core::Annotations::usedColor(m_settings.highlightOrder, color);
+        saveSettings();
+        emit highlightColorsChanged();
+    }
     page->clearSelection();
     emit annotationsChanged();
     return c.id;
@@ -1094,7 +1100,7 @@ QVariantList MobileApp::notebook() const
 QVariantList MobileApp::highlightColors() const
 {
     QVariantList out;
-    for (const QString& c : core::Annotations::colors())
+    for (const QString& c : core::Annotations::colorsInOrder(m_settings.highlightOrder))
         out << QVariantMap{{QStringLiteral("key"), c}, {QStringLiteral("swatch"), core::Annotations::colorValue(c)}};
     return out;
 }

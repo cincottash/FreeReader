@@ -993,7 +993,8 @@ QMenu* ReaderView::buildSelectionMenu()
         auto* h = new QHBoxLayout(row);
         h->setContentsMargins(10, 6, 10, 6);
         h->setSpacing(10);
-        for (const QString& c : core::Annotations::colors()) {
+        // The most recently used color first: the easiest dot to reach (the owner's request, 2026-11-23).
+        for (const QString& c : core::Annotations::colorsInOrder(m_settings.highlightOrder)) {
             auto* dot = new QToolButton;
             dot->setObjectName(QStringLiteral("Icon"));
             dot->setFixedSize(30, 30);
@@ -1051,7 +1052,7 @@ QMenu* ReaderView::buildSelectionMenu()
         const bool hasNote = current && !m_notes->get(current).note.isEmpty();
         QAction* note = menu->addAction(hasNote ? tr("Edit Note…") : tr("Add Note…"), this, [this] {
             int id = highlightAtSelection();
-            if (!id) id = highlightSelection(QStringLiteral("yellow"));
+            if (!id) id = highlightSelection(QStringLiteral("yellow"), false);
             if (id) editNote(id);
         });
         note->setProperty("testId", "menuNote");
@@ -1157,7 +1158,7 @@ int ReaderView::highlightAtSelection() const
     return hits.isEmpty() ? 0 : hits.first().id;
 }
 
-int ReaderView::highlightSelection(const QString& color)
+int ReaderView::highlightSelection(const QString& color, bool chosen)
 {
     if (!m_notes || !m_bookId || !m_pages->hasSelection() || m_pages->selectedText().trimmed().isEmpty()) return 0;
     const int spine = m_pages->selectionSpine(), start = m_pages->selectionStart(), end = m_pages->selectionEnd();
@@ -1165,6 +1166,11 @@ int ReaderView::highlightSelection(const QString& color)
     const core::HighlightChange c = core::highlightRange(*m_notes, *m_engine, m_bookId, spine, start, end, color,
                                                          chapterTitleAt({spine, start}), m_pages->selectedText());
     if (c.id && !c.recolored) markHighlightedWord(c.text, spine, c.from, c.to, sentence);
+    // A color used (not one clicked again to take a highlight away) moves to the front of the dots.
+    if (c.id && chosen) {
+        m_settings.highlightOrder = core::Annotations::usedColor(m_settings.highlightOrder, color);
+        emit appearanceChanged();   // the settings file needs saving
+    }
     clearSelectionKeepingPopup();
     refreshAnnotations();
     return c.id;
@@ -1353,7 +1359,7 @@ bool ReaderView::removeHighlightAtSelection()
 int ReaderView::addNoteToSelection(const QString& note)
 {
     int id = highlightAtSelection();
-    if (!id) id = highlightSelection(QStringLiteral("yellow"));
+    if (!id) id = highlightSelection(QStringLiteral("yellow"), false);
     if (!id) return 0;
     setNote(id, note);
     return id;

@@ -98,7 +98,7 @@ class MobileApp : public QObject {
     // {id, kind ("highlight"/"bookmark"), color, swatch, text, note, page, chapter}.
     Q_PROPERTY(QVariantList notebook READ notebook NOTIFY annotationsChanged)
     Q_PROPERTY(bool pageBookmarked READ pageBookmarked NOTIFY bookmarkChanged)
-    Q_PROPERTY(QVariantList highlightColors READ highlightColors CONSTANT)   // {key, swatch}
+    Q_PROPERTY(QVariantList highlightColors READ highlightColors NOTIFY highlightColorsChanged)   // {key, swatch}, most recently used first
     // The book's contents: {title, depth, current}.
     Q_PROPERTY(QVariantList contents READ contents NOTIFY contentsChanged)
     // Search This Book: {before, match, after, page}; `searching` while it runs.
@@ -252,6 +252,7 @@ signals:
     void insetsChanged();
     void cardChanged();
     void annotationsChanged();
+    void highlightColorsChanged();
     void bookmarkChanged();   // the page moved, or its bookmark changed
     void contentsChanged();
     void searchChanged();
