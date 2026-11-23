@@ -10,6 +10,8 @@
 
 #include <QLineEdit>
 #include "SettingsDialog.h"
+#include "KindleImportDialog.h"
+#include "core/services/KindleImport.h"
 #include "ThemePicker.h"
 
 #include "core/format/FormatPlugin.h"
@@ -36,6 +38,8 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QStandardPaths>
+#include <QGuiApplication>
 #include <QMimeData>
 #include <QNetworkAccessManager>
 #include <QScreen>
@@ -60,6 +64,9 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     m_dictionary->open(dictionaryFile(QStringLiteral("es")));
     m_dictionaryEn = new core::OfflineDictionary(this);
     m_dictionaryEn->open(dictionaryFile(QStringLiteral("en")));
+    // Spanish definitions (Spanish -> Spanish), for the Dictionary card only: never a translation.
+    m_definitionsEs = new core::OfflineDictionary(this);
+    m_definitionsEs->open(dictionaryFile(QStringLiteral("es-es")));
     // When Gemini and LM Studio can't answer: the meaning saved in the Word List from an earlier lookup, the
     // offline dictionaries (words), then the offline translator (sentences and passages).
     m_savedWords = new core::SavedWords(this);
@@ -77,6 +84,7 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     m_words = std::make_unique<core::WordLog>(m_library);
     m_reader->setWordLog(m_words.get());
     m_reader->setOfflineTranslator(m_offline);
+    m_reader->setDictionaries({m_definitionsEs, m_dictionaryEn, m_dictionary});
     m_savedWords->setWordLog(m_words.get());
     m_annotations = std::make_unique<core::Annotations>(m_library);
     m_reader->setAnnotations(m_annotations.get());
@@ -114,6 +122,7 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     connect(m_engine, &core::BookEngine::openFailed, this, &MainWindow::onOpenFailed);
     connect(m_start, &LibraryView::openRequested, this, &MainWindow::openBook);
     connect(m_start, &LibraryView::settingsLinkClicked, this, &MainWindow::changeDataFolder);
+    connect(m_start, &LibraryView::settingsChanged, this, &MainWindow::saveSettingsSoon);
     m_start->setPrompt([this](const QString& title, const QString& placeholder, std::function<QString(const QString&)> accept) {
         m_palette->showPrompt(title, placeholder, std::move(accept));
     });
@@ -263,9 +272,17 @@ void MainWindow::buildCommands()
         const QString t = m_reader->pages()->selectedText();
         if (!t.isEmpty()) QApplication::clipboard()->setText(t);
     }, [this] { return isReading() && m_reader->pages()->hasSelection(); });
-    addCommand(QStringLiteral("larger"), tr("Larger Text"), QKeySequence(Qt::CTRL | Qt::Key_Equal), [this] { changeTextSize(10); });
-    addCommand(QStringLiteral("smaller"), tr("Smaller Text"), QKeySequence(Qt::CTRL | Qt::Key_Minus), [this] { changeTextSize(-10); });
-    addCommand(QStringLiteral("default-size"), tr("Default Text Size"), QKeySequence(Qt::CTRL | Qt::Key_0), [this] { changeTextSize(0); });
+    addCommand(QStringLiteral("larger"), tr("Larger Text"), QKeySequence(Qt::CTRL | Qt::Key_Equal), [this] { changeTextSize(10); }, nullptr,
+               tr("While reading: larger text (also Ctrl+wheel over the page). In the library: larger covers."));
+    addCommand(QStringLiteral("smaller"), tr("Smaller Text"), QKeySequence(Qt::CTRL | Qt::Key_Minus), [this] { changeTextSize(-10); }, nullptr,
+               tr("While reading: smaller text. In the library: smaller covers."));
+    addCommand(QStringLiteral("default-size"), tr("Default Text Size"), QKeySequence(Qt::CTRL | Qt::Key_0), [this] { changeTextSize(0); }, nullptr,
+               tr("While reading: the default text size. In the library: the default cover size."));
+    addCommand(QStringLiteral("wider-margins"), tr("Wider Margins"), QKeySequence(Qt::CTRL | Qt::Key_BracketRight), [this] { m_reader->stepMargins(16); },
+               reading, tr("More space left and right of the text (also Ctrl+Shift+wheel over the page)."));
+    addCommand(QStringLiteral("narrower-margins"), tr("Narrower Margins"), QKeySequence(Qt::CTRL | Qt::Key_BracketLeft), [this] { m_reader->stepMargins(-16); },
+               reading, tr("Less space left and right of the text."));
+    addCommand(QStringLiteral("default-margins"), tr("Default Margins"), QKeySequence(), [this] { m_reader->stepMargins(0); }, reading);
     addCommand(QStringLiteral("columns-one"), tr("One Column"), QKeySequence(), [this] { setColumns(QStringLiteral("one")); });
     addCommand(QStringLiteral("columns-two"), tr("Two Columns"), QKeySequence(), [this] { setColumns(QStringLiteral("two")); });
     addCommand(QStringLiteral("columns-auto"), tr("Automatic Columns"), QKeySequence(), [this] { setColumns(QStringLiteral("auto")); },
@@ -290,6 +307,8 @@ void MainWindow::buildCommands()
         m_reader->setBookOffline(!m_reader->bookIsOffline());
     }, [this] { return isReading() && !m_settings.offlineOnly; }, tr("Text from this book is never sent to Gemini."));
     if (Command* c = command(QStringLiteral("book-offline"))) c->action->setCheckable(true);
+    addCommand(QStringLiteral("import-kindle"), tr("Import Kindle Highlights…"), QKeySequence(), [this] { importKindle(); }, reading,
+               tr("Highlights, notes and bookmarks from a Kindle export (Bookcision's JSON or My Clippings.txt) into this book."));
     addCommand(QStringLiteral("search-book"), tr("Search This Book…"), QKeySequence(Qt::CTRL | Qt::Key_F), [this] {
         m_reader->openSearch(m_reader->pages()->hasSelection() ? m_reader->pages()->selectedText() : QString());
     }, reading, tr("Every place a word or phrase appears, with its page."));
@@ -361,6 +380,7 @@ void MainWindow::buildMenus()
     add(file, "add-books");
     add(file, "add-folder");
     add(file, "new-collection");
+    add(file, "import-kindle");
     file->addSeparator();
     add(file, "library");
     file->addSeparator();
@@ -377,6 +397,11 @@ void MainWindow::buildMenus()
     add(view, "larger");
     add(view, "smaller");
     add(view, "default-size");
+    QMenu* margins = view->addMenu(tr("Margins"));
+    margins->setProperty("testId", "menuMargins");
+    add(margins, "wider-margins");
+    add(margins, "narrower-margins");
+    add(margins, "default-margins");
     QMenu* columns = view->addMenu(tr("Columns"));
     add(columns, "columns-one");
     add(columns, "columns-two");
@@ -497,9 +522,46 @@ void MainWindow::applyShortcuts()
 
 QString MainWindow::translatorFolder() { return QDir(appdata::folder()).filePath(QStringLiteral("translator")); }
 
-QString MainWindow::dictionaryFile(const QString& language)
+KindleImportDialog* MainWindow::kindleDialog() const { return m_kindleDialog; }
+
+void MainWindow::importKindle(const QString& fileArg)
 {
-    return QDir(appdata::folder()).filePath(QStringLiteral("dictionaries/%1-en.sqlite").arg(language));
+    const core::Book* book = m_engine->book();
+    if (!isReading() || !book) return;
+    QString file = fileArg;
+    if (file.isEmpty()) {
+        if (!m_interactive) return;
+        file = QFileDialog::getOpenFileName(this, tr("Import Kindle Highlights"), QStandardPaths::writableLocation(QStandardPaths::DownloadLocation),
+                                            tr("Kindle highlights (*.json *.txt);;All files (*)"));
+        if (file.isEmpty()) return;
+    }
+    QFile f(file);
+    QString error;
+    core::KindleExport ex;
+    if (!f.open(QIODevice::ReadOnly)) error = tr("The file can't be read: %1").arg(f.errorString());
+    else ex = core::parseKindleExport(f.readAll(), book->metadata.title);
+    if (error.isEmpty()) error = ex.error;
+    if (!error.isEmpty()) {
+        m_lastError = error;
+        if (m_interactive) QMessageBox::information(this, tr("Import Kindle Highlights"), error);
+        return;
+    }
+    QGuiApplication::setOverrideCursor(Qt::WaitCursor);
+    // Equivalents for the highlights this edition words differently (another form of the word, or the matching spot).
+    const core::KindlePlan plan = core::planKindleImport(*book, ex, nullptr, true);
+    QGuiApplication::restoreOverrideCursor();
+    if (m_kindleDialog) m_kindleDialog->deleteLater();
+    m_kindleDialog = new KindleImportDialog(ex, plan, book->metadata.title,
+                                            [this, plan](const ReaderView::KindleOptions& o) { return m_reader->importKindle(plan, o); }, this);
+    m_kindleDialog->setAttribute(Qt::WA_DeleteOnClose);
+    if (m_interactive) m_kindleDialog->open();
+}
+
+QString MainWindow::dictionaryFile(const QString& key)
+{
+    // "es": Spanish -> English (es-en.sqlite), "en": English definitions (en-en.sqlite), "es-es": Spanish definitions.
+    const QString name = key.contains(QLatin1Char('-')) ? key : key + QStringLiteral("-en");
+    return QDir(appdata::folder()).filePath(QStringLiteral("dictionaries/%1.sqlite").arg(name));
 }
 
 void MainWindow::applyTranslationSettings()
@@ -508,6 +570,8 @@ void MainWindow::applyTranslationSettings()
     if (!m_dictionary->info().ok) m_dictionary->open(dictionaryFile(QStringLiteral("es")));
     m_dictionaryEn->setEnabled(m_settings.useDictionary);
     if (!m_dictionaryEn->info().ok) m_dictionaryEn->open(dictionaryFile(QStringLiteral("en")));
+    m_definitionsEs->setEnabled(m_settings.useDictionary);
+    if (!m_definitionsEs->info().ok) m_definitionsEs->open(dictionaryFile(QStringLiteral("es-es")));
     m_offline->setEnabled(m_settings.useOfflineTranslator);
     m_offline->setFolder(translatorFolder());
     m_gemini->setEnabled(m_settings.useGemini);
@@ -549,6 +613,7 @@ void MainWindow::showSettings(int tab)
         m_settingsDialog = new SettingsDialog(m_settings, list, m_gemini, m_lmStudio, m_interactive, this);
         m_settingsDialog->setDictionary(m_dictionary, dictionaryFile(QStringLiteral("es")));
         m_settingsDialog->setEnglishDictionary(m_dictionaryEn, dictionaryFile(QStringLiteral("en")));
+        m_settingsDialog->setDictionaryFor(QStringLiteral("es-es"), m_definitionsEs, dictionaryFile(QStringLiteral("es-es")));
         m_settingsDialog->setOfflineTranslator(m_offline);
         connect(m_settingsDialog, &SettingsDialog::translationChanged, this, [this] {
             applyTranslationSettings();
@@ -671,8 +736,12 @@ void MainWindow::showLibrary()
 
 void MainWindow::changeTextSize(int delta)
 {
-    const int now = m_reader->effectiveAppearance().textSizePct;
-    m_reader->changeAppearance(QStringLiteral("text_size_pct"), delta == 0 ? 100 : qBound(60, now + delta, 300));
+    // In the library: the covers' size; while reading: the text size.
+    if (m_stack->currentWidget() == m_start) {
+        m_start->zoomTo(delta == 0 ? 100 : m_settings.libraryZoomPct + delta);
+        return;
+    }
+    m_reader->stepTextSize(delta);
 }
 
 void MainWindow::setColumns(const QString& mode) { m_reader->changeAppearance(QStringLiteral("columns"), mode); }

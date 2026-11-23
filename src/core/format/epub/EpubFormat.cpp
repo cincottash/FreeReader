@@ -12,6 +12,27 @@ namespace core {
 
 namespace {
 
+// The message for a DRM-protected book: which protection, the store it came from when the licence says, and
+// where it can be read. Nothing is decrypted.
+QString drmMessage(const ZipArchive& zip)
+{
+    bool ok = false;
+    const QByteArray rights = zip.read(QStringLiteral("META-INF/rights.xml"), &ok);
+    if (!ok) return QStringLiteral("This book is protected by DRM, so FreeReader can't open it. Only DRM-free books can be opened.");
+    QString store;
+    if (rights.contains("books.google.com")) store = QStringLiteral("Google Play Books");
+    else if (rights.contains("kobo")) store = QStringLiteral("Kobo");
+    else if (rights.contains("barnesandnoble") || rights.contains("nook")) store = QStringLiteral("Barnes & Noble");
+    QString text = QStringLiteral("This book is protected by Adobe DRM");
+    if (!store.isEmpty()) text += QStringLiteral(" from %1").arg(store);
+    text += QStringLiteral(", so FreeReader can't open it. It can be read in ");
+    text += store == QLatin1String("Google Play Books") ? QStringLiteral("the Google Play Books app or website, or in Adobe Digital Editions.")
+          : store == QLatin1String("Kobo")             ? QStringLiteral("the Kobo app, or in Adobe Digital Editions.")
+                                                       : QStringLiteral("Adobe Digital Editions.");
+    text += QStringLiteral(" Some stores sell books without DRM; their pages say \"DRM-free\".");
+    return text;
+}
+
 class EpubBook : public Book {
 public:
     ZipArchive zip;
@@ -110,7 +131,7 @@ std::shared_ptr<Book> EpubFormat::open(const QString& path, QString* error) cons
     // DRM: Adobe ADEPT and other schemes add rights.xml or encrypt the chapters. Font obfuscation is not DRM,
     // but the obfuscated fonts are simply not used.
     if (book->zip.contains(QStringLiteral("META-INF/rights.xml"))) {
-        if (error) *error = QStringLiteral("This book is protected by DRM, so it can't be opened. Only DRM-free books are supported.");
+        if (error) *error = drmMessage(book->zip);
         return nullptr;
     }
     bool ok = false;
@@ -135,7 +156,7 @@ std::shared_ptr<Book> EpubFormat::open(const QString& path, QString* error) cons
         };
         walk(doc->root.get());
         if (book->skipped.contains(QStringLiteral("<drm>"))) {
-            if (error) *error = QStringLiteral("This book is protected by DRM, so it can't be opened. Only DRM-free books are supported.");
+            if (error) *error = drmMessage(book->zip);
             return nullptr;
         }
     }

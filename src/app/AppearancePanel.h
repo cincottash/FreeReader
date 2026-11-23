@@ -1,5 +1,6 @@
 // The "Aa" panel of the reader: theme, font, text size, line spacing, margins, page width, columns, justification,
-// hyphenation, and which books a change applies to (All Books, the book's language, This Book).
+// hyphenation, and which books a change applies to (All Books, the book's language, This Book); page turn
+// animations (for all books).
 #pragma once
 
 #include "Appearance.h"
@@ -26,11 +27,14 @@ public:
     Scope scope() const { return m_scope; }
     void setScope(Scope s);
     void showBelow(const QPoint& topRight);
+    // Page turns (for all books, from the settings).
+    void setPageTurn(const QString& style, int ms, const QString& motion);
 
 signals:
     void valueChanged(const QString& key, const QJsonValue& value);
     void resetRequested(int scope);
     void themesRequested();
+    void pageTurnChanged(const QString& style, int ms, const QString& motion);
 
 protected:
     void keyPressEvent(QKeyEvent*) override;
@@ -51,4 +55,8 @@ private:
     QPushButton* m_resetBook;
     QPushButton* m_resetLanguage;
     QLabel* m_scopeNote;
+    QComboBox* m_turnStyle;
+    QSlider* m_turnSpeed;
+    QLabel* m_turnSpeedValue;
+    QComboBox* m_turnMotion;
 };

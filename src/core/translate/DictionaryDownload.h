@@ -30,6 +30,8 @@ public:
     static Source spanishEnglish();
     // English definitions for English books (release "dictionary-en-1", from Open English WordNet 2025 plus).
     static Source englishDefinitions();
+    // Spanish definitions (Spanish Wiktionary, for the Dictionary card).
+    static Source spanishDefinitions();
     // The offline sentence translator for this system (release "offline-translator-1": Bergamot and Mozilla's
     // Spanish -> English model). Size 0 where no pack is built (then it isn't offered).
     static Source offlineTranslator();

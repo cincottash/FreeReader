@@ -6,20 +6,52 @@
 //   meta(key TEXT PRIMARY KEY, value TEXT)            -- language, target, source, license, built
 //   entries(word TEXT, folded TEXT, pos TEXT, tags TEXT, glosses TEXT)   -- glosses: JSON array of strings
 //   forms(form TEXT, folded TEXT, lemma TEXT, pos TEXT, description TEXT)
+// A dictionary of definitions may have one more column, entries.card: the whole entry as JSON
+// {pos, etymology, forms, ipa, senses: [{gloss, tags, examples}]}, for the Dictionary card. Without it the card
+// is made from the glosses.
 #pragma once
 
 #include "Translation.h"
 
 #include <QHash>
+#include <QList>
 #include <QString>
+#include <QStringList>
 
 namespace core {
 
 struct DictionaryInfo {
     bool ok = false;
     QString language, target, source, license, built;
+    QString title;          // the dictionary's own name ("Diccionario de español (Wiktionary)"), when it has one
+    bool cards = false;     // it has whole entries (a `card` column) for the Dictionary card
     int entries = 0;
     QString error;
+};
+
+// The Dictionary card (right-click > Dictionary), laid out like a printed dictionary: each headword, its forms and
+// origin, then its parts of speech, each with numbered senses, their labels ("coloquial", "México") and examples.
+struct DictionarySense {
+    QString gloss;
+    QStringList labels, examples;
+};
+struct DictionaryEntry {
+    QString partOfSpeech;   // "Adjetivo", "noun, feminine"
+    QString origin;         // "Del latín tranquillum."
+    QString forms;          // "tranquilo, tranquila, tranquilos"
+    QString pronunciation;  // IPA
+    QList<DictionarySense> senses;
+};
+struct DictionaryHeadword {
+    QString word;
+    QString formOf;         // the selected word, when it's a form of this one ("dijo")
+    QString formNote;       // what form it is ("Primera persona del singular ... de decir"), when known
+    QList<DictionaryEntry> entries;
+};
+struct DictionaryCard {
+    QString text;           // the word asked for (punctuation trimmed)
+    QList<DictionaryHeadword> headwords;
+    bool isEmpty() const { return headwords.isEmpty(); }
 };
 
 class OfflineDictionary : public TranslationProvider {
@@ -47,6 +79,9 @@ public:
 
     // The lookup itself, synchronous (tests).
     TranslationResult lookUp(const QString& text, const QString& language) const;
+    // The whole entries for a word (the word itself, and the words it is a form of), for the Dictionary card.
+    // Empty when the dictionary isn't open or doesn't know the word.
+    DictionaryCard card(const QString& text) const;
 
 private:
     QString m_connection;

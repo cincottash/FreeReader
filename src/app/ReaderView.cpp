@@ -12,11 +12,18 @@
 #include <QCryptographicHash>
 #include "SearchPanel.h"
 #include "TranslationPopup.h"
+#include "DictionaryPopup.h"
 
 #include "core/services/BookEngine.h"
 #include "core/services/Library.h"
 #include "core/translate/TranslationService.h"
+#include <map>
+#include <QTextBoundaryFinder>
+#include <QSqlDatabase>
+#include "core/layout/Flow.h"
+#include "core/services/KindleImport.h"
 #include "core/translate/OfflineTranslator.h"
+#include "core/translate/OfflineDictionary.h"
 #include "core/services/BookIndex.h"
 #include "core/services/WordLog.h"
 #include "core/services/Statistics.h"
@@ -194,6 +201,13 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
         emit translationSettingsRequested();
     });
     connect(m_translate, &TranslationPopup::speakRequested, this, &ReaderView::speak);
+    m_dictCard = new DictionaryPopup(m_pages);
+    connect(m_dictCard, &DictionaryPopup::translateRequested, this, [this] { translateSelection(false); });
+    connect(m_dictCard, &DictionaryPopup::settingsRequested, this, &ReaderView::translationSettingsRequested);
+    connect(m_dictCard, &DictionaryPopup::fullDefinitionRequested, this, [this](const QUrl& url) {
+        m_lastUrl = url.toString(QUrl::FullyEncoded);
+        if (m_interactive) QDesktopServices::openUrl(url);
+    });
     connect(m_translate, &TranslationPopup::speechSettingsRequested, this, [this] {
         // Windows' own page for adding voices.
         m_lastUrl = QStringLiteral("ms-settings:speech");
@@ -212,6 +226,18 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
         m_panel->showBelow(m_aaButton->mapTo(this, QPoint(m_aaButton->width() + 140, m_aaButton->height() + 4)));
     });
     connect(m_panel, &AppearancePanel::valueChanged, this, &ReaderView::changeAppearance);
+    // Page turns: for all books, saved with the settings.
+    m_panel->setPageTurn(m_settings.pageTurn, m_settings.pageTurnMs, m_settings.pageTurnMotion);
+    m_pages->setPageTurn(m_settings.pageTurn, m_settings.pageTurnMs, m_settings.pageTurnMotion);
+    connect(m_panel, &AppearancePanel::pageTurnChanged, this, [this](const QString& style, int ms, const QString& motion) {
+        m_settings.pageTurn = style;
+        m_settings.pageTurnMs = ms;
+        m_settings.pageTurnMotion = motion;
+        m_pages->setPageTurn(style, ms, motion);
+        emit appearanceChanged();
+    });
+    connect(m_pages, &PageView::zoomRequested, this, [this](int steps) { stepTextSize(steps * 10); });
+    connect(m_pages, &PageView::marginsRequested, this, [this](int steps) { stepMargins(steps * 16); });
     connect(m_panel, &AppearancePanel::themesRequested, this, [this] {
         m_panel->hide();
         emit moreThemesRequested(m_aaButton->mapTo(window(), QPoint(m_aaButton->width() + 140, m_aaButton->height())));
@@ -290,8 +316,13 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
         closeSearch();
         m_pages->setFocus();
     });
-    connect(m_pages, &PageView::selectionCleared, m_translate, &QWidget::hide);
+    connect(m_pages, &PageView::selectionCleared, this, [this] {
+        if (m_keepPopup) return;
+        m_translate->hide();
+        m_dictCard->hide();
+    });
     connect(m_pages, &PageView::resized, m_translate, &QWidget::hide);
+    connect(m_pages, &PageView::resized, m_dictCard, &QWidget::hide);
     connect(m_pages, &PageView::resized, m_note, &QWidget::hide);
     connect(m_pages, &PageView::selectionMade, this, [this] {
         // A slip of the mouse that selects a letter or two, or only punctuation, isn't worth a lookup.
@@ -328,6 +359,7 @@ void ReaderView::setTheme(const Theme& t)
     setFullScreenIcon(window() && window()->isFullScreen());
     m_pages->setTheme(t);
     m_translate->setTheme(t);
+    m_dictCard->setTheme(t);
     m_footer->setTheme(t);
     m_toc->setTheme(t);
     updateThemeDots();
@@ -340,39 +372,15 @@ void ReaderView::updateThemeDots()
         delete it->widget();
         delete it;
     }
-    QStringList keys = m_settings.recentThemes;
-    if (!keys.contains(m_settings.theme)) keys.prepend(m_settings.theme);
-    while (keys.size() > 4) keys.removeLast();
-    for (const QString& key : keys) {
-        const Theme t = Theme::forChoice(key);
-        auto* b = new QToolButton;
-        b->setObjectName(QStringLiteral("Icon"));
-        b->setFixedSize(32, 40);
-        b->setCursor(Qt::PointingHandCursor);
-        b->setFocusPolicy(Qt::NoFocus);
-        b->setToolTip(key == QLatin1String("system") ? tr("Match Operating System") : t.name);
-        b->setProperty("testId", QStringLiteral("themeDot-") + key);
-        QPixmap pm(QSize(22, 22) * 2);
-        pm.setDevicePixelRatio(2);
-        pm.fill(Qt::transparent);
-        QPainter p(&pm);
-        p.setRenderHint(QPainter::Antialiasing);
-        p.setPen(QPen(key == m_settings.theme ? m_theme.accent : m_theme.muted, 2));
-        p.setBrush(t.bg);
-        p.drawEllipse(QRectF(2, 2, 18, 18));
-        p.end();
-        b->setIcon(QIcon(pm));
-        b->setIconSize(QSize(22, 22));
-        connect(b, &QToolButton::clicked, this, [this, key] { emit themeChosen(key); });
-        lay->addWidget(b);
-    }
+    // One Themes button (the recent themes as dots here confused more than they helped: the owner's request,
+    // 2026-11-22).
     auto* more = new QToolButton;
     more->setObjectName(QStringLiteral("Icon"));
     more->setFixedSize(32, 40);
     more->setCursor(Qt::PointingHandCursor);
     more->setFocusPolicy(Qt::NoFocus);
-    more->setIcon(icons::icon("more", m_theme.fg));
-    more->setToolTip(tr("All themes (Ctrl+Shift+T)"));
+    more->setIcon(icons::icon("theme", m_theme.fg));
+    more->setToolTip(tr("Themes (Ctrl+Shift+T)"));
     more->setProperty("testId", "moreThemes");
     connect(more, &QToolButton::clicked, this, [this, more] {
         emit moreThemesRequested(more->mapTo(window(), QPoint(more->width(), more->height())));
@@ -491,6 +499,7 @@ void ReaderView::closeBook()
     m_bookId = 0;
     m_note->hide();
     m_translate->hide();
+    m_dictCard->hide();
     m_lookupId = 0;
     m_engine->cancelSearch();
     m_search->setResults({}, {}, false);
@@ -824,6 +833,7 @@ void ReaderView::translateSelection(bool dictionaryFirst)
     const QString text = m_pages->selectedText().trimmed();
     if (text.isEmpty()) return;
     m_note->hide();
+    m_dictCard->hide();
     const QRect anchor = m_pages->rangeRect(m_pages->selectionSpine(), m_pages->selectionStart(), m_pages->selectionEnd());
     m_translate->setTheme(m_theme);
     m_translate->showLoading(text, languageCode(), anchor);
@@ -847,6 +857,59 @@ void ReaderView::translateSelection(bool dictionaryFirst)
     m_lookupId = m_translator->translate(r);
 }
 
+void ReaderView::showDictionary()
+{
+    const QString text = m_pages->selectedText().trimmed();
+    if (text.isEmpty()) return;
+    const QString lang = languageCode();
+    // A dictionary of definitions in the book's language first (Spanish for a Spanish book), else a translating one
+    // (Spanish -> English). None, or none knows the word: the translation pop-up with its definition first.
+    core::OfflineDictionary* from = nullptr;
+    core::DictionaryCard card;
+    if (m_settings.useDictionary)
+        for (const bool monolingual : {true, false}) {
+            for (core::OfflineDictionary* d : m_dictionaries)
+                if (d && d->info().ok && d->info().language == lang && d->isMonolingual() == monolingual) {
+                    card = d->card(text);
+                    if (!card.isEmpty()) {
+                        from = d;
+                        break;
+                    }
+                }
+            if (from) break;
+        }
+    if (!from) {
+        translateSelection(true);
+        return;
+    }
+    m_note->hide();
+    m_translate->hide();
+    const core::DictionaryInfo& info = from->info();
+    QString title = info.title;
+    if (title.isEmpty()) {
+        const QString language = QLocale::languageToString(QLocale(info.language).language());
+        title = from->isMonolingual() ? tr("%1 Dictionary").arg(language)
+                                      : tr("%1–%2 Dictionary").arg(language, QLocale::languageToString(QLocale(info.target).language()));
+    }
+    // "Wiktionary (Spanish edition) via wiktextract / kaikki.org": the source itself, not how it was extracted.
+    QString origin = info.source;
+    if (const int via = int(origin.indexOf(QStringLiteral(" via "))); via > 0) origin = origin.left(via);
+    const QString source = info.license.isEmpty() ? origin : tr("%1 (%2)").arg(origin, info.license);
+    // The entry on Wiktionary, in the dictionary's own language edition (the Spanish section of the English one
+    // for a Spanish -> English dictionary).
+    QUrl full;
+    if (!card.headwords.isEmpty()) {
+        const QString edition = info.target.isEmpty() ? info.language : info.target;
+        full = QUrl(QStringLiteral("https://%1.wiktionary.org/wiki/").arg(edition) + QString(card.headwords.first().word).replace(QLatin1Char(' '), QLatin1Char('_')));
+        if (edition != info.language) full.setFragment(QLocale::languageToString(QLocale(info.language).language()));
+    }
+    // A Spanish book answered by Spanish -> English: Spanish definitions can be downloaded.
+    const bool offer = !from->isMonolingual() && lang == QLatin1String("es");
+    const QRect anchor = m_pages->rangeRect(m_pages->selectionSpine(), m_pages->selectionStart(), m_pages->selectionEnd());
+    m_dictCard->setTheme(m_theme);
+    m_dictCard->showCard(card, title, tr("Source: %1").arg(source), full, anchor, offer);
+}
+
 void ReaderView::explainSelection()
 {
     if (!m_pages->hasSelection()) return;
@@ -857,6 +920,7 @@ void ReaderView::explainSelection()
     if (text.isEmpty()) return;
     if (text.size() > 1500) text = text.left(1500);
     m_note->hide();
+    m_dictCard->hide();
     const QRect anchor = m_pages->rangeRect(m_pages->selectionSpine(), m_pages->selectionStart(), m_pages->selectionEnd());
     m_translate->setTheme(m_theme);
     m_translate->showLoading(text, languageCode(), anchor);
@@ -1017,7 +1081,7 @@ QMenu* ReaderView::buildSelectionMenu()
     QAction* explain = menu->addAction(tr("Explain This Sentence"), this, [this] { explainSelection(); });
     explain->setProperty("testId", "menuExplain");
     explain->setToolTip(tr("The sentence in English, with notes on its grammar and idioms (Gemini or LM Studio)."));
-    QAction* dict = menu->addAction(tr("Look Up in Dictionary"), this, [this] { translateSelection(true); });
+    QAction* dict = menu->addAction(tr("Dictionary"), this, [this] { showDictionary(); });
     dict->setProperty("testId", "menuDictionary");
     dict->setEnabled(words >= 1 && words <= 4);
     QAction* copy = menu->addAction(tr("Copy"), this, [this] {
@@ -1143,14 +1207,13 @@ int ReaderView::highlightSelection(const QString& color)
         if (a.start <= start && a.end >= end) {
             if (a.color == color && a.note.trimmed().isEmpty()) {
                 m_notes->remove(a.id);
-                m_translate->hide();
-                m_pages->clearSelection();
+                clearSelectionKeepingPopup();
                 refreshAnnotations();
                 return 0;
             }
             a.color = color;
             m_notes->update(a);
-            m_pages->clearSelection();
+            clearSelectionKeepingPopup();
             refreshAnnotations();
             return a.id;
         }
@@ -1196,10 +1259,179 @@ int ReaderView::highlightSelection(const QString& color)
     a.chapter = chapterTitleAt({spine, from});
     const int id = m_notes->add(a);
     if (id) markHighlightedWord(a.text, spine, from, to, sentence);
-    m_translate->hide();
-    m_pages->clearSelection();
+    clearSelectionKeepingPopup();
     refreshAnnotations();
     return id;
+}
+
+void ReaderView::clearSelectionKeepingPopup()
+{
+    // A translation open for these words stays open while they're highlighted (the owner's request, 2026-11-22).
+    m_keepPopup = true;
+    m_pages->clearSelection();
+    m_keepPopup = false;
+}
+
+ReaderView::KindleResult ReaderView::importKindle(const core::KindlePlan& plan, const KindleOptions& options)
+{
+    KindleResult res;
+    const core::Book* book = m_engine->book();
+    if (!book || !m_bookId || !m_notes) return res;
+    std::map<int, std::shared_ptr<const layout::ChapterFlow>> flows;
+    auto flowOf = [&](int spine) {
+        auto it = flows.find(spine);
+        if (it == flows.end()) it = flows.emplace(spine, layout::buildFlow(*book, spine, layout::FlowOptions())).first;
+        return it->second;
+    };
+    // The sentence around a place, for the Word List.
+    auto sentenceAt = [&](const layout::ChapterFlow& flow, int start, int end) -> QString {
+        for (const layout::Block& b : flow.blocks) {
+            if (b.kind != layout::Block::Text || start < b.start || start >= b.start + b.length) continue;
+            QTextBoundaryFinder f(QTextBoundaryFinder::Sentence, b.text);
+            f.setPosition(start - b.start);
+            int s = f.isAtBoundary() ? start - b.start : int(f.toPreviousBoundary());
+            if (s < 0) s = 0;
+            f.setPosition(qMin(int(b.text.size()), qMax(end - b.start, s + 1)));
+            int e = f.isAtBoundary() ? f.position() : int(f.toNextBoundary());
+            if (e < 0) e = int(b.text.size());
+            QString sentence = QString(b.text.mid(s, e - s)).simplified();
+            if (sentence.size() > 600) sentence = sentence.left(600) + QStringLiteral("…");
+            return sentence;
+        }
+        return {};
+    };
+    auto isShort = [](QString text) {
+        text = text.simplified();
+        while (!text.isEmpty() && !text.front().isLetterOrNumber()) text.remove(0, 1);
+        while (!text.isEmpty() && !text.back().isLetterOrNumber()) text.chop(1);
+        int letters = 0;
+        for (const QChar c : text)
+            if (c.isLetter()) ++letters;
+        return letters >= 2 && text.size() <= 60 && text.split(QLatin1Char(' '), Qt::SkipEmptyParts).size() <= 4 ? text : QString();
+    };
+    const QString lang = languageCode();
+    const QDateTime now = QDateTime::currentDateTimeUtc();
+    auto placeAt = [&](int spine, int start, int end, const QString& sentence) {
+        core::WordPlace place;
+        place.bookId = m_bookId;
+        place.bookTitle = m_title->text();
+        place.language = lang;
+        place.spine = spine;
+        place.start = start;
+        place.end = end;
+        place.sentence = sentence;
+        place.cfi = core::makeCfi(spine, *flowOf(spine), start);
+        if (const auto ix = m_engine->index()) place.pageLabel = ix->pageLabel({spine, start});
+        place.chapter = chapterTitleAt({spine, start});
+        return place;
+    };
+    // One transaction for the whole import (thousands of rows).
+    QSqlDatabase db = QSqlDatabase::database(m_library->connectionName());
+    db.transaction();
+    for (const core::KindlePlaced& p : plan.items) {
+        const core::KindleItem& it = p.item;
+        if (it.bookmark) {
+            if (!options.bookmarks || p.approx.spine < 0) continue;
+            const auto flow = flowOf(p.approx.spine);
+            if (m_notes->bookmarkAt(m_bookId, p.approx.spine, p.approx.offset - 200, p.approx.offset + 200)) {
+                ++res.skipped;
+                continue;
+            }
+            core::Annotation a;
+            a.bookId = m_bookId;
+            a.kind = core::Annotation::Bookmark;
+            a.spine = p.approx.spine;
+            a.start = a.end = p.approx.offset;
+            a.text = flow->textRange(p.approx.offset, p.approx.offset + 80).simplified();
+            a.note = it.note;
+            a.cfi = core::makeCfi(a.spine, *flow, a.start);
+            a.chapter = chapterTitleAt(p.approx);
+            if (const auto ix = m_engine->index()) a.pageLabel = ix->pageLabel(p.approx);
+            if (m_notes->add(a)) ++res.bookmarks;
+            continue;
+        }
+        const QString word = isShort(it.text);
+        // An equivalent: this edition's words for a highlight it words differently (orange, noted with the Kindle words).
+        const bool equivalent = !p.found && p.placed() && options.equivalents;
+        if (p.found || equivalent) {
+            const auto flow = flowOf(p.spine);
+            const QString sentence = sentenceAt(*flow, p.start, p.end);
+            const QString bookWords = flow->textRange(p.start, p.end).simplified();
+            if (options.highlights) {
+                if (!m_notes->highlightsAt(m_bookId, p.spine, p.start, p.end).isEmpty()) {
+                    ++res.skipped;
+                } else {
+                    core::Annotation a;
+                    a.bookId = m_bookId;
+                    a.kind = core::Annotation::Highlight;
+                    a.spine = p.spine;
+                    a.start = p.start;
+                    a.end = p.end;
+                    a.text = bookWords;
+                    a.color = p.found ? QStringLiteral("yellow") : QStringLiteral("orange");
+                    a.note = p.found ? it.note
+                                     : tr("Kindle: «%1»").arg(it.text.simplified()) + (it.note.isEmpty() ? QString() : QStringLiteral("\n\n") + it.note);
+                    a.cfi = core::makeCfi(p.spine, *flow, p.start);
+                    a.chapter = chapterTitleAt({p.spine, p.start});
+                    if (const auto ix = m_engine->index()) a.pageLabel = ix->pageLabel({p.spine, p.start});
+                    if (m_notes->add(a)) ++(p.found ? res.highlights : res.equivalents);
+                }
+            }
+            if (m_words && !word.isEmpty() && (p.found ? options.words : options.missingWords)) {
+                // The word as highlighted on the Kindle, with this edition's sentence around its equivalent.
+                core::TranslationResult meaning = m_translator ? m_translator->offlineMeaning(word, lang) : core::TranslationResult();
+                meaning.text = word;
+                if (!p.found)
+                    meaning.note = tr("From your Kindle edition (location %1); this edition says «%2» here.").arg(it.location).arg(bookWords) +
+                                   (it.note.isEmpty() ? QString() : QStringLiteral("\n\n") + it.note);
+                const core::WordPlace place = placeAt(p.spine, p.start, p.end, sentence);
+                if (m_words->mark(meaning, place, now)) ++(p.found ? res.words : res.missingWords);
+            }
+        } else {
+            const QString from = tr("From your Kindle edition (location %1); this edition words it differently.").arg(it.location);
+            if (options.missingWords && m_words && !word.isEmpty()) {
+                // Not in this edition's text: kept for practice, at about the place it would be.
+                core::TranslationResult meaning = m_translator ? m_translator->offlineMeaning(word, lang) : core::TranslationResult();
+                meaning.text = word;
+                meaning.note = it.note.isEmpty() ? from : it.note + QStringLiteral("\n\n") + from;
+                const core::WordPlace place = placeAt(p.approx.spine, p.approx.offset, p.approx.offset, QString());
+                if (m_words->mark(meaning, place, now)) ++res.missingWords;
+            }
+            // A passage, or a highlight with a note, that this edition doesn't have: a bookmark at about its place
+            // with the Kindle text and the note, so nothing is lost.
+            if (options.missingPassages && (word.isEmpty() || !it.note.isEmpty()) && p.approx.spine >= 0) {
+                const QString quoted = QStringLiteral("«%1»").arg(it.text.simplified());
+                bool already = false;
+                for (const core::Annotation& a : m_notes->inChapter(m_bookId, p.approx.spine))
+                    if (a.kind == core::Annotation::Bookmark && a.text == quoted) already = true;
+                if (already) {
+                    ++res.skipped;
+                } else {
+                    const auto flow = flowOf(p.approx.spine);
+                    core::Annotation a;
+                    a.bookId = m_bookId;
+                    a.kind = core::Annotation::Bookmark;
+                    a.spine = p.approx.spine;
+                    a.start = a.end = p.approx.offset;
+                    a.text = quoted;
+                    a.note = it.note.isEmpty() ? from : it.note + QStringLiteral("\n\n") + from;
+                    a.cfi = core::makeCfi(a.spine, *flow, a.start);
+                    a.chapter = chapterTitleAt(p.approx);
+                    if (const auto ix = m_engine->index()) a.pageLabel = ix->pageLabel(p.approx);
+                    if (m_notes->add(a)) ++res.passages;
+                }
+            }
+        }
+    }
+    db.commit();
+    if (options.moveToLastRead && plan.lastRead.spine >= 0) {
+        m_pages->setPosition(plan.lastRead);
+        savePosition();
+        res.moved = true;
+    }
+    refreshAnnotations();
+    if (res.words || res.missingWords) emit wordLogged();
+    return res;
 }
 
 bool ReaderView::removeHighlightAtSelection()
@@ -1509,6 +1741,22 @@ void ReaderView::goToSearchHit(int index)
     const core::SearchHit& h = hits[index];
     jumpTo({h.spine, h.start});
     m_pages->selectRange({h.spine, h.start}, {h.spine, h.end});
+}
+
+void ReaderView::stepTextSize(int delta)
+{
+    const int now = effectiveAppearance().textSizePct;
+    const int v = delta == 0 ? 100 : qBound(60, now + delta, 300);
+    changeAppearance(QStringLiteral("text_size_pct"), v);
+    m_pages->showNotice(tr("Text Size: %1 px").arg(qRound(20.0 * v / 100.0)));
+}
+
+void ReaderView::stepMargins(int delta)
+{
+    const int now = effectiveAppearance().marginPx;
+    const int v = delta == 0 ? Appearance().marginPx : qBound(8, now + delta, 200);
+    changeAppearance(QStringLiteral("margin_px"), v);
+    m_pages->showNotice(tr("Margins: %1 px").arg(v));
 }
 
 void ReaderView::showAppearancePanel()

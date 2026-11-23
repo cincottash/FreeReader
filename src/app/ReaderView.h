@@ -35,12 +35,15 @@ class NotebookPanel;
 class BilingualPanel;
 class SearchPanel;
 class TranslationPopup;
+class DictionaryPopup;
 class QMenu;
 class QTextToSpeech;
 struct Settings;
 
 namespace core {
+struct KindlePlan;
 class OfflineTranslator;
+class OfflineDictionary;
 class BookEngine;
 class Library;
 class TranslationService;
@@ -66,6 +69,9 @@ public:
     void changeAppearance(const QString& key, const QJsonValue& value);
     AppearancePanel* appearancePanel() const { return m_panel; }
     void showAppearancePanel();
+    // Text size and margins by a step (0: back to the default), with a short notice on the page.
+    void stepTextSize(int delta);
+    void stepMargins(int delta);
     QString languageCode() const;   // "es" for "es-ES"; empty when the book doesn't say
     QString languageName() const;   // "Spanish"
     void setSettingsNotKept(bool on);
@@ -95,10 +101,24 @@ public:
     void setTranslator(core::TranslationService* service);
     void setWordLog(core::WordLog* log) { m_words = log; }
     void setOfflineTranslator(core::OfflineTranslator* t) { m_offlineTranslator = t; }
+    // The offline dictionaries the Dictionary card reads (definitions first, then translating ones).
+    void setDictionaries(const QList<core::OfflineDictionary*>& d) { m_dictionaries = d; }
     int bookId() const { return m_bookId; }
 
     // Highlights, notes, bookmarks (phase 4).
     void setAnnotations(core::Annotations* a) { m_notes = a; }
+    // Kindle highlights (see core/services/KindleImport.h) into the open book: highlights with their notes, words
+    // for the Word List (also those this edition words differently, at about their place), bookmarks, and the
+    // Kindle reading place. Anything already there is skipped, so importing twice adds nothing.
+    struct KindleOptions {
+        bool highlights = true, words = true, missingWords = true, missingPassages = true, bookmarks = true, moveToLastRead = true;
+        bool equivalents = true;   // highlights this edition words differently: on their equivalent words, in orange
+    };
+    struct KindleResult {
+        int highlights = 0, equivalents = 0, words = 0, missingWords = 0, passages = 0, bookmarks = 0, skipped = 0;
+        bool moved = false;
+    };
+    KindleResult importKindle(const core::KindlePlan& plan, const KindleOptions& options);
     int highlightSelection(const QString& color);   // the highlight's id; an existing one changes color
     bool removeHighlightAtSelection();
     int highlightAtSelection() const;              // the highlight the selection is in, 0 when none
@@ -126,6 +146,9 @@ public:
     void closeSearch();
     void goToSearchHit(int index);
     TranslationPopup* translationPopup() const { return m_translate; }
+    DictionaryPopup* dictionaryPopup() const { return m_dictCard; }
+    // Dictionary (right-click): the selected word's whole entry, as a dictionary card.
+    void showDictionary();
     void translateSelection(bool dictionaryFirst = false);
     // Explain This Sentence: the selection's sentence in English with notes on its grammar and idioms.
     void explainSelection();
@@ -217,6 +240,8 @@ private:
     QPushButton* m_backChip;
     NotePopup* m_note;
     TranslationPopup* m_translate;
+    DictionaryPopup* m_dictCard;
+    QList<core::OfflineDictionary*> m_dictionaries;
     core::TranslationService* m_translator = nullptr;
     core::WordLog* m_words = nullptr;
     int m_lookupSpine = -1, m_lookupStart = 0, m_lookupEnd = 0;
@@ -225,6 +250,8 @@ private:
     core::OfflineTranslator* m_offlineTranslator = nullptr;
     int m_lookupId = 0;
     bool m_dictionaryFirst = false;
+    bool m_keepPopup = false;   // clearing the selection for a highlight leaves the translation open
+    void clearSelectionKeepingPopup();
     core::TranslationRequest::Kind m_lookupKind = core::TranslationRequest::Kind::Lookup;
     QString m_lastUrl;
     QTextToSpeech* m_speech = nullptr;

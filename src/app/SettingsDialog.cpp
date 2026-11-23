@@ -203,7 +203,8 @@ QWidget* SettingsDialog::buildTranslationTab()
     lay->addWidget(sectionTitle(tr("OFFLINE DICTIONARIES")));
     lay->addWidget(muted(tr("Answers single words at once, before Gemini's answer arrives, and on its own when nothing else can, "
                             "with no internet. Spanish → English finds verb forms and plurals (“tenía” → “tener”); English "
-                            "definitions are for English books. Each is an optional download.")));
+                            "definitions are for English books. Spanish definitions fill the Dictionary card (right-click a word > "
+                            "Dictionary) for Spanish books. Each is an optional download.")));
     m_useDict = new QCheckBox(tr("Use the Offline Dictionaries"));
     m_useDict->setProperty("testId", "useDictionary");
     lay->addWidget(m_useDict);
@@ -215,8 +216,10 @@ QWidget* SettingsDialog::buildTranslationTab()
     m_rows[0].source = core::DictionaryDownload::spanishEnglish();
     m_rows[1].language = QStringLiteral("en");
     m_rows[1].source = core::DictionaryDownload::englishDefinitions();
+    m_rows[2].language = QStringLiteral("es-es");
+    m_rows[2].source = core::DictionaryDownload::spanishDefinitions();
     for (DictRow& d : m_rows) {
-        const QByteArray suffix = d.language == QLatin1String("es") ? QByteArray() : QByteArray("-en");
+        const QByteArray suffix = d.language == QLatin1String("es") ? QByteArray() : QByteArray("-") + d.language.toLatin1();
         auto* rowLay = new QHBoxLayout;
         d.status = new QLabel;
         d.status->setWordWrap(true);
@@ -228,8 +231,11 @@ QWidget* SettingsDialog::buildTranslationTab()
         d.download->setToolTip(d.language == QLatin1String("es")
                                    ? tr("Downloads the Spanish → English dictionary made from Wiktionary (CC BY-SA 4.0) from "
                                         "FreeReader's page on GitHub, once. Nothing else is sent.")
-                                   : tr("Downloads the English dictionary made from Open English WordNet (CC BY 4.0) from "
-                                        "FreeReader's page on GitHub, once. Nothing else is sent."));
+                               : d.language == QLatin1String("en")
+                                   ? tr("Downloads the English dictionary made from Open English WordNet (CC BY 4.0) from "
+                                        "FreeReader's page on GitHub, once. Nothing else is sent.")
+                                   : tr("Downloads the Spanish dictionary of definitions made from the Spanish Wiktionary "
+                                        "(CC BY-SA 4.0) from FreeReader's page on GitHub, once. Nothing else is sent."));
         d.add = new QPushButton(tr("Add File…"));
         d.add->setToolTip(tr("Install a FreeReader dictionary file (.sqlite) from this computer."));
         d.add->setProperty("testId", ("addDictionary" + suffix).constData());
@@ -369,7 +375,9 @@ void SettingsDialog::refreshTranslation()
         m_useDict->setChecked(m_settings.useDictionary);
     }
     for (DictRow& d : m_rows) {
-        const QString title = d.language == QLatin1String("es") ? tr("Spanish → English") : tr("English definitions");
+        const QString title = d.language == QLatin1String("es") ? tr("Spanish → English")
+                            : d.language == QLatin1String("en") ? tr("English definitions")
+                                                                : tr("Spanish definitions");
         const bool installed = d.dict && d.dict->info().ok;
         if (installed) {
             const core::DictionaryInfo& i = d.dict->info();
@@ -447,6 +455,24 @@ void SettingsDialog::setEnglishDictionary(core::OfflineDictionary* dictionary, c
     refreshTranslation();
 }
 
+void SettingsDialog::setDictionaryFor(const QString& key, core::OfflineDictionary* dictionary, const QString& installPath)
+{
+    if (DictRow* d = row(key)) {
+        d->dict = dictionary;
+        d->path = installPath;
+    }
+    refreshTranslation();
+}
+
+QString SettingsDialog::dictionaryKey(const core::DictionaryInfo& info)
+{
+    // Spanish -> English "es", English definitions "en", Spanish definitions "es-es".
+    if (info.language == QLatin1String("es") && info.target == QLatin1String("en")) return QStringLiteral("es");
+    if (info.language == QLatin1String("en") && info.target == QLatin1String("en")) return QStringLiteral("en");
+    if (info.language == QLatin1String("es") && info.target == QLatin1String("es")) return QStringLiteral("es-es");
+    return {};
+}
+
 void SettingsDialog::setDictionarySource(const core::DictionaryDownload::Source& s, const QString& language)
 {
     if (DictRow* d = row(language)) d->source = s;
@@ -457,10 +483,9 @@ QString SettingsDialog::installDictionary(const QString& file)
 {
     const core::DictionaryInfo info = core::OfflineDictionary::inspect(file);
     if (!info.ok) return tr("That file can't be used: %1").arg(info.error);
-    // The file says which dictionary it is: Spanish -> English, or English definitions.
-    DictRow* d = row(info.language);
-    if (!d || (d->language == QLatin1String("en") && info.target != QLatin1String("en")) ||
-        (d->language == QLatin1String("es") && info.target != QLatin1String("en")))
+    // The file says which dictionary it is: Spanish -> English, English definitions, or Spanish definitions.
+    DictRow* d = row(dictionaryKey(info));
+    if (!d)
         return tr("That dictionary is for another language (%1).").arg(info.language + (info.target.isEmpty() ? QString() : QStringLiteral(" → ") + info.target));
     if (!d->dict) return tr("No dictionary support.");
     if (QFileInfo(file).absoluteFilePath() == QFileInfo(d->path).absoluteFilePath()) return {};
@@ -530,7 +555,7 @@ void SettingsDialog::installDownloaded(const QString& language, const QString& f
         return;
     }
     const core::DictionaryInfo info = core::OfflineDictionary::inspect(file);
-    if (!info.ok || info.language != language) {
+    if (!info.ok || dictionaryKey(info) != language) {
         QFile::remove(file);
         m_message->setText(tr("The downloaded dictionary can't be used: %1").arg(info.ok ? info.language : info.error));
         m_message->show();
@@ -805,6 +830,9 @@ void SettingsDialog::fill()
         edit->setMaximumSequenceLength(1);
         edit->setClearButtonEnabled(true);
         edit->setProperty("commandId", c->id);
+        edit->setMinimumHeight(edit->sizeHint().height());
+        // The row as tall as the editor (the theme pads text fields), so its text isn't cut off.
+        it->setSizeHint(1, QSize(200, edit->sizeHint().height() + 6));
         m_list->setItemWidget(it, 1, edit);
         connect(edit, &QKeySequenceEdit::editingFinished, this, [this, edit, id = c->id] {
             const QString err = setShortcut(id, edit->keySequence());

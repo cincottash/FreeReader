@@ -119,6 +119,12 @@ void ThemePicker::showFor(const QString& currentKey, const QPoint& topRight)
     m_list->setFocus();
 }
 
+void ThemePicker::stopPreview()
+{
+    m_list->setMouseTracking(false);
+    hoverItem(nullptr);
+}
+
 void ThemePicker::hoverItem(QListWidgetItem* it)
 {
     // Only a theme's own entry previews it; anything else in the list shows the saved theme.

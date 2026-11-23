@@ -20,6 +20,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListView>
+#include <QWheelEvent>
 #include <QListWidget>
 #include <QLocale>
 #include <QMenu>
@@ -244,8 +245,12 @@ public:
     mutable QHash<int, QImage> covers;   // loaded on first paint
     CoverDelegate(Theme* t, core::Library* l, QObject* p) : QStyledItemDelegate(p), theme(t), library(l) {}
 
-    static constexpr int kW = 176, kCoverW = 144, kCoverH = 216, kH = kCoverH + 92;
-    QSize sizeHint(const QStyleOptionViewItem&, const QModelIndex&) const override { return {kW, kH}; }
+    double scale = 1.0;   // the library zoom (Ctrl+wheel)
+    int coverW() const { return qRound(144 * scale); }
+    int coverH() const { return qRound(216 * scale); }
+    int tileW() const { return coverW() + 32; }
+    int tileH() const { return coverH() + 92; }
+    QSize sizeHint(const QStyleOptionViewItem&, const QModelIndex&) const override { return {tileW(), tileH()}; }
 
     QImage cover(int id) const
     {
@@ -272,7 +277,8 @@ public:
         }
         const bool missing = i.data(RoleMissing).toBool();
         const QString title = i.data(Qt::DisplayRole).toString(), author = i.data(RoleAuthor).toString();
-        QRectF coverRect(r.left() + (kW - kCoverW) / 2.0, r.top() + 10, kCoverW, kCoverH);
+        const int kW = tileW();
+        QRectF coverRect(r.left() + (kW - coverW()) / 2.0, r.top() + 10, coverW(), coverH());
         const QImage img = i.data(RoleHasCover).toBool() ? cover(i.data(RoleId).toInt()) : QImage();
         if (missing) p->setOpacity(0.35);
         if (!img.isNull()) {
@@ -297,11 +303,11 @@ public:
             p->fillRect(QRectF(coverRect.left() + 10, coverRect.top(), 2, coverRect.height()), c.lighter(130));
             p->setPen(theme->dark ? QColor(0xF2, 0xEE, 0xE6) : QColor(0x1E, 0x1B, 0x16));
             QFont f(QStringLiteral("Literata"));
-            f.setPixelSize(17);
+            f.setPixelSize(qMax(9, qRound(17 * scale)));
             f.setWeight(QFont::DemiBold);
             p->setFont(f);
             p->drawText(coverRect.adjusted(20, 22, -12, -50), Qt::AlignTop | Qt::AlignLeft | Qt::TextWordWrap, title);
-            f.setPixelSize(12);
+            f.setPixelSize(qMax(8, qRound(12 * scale)));
             f.setWeight(QFont::Normal);
             p->setFont(f);
             p->drawText(coverRect.adjusted(20, 0, -12, -16), Qt::AlignBottom | Qt::AlignLeft | Qt::TextWordWrap, author);
@@ -489,7 +495,10 @@ LibraryView::LibraryView(core::Library* library, Settings& settings, QWidget* pa
     m_grid->setSpacing(6);
     m_grid->setMouseTracking(true);
     m_grid->setModel(m_proxy);
-    m_grid->setItemDelegate(new CoverDelegate(&m_theme, m_library, m_grid));
+    m_coverDelegate = new CoverDelegate(&m_theme, m_library, m_grid);
+    m_grid->setItemDelegate(m_coverDelegate);
+    m_grid->viewport()->installEventFilter(this);
+    static_cast<CoverDelegate*>(m_coverDelegate)->scale = m_settings.libraryZoomPct / 100.0;
     m_grid->setDragEnabled(true);
     m_grid->setDragDropMode(QAbstractItemView::DragOnly);
     m_grid->setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -966,4 +975,39 @@ void LibraryView::dropEvent(QDropEvent* e)
         if (u.isLocalFile()) paths << u.toLocalFile();
     addBooks(paths);
     e->acceptProposedAction();
+}
+
+int LibraryView::zoom() const { return m_settings.libraryZoomPct; }
+
+void LibraryView::zoomTo(int pct)
+{
+    pct = qBound(50, pct, 250);
+    if (pct == m_settings.libraryZoomPct) return;
+    m_settings.libraryZoomPct = pct;
+    static_cast<CoverDelegate*>(m_coverDelegate)->scale = pct / 100.0;
+    // The tiles have a new size: lay the grid out again so as many as fit go on each row.
+    emit m_coverDelegate->sizeHintChanged(m_proxy->index(0, 0));
+    m_grid->setUniformItemSizes(false);
+    m_grid->setUniformItemSizes(true);
+    m_grid->doItemsLayout();
+    m_grid->viewport()->update();
+    emit settingsChanged();
+}
+
+bool LibraryView::eventFilter(QObject* watched, QEvent* e)
+{
+    // Ctrl+wheel over the covers: bigger or smaller covers (10 % a step).
+    if (watched == m_grid->viewport() && e->type() == QEvent::Wheel) {
+        auto* w = static_cast<QWheelEvent*>(e);
+        if (w->modifiers() & Qt::ControlModifier) {
+            m_zoomWheel += w->angleDelta().y() ? w->angleDelta().y() : w->angleDelta().x();
+            while (qAbs(m_zoomWheel) >= 120) {
+                const int step = m_zoomWheel > 0 ? 1 : -1;
+                m_zoomWheel -= step * 120;
+                zoomTo(m_settings.libraryZoomPct + step * 10);
+            }
+            return true;
+        }
+    }
+    return QWidget::eventFilter(watched, e);
 }

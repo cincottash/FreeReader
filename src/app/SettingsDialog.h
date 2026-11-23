@@ -29,6 +29,7 @@ class GeminiProvider;
 class LmStudioProvider;
 class OfflineDictionary;
 class OfflineTranslator;
+struct DictionaryInfo;
 }
 
 class SettingsDialog : public QDialog {
@@ -55,10 +56,13 @@ public:
     void refreshTranslation();
     void setDictionary(core::OfflineDictionary* dictionary, const QString& installPath);
     void setEnglishDictionary(core::OfflineDictionary* dictionary, const QString& installPath);
+    // `key`: "es" (Spanish -> English), "en" (English definitions) or "es-es" (Spanish definitions).
+    void setDictionaryFor(const QString& key, core::OfflineDictionary* dictionary, const QString& installPath);
+    static QString dictionaryKey(const core::DictionaryInfo& info);   // empty: not one of these
     // Installs a dictionary file (Spanish -> English or English definitions, as the file says). Empty when
     // installed, else why not.
     QString installDictionary(const QString& file);
-    // `language`: "es" (Spanish -> English) or "en" (English definitions).
+    // `language`: the dictionary's key ("es", "en" or "es-es", as above).
     void removeDictionary(const QString& language = QStringLiteral("es"));
     // Download: from FreeReader's GitHub releases (tests point it at a local server).
     void downloadDictionary(const QString& language = QStringLiteral("es"));
@@ -111,7 +115,7 @@ private:
     QLabel* m_lmResult;
     QCheckBox* m_offline;
     struct DictRow {
-        QString language;   // "es": Spanish -> English; "en": English definitions
+        QString language;   // its key: "es" Spanish -> English, "en" English definitions, "es-es" Spanish definitions
         core::OfflineDictionary* dict = nullptr;
         QString path;
         core::DictionaryDownload::Source source;
@@ -122,7 +126,7 @@ private:
         class QProgressBar* progress = nullptr;
         core::DictionaryDownload* downloader = nullptr;
     };
-    DictRow m_rows[2];
+    DictRow m_rows[3];
     DictRow* row(const QString& language);
     const DictRow* row(const QString& language) const;
     void installDownloaded(const QString& language, const QString& file, const QString& error);

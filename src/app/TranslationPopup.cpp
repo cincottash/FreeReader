@@ -242,7 +242,7 @@ void TranslationPopup::showResult(const core::TranslationResult& r, bool diction
     m_sentence->setVisible(showSentence);
     m_rule->setVisible(showDefinition || showSentence);
     if (dictionaryFirst && showDefinition) {
-        // Look Up in Dictionary: the definition comes right after the word.
+        // Dictionary: the definition comes right after the word.
         m_lay->removeWidget(m_definitionTitle);
         m_lay->removeWidget(m_definition);
         m_lay->insertWidget(1, m_definitionTitle);

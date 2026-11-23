@@ -110,6 +110,23 @@ AppearancePanel::AppearancePanel(QWidget* parent) : QFrame(parent)
     addSlider(tr("Text Size"), m_size, m_sizeValue);
     addSlider(tr("Line Spacing"), m_spacing, m_spacingValue);
     addSlider(tr("Margins"), m_margins, m_marginsValue);
+    {
+        // One click to a common width (also Ctrl+[ and Ctrl+], or Ctrl+Shift+wheel over the page).
+        auto* presets = new QHBoxLayout;
+        presets->setSpacing(6);
+        const struct { QString text; int px; const char* id; } defs[] = {
+            {tr("Narrow"), 16, "marginsNarrow"}, {tr("Normal"), 56, "marginsNormal"}, {tr("Wide"), 120, "marginsWide"}};
+        for (const auto& d : defs) {
+            QPushButton* b = chip(d.text, d.id);
+            b->setCheckable(false);
+            b->setToolTip(tr("%1 px").arg(d.px));
+            presets->addWidget(b);
+            const int px = d.px;
+            connect(b, &QPushButton::clicked, this, [this, px] { m_margins->setValue(px); });
+        }
+        presets->addStretch(1);
+        grid->addLayout(presets, row++, 1, 1, 2);
+    }
     addSlider(tr("Page Width"), m_width, m_widthValue);
     m_width->setToolTip(tr("The longest a line of text may be. Wider windows show two columns when Columns is Automatic."));
     m_margins->setToolTip(tr("The smallest space left and right of the text."));
@@ -194,9 +211,74 @@ AppearancePanel::AppearancePanel(QWidget* parent) : QFrame(parent)
     connect(m_resetBook, &QPushButton::clicked, this, [this] { emit resetRequested(ThisBook); });
     connect(m_resetLanguage, &QPushButton::clicked, this, [this] { emit resetRequested(Language); });
 
+    // Page turns: for all books (kept in the settings, not per book or language).
+    auto* rule2 = new QFrame;
+    rule2->setFixedHeight(1);
+    rule2->setStyleSheet(QStringLiteral("background: palette(mid);"));
+    lay->addWidget(rule2);
+    auto* turnTitle = new QLabel(tr("PAGE TURNS (ALL BOOKS)"));
+    turnTitle->setObjectName(QStringLiteral("PanelTitle"));
+    turnTitle->setStyleSheet(QStringLiteral("padding: 4px 0 0 0;"));
+    lay->addWidget(turnTitle);
+    auto* turnGrid = new QGridLayout;
+    turnGrid->setHorizontalSpacing(10);
+    turnGrid->setVerticalSpacing(10);
+    turnGrid->setColumnStretch(1, 1);
+    m_turnStyle = new QComboBox;
+    m_turnStyle->setProperty("testId", "pageTurn");
+    m_turnStyle->addItem(tr("None"), QStringLiteral("none"));
+    m_turnStyle->addItem(tr("Slide"), QStringLiteral("slide"));
+    m_turnStyle->addItem(tr("Cover"), QStringLiteral("cover"));
+    m_turnStyle->addItem(tr("Fade"), QStringLiteral("fade"));
+    m_turnStyle->addItem(tr("Page Curl"), QStringLiteral("curl"));
+    m_turnStyle->setItemData(1, tr("The new page pushes the old one aside."), Qt::ToolTipRole);
+    m_turnStyle->setItemData(2, tr("The new page slides in over the old one."), Qt::ToolTipRole);
+    m_turnStyle->setItemData(3, tr("The old page fades into the new one."), Qt::ToolTipRole);
+    m_turnStyle->setItemData(4, tr("The page folds back like paper."), Qt::ToolTipRole);
+    turnGrid->addWidget(rowLabel(tr("Animation")), 0, 0);
+    turnGrid->addWidget(m_turnStyle, 0, 1, 1, 2);
+    m_turnSpeed = new QSlider(Qt::Horizontal);
+    m_turnSpeed->setRange(100, 1000);
+    m_turnSpeed->setSingleStep(50);
+    m_turnSpeed->setPageStep(100);
+    m_turnSpeed->setProperty("testId", "pageTurnMs");
+    m_turnSpeed->setToolTip(tr("How long one page turn takes."));
+    m_turnSpeedValue = valueLabel("pageTurnMsValue");
+    turnGrid->addWidget(rowLabel(tr("Duration")), 1, 0);
+    turnGrid->addWidget(m_turnSpeed, 1, 1);
+    turnGrid->addWidget(m_turnSpeedValue, 1, 2);
+    m_turnMotion = new QComboBox;
+    m_turnMotion->setProperty("testId", "pageTurnMotion");
+    m_turnMotion->addItem(tr("Smooth (Fast, Then Slowing)"), QStringLiteral("smooth"));
+    m_turnMotion->addItem(tr("Even"), QStringLiteral("even"));
+    m_turnMotion->addItem(tr("Gentle (Slow Start and End)"), QStringLiteral("gentle"));
+    turnGrid->addWidget(rowLabel(tr("Motion")), 2, 0);
+    turnGrid->addWidget(m_turnMotion, 2, 1, 1, 2);
+    lay->addLayout(turnGrid);
+    auto sendTurn = [this] {
+        const bool on = m_turnStyle->currentData().toString() != QLatin1String("none");
+        m_turnSpeed->setEnabled(on);
+        m_turnMotion->setEnabled(on);
+        m_turnSpeedValue->setText(QStringLiteral("%1 s").arg(QLocale().toString(m_turnSpeed->value() / 1000.0, 'f', 2)));
+        emit pageTurnChanged(m_turnStyle->currentData().toString(), m_turnSpeed->value(), m_turnMotion->currentData().toString());
+    };
+    connect(m_turnStyle, &QComboBox::activated, this, sendTurn);
+    connect(m_turnMotion, &QComboBox::activated, this, sendTurn);
+    connect(m_turnSpeed, &QSlider::valueChanged, this, [this, sendTurn](int v) {
+        const int snapped = qRound(v / 50.0) * 50;
+        if (snapped != v) {
+            QSignalBlocker b(m_turnSpeed);
+            m_turnSpeed->setValue(snapped);
+        }
+        sendTurn();
+    });
+
     connect(qApp, &QApplication::focusChanged, this, [this](QWidget*, QWidget* now) {
-        // Clicks in the font list's pop-up belong to the panel too.
-        if (isVisible() && now && now != this && !isAncestorOf(now) && !m_font->view()->isAncestorOf(now) && now != m_font->view()) hide();
+        // Clicks in the lists' pop-ups belong to the panel too.
+        if (!isVisible() || !now || now == this || isAncestorOf(now)) return;
+        for (QComboBox* c : {m_font, m_turnStyle, m_turnMotion})
+            if (now == c->view() || c->view()->isAncestorOf(now)) return;
+        hide();
     });
     setScope(AllBooks);
     hide();
@@ -260,6 +342,18 @@ void AppearancePanel::setValues(const Appearance& a, const QString& themeName, c
     m_resetBook->setVisible(bookHasOwn);
     if (languageName.isEmpty() && m_scope == Language) setScope(AllBooks);
     setScope(m_scope);
+}
+
+void AppearancePanel::setPageTurn(const QString& style, int ms, const QString& motion)
+{
+    const QSignalBlocker b1(m_turnStyle), b2(m_turnSpeed), b3(m_turnMotion);
+    m_turnStyle->setCurrentIndex(qMax(0, m_turnStyle->findData(style)));
+    m_turnSpeed->setValue(ms);
+    m_turnMotion->setCurrentIndex(qMax(0, m_turnMotion->findData(motion)));
+    const bool on = style != QLatin1String("none");
+    m_turnSpeed->setEnabled(on);
+    m_turnMotion->setEnabled(on);
+    m_turnSpeedValue->setText(QStringLiteral("%1 s").arg(QLocale().toString(ms / 1000.0, 'f', 2)));
 }
 
 void AppearancePanel::setScope(Scope s)

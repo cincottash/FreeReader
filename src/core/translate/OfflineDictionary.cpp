@@ -23,6 +23,7 @@ struct Entry {
     QStringList glosses;
     int tier = 2;
     int rank = 0;
+    QString card;   // the whole entry (JSON), when asked for and the file has it
 };
 
 // How closely a dictionary spelling matches what was selected: 0 exactly, 1 in other capitals ("El" -> "el"),
@@ -42,17 +43,19 @@ bool isLetterName(const Entry& e)
     return true;
 }
 
-QList<Entry> entriesFor(const QSqlDatabase& db, const QString& word, int maxTier = 2)
+QList<Entry> entriesFor(const QSqlDatabase& db, const QString& word, int maxTier = 2, bool withCard = false)
 {
     QList<Entry> out;
     QSqlQuery q(db);
-    q.prepare(QStringLiteral("SELECT word, pos, tags, glosses FROM entries WHERE folded=?"));
+    q.prepare(withCard ? QStringLiteral("SELECT word, pos, tags, glosses, card FROM entries WHERE folded=?")
+                       : QStringLiteral("SELECT word, pos, tags, glosses FROM entries WHERE folded=?"));
     q.addBindValue(practice::foldAccents(word.toLower()));
     if (!q.exec()) return out;
     while (q.next()) {
         Entry e{q.value(0).toString(), q.value(1).toString(), q.value(2).toString(), {}};
         e.tier = tierOf(e.word, word);
         if (e.tier > maxTier) continue;
+        if (withCard) e.card = q.value(4).toString();
         for (const QJsonValue& v : QJsonDocument::fromJson(q.value(3).toString().toUtf8()).array()) e.glosses << v.toString();
         if (e.glosses.isEmpty()) continue;
         // Within a tier: the letter's name ("de": the letter D) and relational adjectives ("astillero":
@@ -208,7 +211,9 @@ bool OfflineDictionary::open(const QString& path)
         else if (k == QLatin1String("source")) m_info.source = v;
         else if (k == QLatin1String("license")) m_info.license = v;
         else if (k == QLatin1String("built")) m_info.built = v;
+        else if (k == QLatin1String("title")) m_info.title = v;
     }
+    m_info.cards = q.exec(QStringLiteral("SELECT card FROM entries LIMIT 1"));
     if (m_info.language.isEmpty() || !q.exec(QStringLiteral("SELECT COUNT(*) FROM entries")) || !q.next()) {
         m_info.error = tr("It isn't a FreeReader dictionary.");
         return false;
@@ -362,6 +367,161 @@ TranslationResult OfflineDictionary::lookUp(const QString& text, const QString& 
     r.lemma = lemma.compare(r.text, Qt::CaseInsensitive) == 0 ? QString() : lemma;
     r.provider = tr("Offline dictionary");
     return r;
+}
+
+namespace {
+
+// A word as selected, without the punctuation around it ("¿Qué?", "«hidalgo»,"), and an English possessive's "'s"
+// when the dictionary doesn't have the whole word ("Shakespeare's", but "o'clock").
+QString bareWord(const QSqlDatabase& db, const QString& language, const QString& text)
+{
+    QString word = text.trimmed();
+    word.remove(QRegularExpression(QStringLiteral("^[\\p{P}\\s]+|[\\p{P}\\s]+$")));
+    if (language == QLatin1String("en") && word.size() > 3 &&
+        (word.endsWith(QLatin1String("'s"), Qt::CaseInsensitive) || word.endsWith(QStringLiteral("’s"), Qt::CaseInsensitive)) &&
+        entriesFor(db, word, 1).isEmpty())
+        word.chop(2);
+    return word;
+}
+
+DictionaryEntry cardEntry(const Entry& e)
+{
+    DictionaryEntry d;
+    if (!e.card.isEmpty()) {
+        const QJsonObject o = QJsonDocument::fromJson(e.card.toUtf8()).object();
+        d.partOfSpeech = o.value(QStringLiteral("pos")).toString();
+        d.origin = o.value(QStringLiteral("etymology")).toString();
+        d.forms = o.value(QStringLiteral("forms")).toString();
+        d.pronunciation = o.value(QStringLiteral("ipa")).toString();
+        for (const QJsonValue& v : o.value(QStringLiteral("senses")).toArray()) {
+            const QJsonObject s = v.toObject();
+            DictionarySense sense;
+            sense.gloss = s.value(QStringLiteral("gloss")).toString();
+            for (const QJsonValue& t : s.value(QStringLiteral("tags")).toArray()) sense.labels << t.toString();
+            for (const QJsonValue& x : s.value(QStringLiteral("examples")).toArray()) sense.examples << x.toString();
+            if (!sense.gloss.isEmpty()) d.senses << sense;
+        }
+    }
+    if (d.senses.isEmpty()) {
+        // A dictionary without whole entries: its part of speech and glosses.
+        QStringList pos{posName(e.pos)};
+        for (const QString& tag : {QStringLiteral("masculine"), QStringLiteral("feminine")})
+            if (e.tags.split(QLatin1Char(' ')).contains(tag)) pos << tag;
+        d.partOfSpeech = pos.join(QStringLiteral(", "));
+        for (const QString& g : e.glosses) d.senses << DictionarySense{g, {}, {}};
+    }
+    return d;
+}
+
+}  // namespace
+
+DictionaryCard OfflineDictionary::card(const QString& text) const
+{
+    DictionaryCard c;
+    c.text = text.trimmed();
+    if (!m_info.ok || c.text.isEmpty()) return c;
+    const QSqlDatabase db = QSqlDatabase::database(m_connection, false);
+    const QString word = bareWord(db, m_info.language, c.text);
+    if (word.isEmpty() || word.split(QLatin1Char(' '), Qt::SkipEmptyParts).size() > 4) return c;
+    c.text = word;
+    const bool english = m_info.language == QLatin1String("en");
+
+    const QList<Entry> own = entriesFor(db, word, 2, m_info.cards);
+    int ownTier = 99;
+    for (const Entry& e : own) ownTier = qMin(ownTier, e.tier);
+    // The words it is a form of, each once, at its closest spelling ("casas": casa and casar).
+    struct Form {
+        QString lemma, pos, description;
+        int tier;
+    };
+    QList<Form> forms;
+    {
+        QSqlQuery q(db);
+        q.prepare(QStringLiteral("SELECT form, lemma, pos, description FROM forms WHERE folded=?"));
+        q.addBindValue(practice::foldAccents(word.toLower()));
+        if (q.exec())
+            while (q.next()) {
+                const int t = tierOf(q.value(0).toString(), word);
+                const QString lemma = q.value(1).toString();
+                auto it = std::find_if(forms.begin(), forms.end(), [&](const Form& f) { return f.lemma == lemma; });
+                if (it == forms.end()) {
+                    forms << Form{lemma, q.value(2).toString(), q.value(3).toString(), t};
+                } else {
+                    if (t < it->tier) *it = Form{lemma, q.value(2).toString(), q.value(3).toString(), t};
+                    else if (it->description.isEmpty()) it->description = q.value(3).toString();
+                }
+            }
+    }
+    if (english) {
+        // WordNet lists only irregular forms; regular ones by their endings ("walked" -> "walk").
+        if (forms.isEmpty()) {
+            const RegularForm f = regularEnglishForm(db, word.toLower());
+            if (!f.lemma.isEmpty()) forms << Form{f.lemma, f.pos, f.description, 1};
+        }
+        for (Form& f : forms)
+            if (f.description.isEmpty()) f.description = englishFormName(word.toLower(), f.pos);
+    }
+    int formTier = 99;
+    for (const Form& f : forms) formTier = qMin(formTier, f.tier);
+
+    auto headword = [&](QList<Entry> entries, const Form* form) {
+        DictionaryHeadword h;
+        if (entries.isEmpty()) return h;
+        h.word = entries.first().word;
+        if (form) {
+            h.formOf = word;
+            // "first-person singular preterite indicative of piar": the form without "of piar".
+            QString d = form->description.trimmed();
+            const int of = int(d.lastIndexOf(QStringLiteral(" of ")));
+            if (english && of > 0) d = d.left(of);
+            h.formNote = d;
+            if (!form->pos.isEmpty())
+                std::stable_partition(entries.begin(), entries.end(), [&](const Entry& e) { return e.pos == form->pos; });
+        }
+        // WordNet lists parts of speech in no useful order: the one with the most meanings first. Wiktionary's own
+        // order is kept.
+        if (isMonolingual() && !m_info.cards)
+            std::stable_sort(entries.begin(), entries.end(), [](const Entry& a, const Entry& b) { return a.glosses.size() > b.glosses.size(); });
+        for (const Entry& e : entries) h.entries << cardEntry(e);
+        return h;
+    };
+    auto senseCount = [](const DictionaryHeadword& h) {
+        qsizetype n = 0;
+        for (const DictionaryEntry& e : h.entries) n += e.senses.size();
+        return n;
+    };
+
+    // The word in its own right (its closest spellings, each spelling a headword: "Mancha", then "mancha"), unless
+    // it's a form spelled more closely ("tenía" is a form of tener, not "tenia").
+    QList<DictionaryHeadword> mine, theirs;
+    if (ownTier <= formTier) {
+        QList<Entry> group;
+        for (const Entry& e : own) {
+            if (!(e.tier == ownTier || (ownTier == 0 && e.tier == 1))) continue;
+            if (!group.isEmpty() && group.first().word != e.word) {
+                mine << headword(group, nullptr);
+                group.clear();
+            }
+            group << e;
+        }
+        if (!group.isEmpty()) mine << headword(group, nullptr);
+    }
+    if (formTier <= ownTier) {
+        for (const Form& f : forms) {
+            if (f.tier != formTier || f.lemma.compare(word, Qt::CaseInsensitive) == 0) continue;
+            if (std::any_of(mine.begin(), mine.end(), [&](const DictionaryHeadword& h) { return h.word.compare(f.lemma, Qt::CaseInsensitive) == 0; }))
+                continue;
+            QList<Entry> entries = entriesFor(db, f.lemma, 1, m_info.cards);
+            if (entries.isEmpty()) entries = entriesFor(db, f.lemma, 2, m_info.cards);
+            const DictionaryHeadword h = headword(entries, &f);
+            if (!h.entries.isEmpty()) theirs << h;
+        }
+    }
+    // English: a word that is also a form of a commoner one ("flies") shows the commoner one first.
+    const bool formsFirst = !theirs.isEmpty() && (mine.isEmpty() || (english && senseCount(theirs.first()) >= senseCount(mine.first())));
+    c.headwords = formsFirst ? theirs + mine : mine + theirs;
+    while (c.headwords.size() > 4) c.headwords.removeLast();
+    return c;
 }
 
 bool OfflineDictionary::handles(const TranslationRequest& request) const
