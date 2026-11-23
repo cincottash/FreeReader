@@ -89,6 +89,17 @@ Page {
             Note { id: keyMessage; visible: text.length > 0 }
 
             Section { text: qsTr("OFFLINE DICTIONARIES") }
+            // What happened with the last download (installed, or why it failed).
+            Label {
+                objectName: "settingsMessage"
+                Layout.fillWidth: true
+                visible: settings.app.message.length > 0
+                text: settings.app.message
+                wrapMode: Text.Wrap
+                font.pixelSize: settings.theme.small
+                font.weight: Font.DemiBold
+                color: settings.theme.fg
+            }
             Note { text: qsTr("Optional downloads that work with no internet. Each is made from free data (Wiktionary, CC BY-SA 4.0; Open English WordNet, CC BY 4.0).") }
             Repeater {
                 model: settings.app.dictionaries

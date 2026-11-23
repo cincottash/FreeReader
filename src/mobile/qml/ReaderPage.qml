@@ -66,12 +66,17 @@ Page {
             target: null
             xAxis.enabled: true
             yAxis.enabled: reader.selecting
-            onCentroidChanged: if (reader.selecting && active) book.extendSelectionTo(centroid.position.x, centroid.position.y)
+            property real swipeX: 0   // how far the finger moved sideways, while it is down
+            onCentroidChanged: {
+                if (!active) return
+                swipeX = centroid.position.x - centroid.pressPosition.x
+                if (reader.selecting) book.extendSelectionTo(centroid.position.x, centroid.position.y)
+            }
             onActiveChanged: {
-                if (active) return
+                if (active) { swipeX = 0; return }
                 if (reader.selecting) return
-                if (translation.x < -40) book.nextPage()
-                else if (translation.x > 40) book.previousPage()
+                if (swipeX < -40) book.nextPage()
+                else if (swipeX > 40) book.previousPage()
             }
         }
         // Lifting the finger after a long press shows what to do with the words.

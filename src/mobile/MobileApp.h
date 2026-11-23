@@ -17,6 +17,7 @@
 #include <QQmlEngine>
 #include <QTimer>
 #include <QUrl>
+#include <QMargins>
 #include <QVariantMap>
 
 #include <memory>
@@ -108,6 +109,11 @@ class MobileApp : public QObject {
     // source, needsMeaning, revealed, progress, intervals [again, hard, good, easy], done, summary, dueNow, newAvailable}.
     Q_PROPERTY(QVariantMap practice READ practice NOTIFY practiceChanged)
     Q_PROPERTY(QString version READ version CONSTANT)
+    // The room the phone's status and navigation bars take (Android 15 draws apps under them).
+    Q_PROPERTY(int safeTop READ safeTop NOTIFY insetsChanged)
+    Q_PROPERTY(int safeBottom READ safeBottom NOTIFY insetsChanged)
+    Q_PROPERTY(int safeLeft READ safeLeft NOTIFY insetsChanged)
+    Q_PROPERTY(int safeRight READ safeRight NOTIFY insetsChanged)
 public:
     MobileApp(const QString& dataFolder, QObject* parent = nullptr);
     ~MobileApp() override;
@@ -203,6 +209,11 @@ public:
     Q_INVOKABLE void endPractice();
     Q_INVOKABLE void openLink(const QString& url);
     QString version() const;
+    int safeTop() const { return m_insets.top(); }
+    int safeBottom() const { return m_insets.bottom(); }
+    int safeLeft() const { return m_insets.left(); }
+    int safeRight() const { return m_insets.right(); }
+    Q_INVOKABLE void updateInsets();   // after the window is shown and when it turns
 
     // For the reading surface.
     struct Colors {
@@ -229,6 +240,7 @@ signals:
     void translationChanged();
     void downloadChanged();
     void bookOpened();
+    void insetsChanged();
     void cardChanged();
     void annotationsChanged();
     void bookmarkChanged();   // the page moved, or its bookmark changed
@@ -277,6 +289,7 @@ private:
     double m_downloadProgress = -1;
 
     QString m_message;
+    QMargins m_insets;
     bool m_busy = false;
     QString m_openingPath;
     int m_openingId = 0;

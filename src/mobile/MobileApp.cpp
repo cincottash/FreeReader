@@ -1,5 +1,6 @@
 #include "MobileApp.h"
 
+#include "AndroidSystem.h"
 #include "BookPage.h"
 
 #include "core/services/Annotations.h"
@@ -247,6 +248,15 @@ void MobileApp::setMessage(const QString& text)
 }
 
 QString MobileApp::version() const { return QStringLiteral(APP_VERSION); }
+
+void MobileApp::updateInsets()
+{
+    android_system::setLightSystemBars(!pageColors().dark);
+    const QMargins m = android_system::systemBarInsets();
+    if (m == m_insets) return;
+    m_insets = m;
+    emit insetsChanged();
+}
 
 QString MobileApp::dictionaryFile(const QString& key) const
 {
@@ -678,6 +688,7 @@ void MobileApp::setTheme(const QString& key)
     if (key == m_settings.theme || !isThemeKey(key)) return;
     m_settings.theme = key;
     saveSettings();
+    android_system::setLightSystemBars(!pageColors().dark);
     emit lookChanged();
 }
 

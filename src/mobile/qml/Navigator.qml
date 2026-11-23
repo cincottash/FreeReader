@@ -12,6 +12,8 @@ Drawer {
     property int tab: 0   // 0 Contents, 1 Notebook
 
     edge: Qt.LeftEdge
+    topPadding: app ? app.safeTop : 0
+    bottomPadding: app ? app.safeBottom : 0
     width: Math.min(360, (parent ? parent.width : 400) * 0.88)
     height: parent ? parent.height : 800
     background: Rectangle { color: nav.theme.surface }

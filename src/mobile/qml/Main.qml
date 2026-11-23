@@ -45,6 +45,10 @@ ApplicationWindow {
     StackView {
         id: stack
         anchors.fill: parent
+        anchors.topMargin: win.app.safeTop
+        anchors.bottomMargin: win.app.safeBottom
+        anchors.leftMargin: win.app.safeLeft
+        anchors.rightMargin: win.app.safeRight
         initialItem: LibraryPage {
             app: win.app
             theme: appTheme

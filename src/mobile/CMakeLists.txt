@@ -6,6 +6,7 @@ qt_add_executable(freereader_mobile
     main.cpp
     MobileApp.cpp
     BookPage.cpp
+    AndroidSystem.cpp
     ../app/Settings.cpp
     ../app/Appearance.cpp
     ../app/ThemeCore.cpp
@@ -19,6 +20,7 @@ endif()
 
 qt_add_qml_module(freereader_mobile
     URI FreeReaderMobile
+    RESOURCE_PREFIX /qt/qml
     VERSION 1.0
     QML_FILES
         qml/Main.qml

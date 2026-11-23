@@ -131,7 +131,12 @@ int main(int argc, char** argv)
     auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
     if (!window) return fail(QStringLiteral("No window."));
 
-    if (!screenshot) return app.exec();
+    if (!screenshot) {
+        // The system bars' size is known once the window is on screen; again when the phone turns.
+        for (int ms : {200, 800, 2000}) QTimer::singleShot(ms, &mobile, &MobileApp::updateInsets);
+        QObject::connect(window, &QWindow::widthChanged, &mobile, [&mobile] { QTimer::singleShot(300, &mobile, &MobileApp::updateInsets); });
+        return app.exec();
+    }
 
     // ---- the screenshot mode
     const QStringList size = cli.value(QStringLiteral("size")).split(QLatin1Char('x'));

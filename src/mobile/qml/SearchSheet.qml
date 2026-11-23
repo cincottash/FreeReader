@@ -10,6 +10,7 @@ Drawer {
     property Theme theme
 
     edge: Qt.TopEdge
+    topPadding: app ? app.safeTop : 0
     width: parent ? parent.width : 400
     height: (parent ? parent.height : 800) * 0.75
     background: Rectangle { color: sheet.theme.surface }

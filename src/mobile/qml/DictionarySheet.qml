@@ -14,8 +14,9 @@ Drawer {
     signal settingsRequested()
 
     edge: Qt.BottomEdge
+    bottomPadding: app ? app.safeBottom : 0
     width: parent ? parent.width : 400
-    height: Math.min(content.implicitHeight + 48, (parent ? parent.height : 800) * 0.7)
+    height: Math.min(content.implicitHeight + 48, (parent ? parent.height : 800) * 0.7) + bottomPadding
     interactive: opened
     onClosed: if (app) app.closeCard()
     background: Rectangle {

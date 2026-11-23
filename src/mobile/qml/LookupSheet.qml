@@ -13,8 +13,9 @@ Drawer {
     readonly property var r: app ? app.lookup : ({})
 
     edge: Qt.BottomEdge
+    bottomPadding: app ? app.safeBottom : 0
     width: parent ? parent.width : 400
-    height: Math.min(content.implicitHeight + 40, (parent ? parent.height : 800) * 0.6)
+    height: Math.min(content.implicitHeight + 40, (parent ? parent.height : 800) * 0.6) + bottomPadding
     interactive: opened
     background: Rectangle {
         color: sheet.theme.pop
