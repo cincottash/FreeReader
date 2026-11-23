@@ -249,7 +249,7 @@ int main(int argc, char* argv[])
     cli.setApplicationDescription(QStringLiteral("An e-book reader for DRM-free books."));
     cli.addHelpOption();
     cli.addVersionOption();
-    cli.addPositionalArgument(QStringLiteral("book"), QStringLiteral("An EPUB file to open."));
+    cli.addPositionalArgument(QStringLiteral("book"), QStringLiteral("A book to open (EPUB, MOBI, AZW3, FB2, a comic, a document…)."));
     cli.addOption({QStringLiteral("data-folder"), QStringLiteral("Use this app data folder for this run only."), QStringLiteral("folder")});
     cli.addOption({QStringLiteral("screenshot"), QStringLiteral("Render the window off-screen to a PNG file and exit."), QStringLiteral("file")});
     cli.addOption({QStringLiteral("page"), QStringLiteral("With --screenshot: go to this page."), QStringLiteral("number")});

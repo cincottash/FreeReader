@@ -37,6 +37,7 @@ struct BookIndex {
         QString label;
     };
     std::vector<PrintedPage> printedPages;   // sorted; empty when the book has no usable page list
+    bool pictures = false;                   // a comic or scanned book: its page numbers are its pictures
 
     qint64 global(const Position& p) const;
     Position fromGlobal(qint64 g) const;

@@ -324,6 +324,8 @@ std::shared_ptr<Book> ComicFormat::open(const QString& path, QString* error) con
         const QString chapter = QStringLiteral("page%1.html").arg(i + 1, 4, 10, QLatin1Char('0'));
         const QString pageTitle = QStringLiteral("%1").arg(i + 1);
         book->addChapter(chapter, convert::imagePage(pageTitle, img, book->metadata.language));
+        // Page numbers are the pictures' numbers (a comic has no text to count pages by).
+        book->pageList.push_back({pageTitle, chapter});
         const QString dir = QFileInfo(book->pages[i]).path();
         if (folders && dir != folder) {
             folder = dir;

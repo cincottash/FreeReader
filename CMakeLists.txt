@@ -181,9 +181,10 @@ if(STATIC_BUILD)
         INCLUDE_BY_TYPE imageformats Qt6::QSvgPlugin Qt6::QJpegPlugin Qt6::QGifPlugin
         INCLUDE_BY_TYPE iconengines Qt6::QSvgIconPlugin
         INCLUDE_BY_TYPE sqldrivers Qt6::QSQLiteDriverPlugin)
-    # WebP and TIFF pages (manga, scans), when this Qt has the plug-ins.
+    # WebP pages (manga), when this Qt has the plug-in. (TIFF is left out: the static libtiff needs JBIG and a
+    # 12-bit JPEG library that aren't there.)
     set(EXTRA_IMAGE_PLUGINS "")
-    foreach(plugin IN ITEMS QWebpPlugin QTiffPlugin)
+    foreach(plugin IN ITEMS QWebpPlugin)
         if(TARGET Qt6::${plugin})
             list(APPEND EXTRA_IMAGE_PLUGINS Qt6::${plugin})
         endif()
