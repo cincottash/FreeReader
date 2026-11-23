@@ -14,6 +14,9 @@ on:
     paths: [".github/workflows/build-translator.yml"]
 
 env:
+  # CMake 4 refuses projects that ask for a minimum older than 3.5. Bergamot's bundled libraries do, including pcre2,
+  # which is configured as a separate project and only sees this setting through the environment.
+  CMAKE_POLICY_VERSION_MINIMUM: "3.5"
   BERGAMOT_REPO: https://github.com/browsermt/bergamot-translator
   BERGAMOT_COMMIT: 9271618ebbdc5d21ac4dc4df9e72beb7ce644774   # main, 2024-05-12 (the last change)
   # Mozilla's es->en "base-memory" model (Firefox's Remote Settings, version 2.0), with its published SHA-256.
