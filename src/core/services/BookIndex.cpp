@@ -35,8 +35,9 @@ std::shared_ptr<BookIndex> buildIndex(const Book& book)
         if (ix->positionFor(book, book.toc[i].href, &p)) ix->toc[i] = {p.spine, p.offset, ix->global(p)};
     }
 
-    // Printed page numbers, when the book lists enough of them to be useful.
-    if (book.pageList.size() >= 5) {
+    // Printed page numbers, when the book lists enough of them to be useful (a comic's are its pictures).
+    ix->pictures = book.metadata.pictures;
+    if (book.pageList.size() >= 5 || (book.metadata.pictures && !book.pageList.empty())) {
         for (const PageListEntry& e : book.pageList) {
             Position p;
             if (ix->positionFor(book, e.href, &p)) ix->printedPages.push_back({ix->global(p), e.label});
@@ -139,8 +140,15 @@ QString chapterLeftText(const BookIndex& ix, const Position& p, int readingSpeed
     qint64 next = ix.total;
     for (const auto& t : ix.toc)
         if (t.spine >= 0 && t.global > g && t.global < next) next = t.global;
-    if (pages) {
+    // A comic has no text to time: always its pages. A book without chapters counts to its end.
+    const bool wholeBook = next == ix.total && std::none_of(ix.toc.begin(), ix.toc.end(), [&](const auto& t) { return t.spine >= 0 && t.global <= g; });
+    if (pages || ix.pictures) {
         const int left = qMax(0, ix.pageNumberAt(qMax(g, next - 1)) - ix.pageNumber(p));
+        if (wholeBook) {
+            if (left == 0) return QObject::tr("Last page");
+            if (left == 1) return QObject::tr("1 page left");
+            return QObject::tr("%1 pages left").arg(QLocale().toString(left));
+        }
         if (left == 0) return QObject::tr("Last page of the chapter");
         if (left == 1) return QObject::tr("1 page left in chapter");
         return QObject::tr("%1 pages left in chapter").arg(QLocale().toString(left));

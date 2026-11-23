@@ -1,4 +1,7 @@
 #include "WordLog.h"
+#include "core/practice/Answer.h"
+#include <random>
+#include <QRandomGenerator>
 
 #include "Library.h"
 #include "core/translate/Translation.h"
@@ -511,6 +514,52 @@ QList<PracticeCard> WordLog::session(const Filter& f, int newLimit, const QDateT
     }
     while (out.size() > maxCards) out.removeLast();
     return out;
+}
+
+QList<PracticeCard> WordLog::allCards(const Filter& f, const QString& order, const QDateTime& now)
+{
+    QList<PracticeCard> out;
+    if (!isOpen()) return out;
+    const Pool p = loadPool(m_connection, f);
+    QList<WordEntry> words = p.words;   // oldest first
+    if (order == QLatin1String("newest")) {
+        std::reverse(words.begin(), words.end());
+    } else if (order == QLatin1String("alphabetical")) {
+        std::stable_sort(words.begin(), words.end(), [](const WordEntry& a, const WordEntry& b) {
+            return QString::localeAwareCompare(practice::foldAccents(a.headword().toLower()), practice::foldAccents(b.headword().toLower())) < 0;
+        });
+    } else if (order == QLatin1String("book")) {
+        std::stable_sort(words.begin(), words.end(), [](const WordEntry& a, const WordEntry& b) {
+            if (a.bookTitle != b.bookTitle) return QString::localeAwareCompare(a.bookTitle, b.bookTitle) < 0;
+            if (a.spine != b.spine) return a.spine < b.spine;
+            return a.start < b.start;
+        });
+    } else if (order != QLatin1String("oldest")) {
+        std::shuffle(words.begin(), words.end(), *QRandomGenerator::global());
+    }
+    for (const WordEntry& w : words)
+        for (const QString& d : f.directions) {
+            if (!fits(w, d)) continue;
+            const auto it = p.cards.constFind(qMakePair(w.id, d));
+            if (it != p.cards.constEnd() && it->suspended) continue;
+            const PracticeCard card = it != p.cards.constEnd() ? *it : ensureCard(w.id, d, now);
+            if (card.id) out << card;
+        }
+    return out;
+}
+
+int WordLog::practisableCount(const Filter& f) const
+{
+    if (!isOpen()) return 0;
+    const Pool p = loadPool(m_connection, f);
+    int n = 0;
+    for (const WordEntry& w : p.words)
+        for (const QString& d : f.directions) {
+            if (!fits(w, d)) continue;
+            const auto it = p.cards.constFind(qMakePair(w.id, d));
+            if (it == p.cards.constEnd() || !it->suspended) ++n;
+        }
+    return n;
 }
 
 void WordLog::saveReview(const PracticeCard& before, const PracticeCard& after, practice::Rating rating, const QDateTime& now)

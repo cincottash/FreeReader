@@ -184,3 +184,30 @@ bool CommandPalette::eventFilter(QObject* o, QEvent* e)
     }
     return QFrame::eventFilter(o, e);
 }
+
+namespace mouse_shortcut {
+
+QString fromEvent(Qt::MouseButton button, Qt::KeyboardModifiers modifiers)
+{
+    QString name;
+    if (button == Qt::MiddleButton) name = QStringLiteral("Middle");
+    else if (button == Qt::BackButton) name = QStringLiteral("Back");
+    else if (button == Qt::ForwardButton) name = QStringLiteral("Forward");
+    else return {};
+    QString mods;
+    if (modifiers & Qt::ControlModifier) mods += QStringLiteral("Ctrl+");
+    if (modifiers & Qt::ShiftModifier) mods += QStringLiteral("Shift+");
+    if (modifiers & Qt::AltModifier) mods += QStringLiteral("Alt+");
+    return mods + name;
+}
+
+QString display(const QString& binding)
+{
+    if (binding.isEmpty()) return {};
+    QString d = binding;
+    for (const char* b : {"Middle", "Back", "Forward"})
+        if (d.endsWith(QLatin1String(b))) d += QObject::tr(" Button");
+    return d;
+}
+
+}  // namespace mouse_shortcut

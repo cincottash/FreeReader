@@ -39,6 +39,7 @@ void fields(Settings& s, F&& f)
     f("translate_on_select", s.translateOnSelect);
     f("offline_only", s.offlineOnly);
     f("offline_books", s.offlineBooks);
+    f("page_directions", s.pageDirections);
     f("use_gemini", s.useGemini);
     f("gemini_model", s.geminiModel);
     f("use_lm_studio", s.useLmStudio);
@@ -52,8 +53,11 @@ void fields(Settings& s, F&& f)
     f("practice_passages", s.practicePassages);
     f("practice_highlights", s.practiceHighlights);
     f("practice_new_per_day", s.practiceNewPerDay);
+    f("practice_order", s.practiceOrder);
     f("last_folder", s.lastFolder);
     f("shortcuts", s.shortcuts);
+    f("mouse_shortcuts", s.mouseShortcuts);
+    f("library_folders", s.libraryFolders);
 }
 
 void get(const QJsonObject& o, const char* k, QString& v) { if (o.value(QLatin1String(k)).isString()) v = o.value(QLatin1String(k)).toString(); }

@@ -15,6 +15,16 @@ on:
     branches: [main]
     tags: ["v*"]
 
+env:
+  # PDF and XPS: MuPDF (AGPL-3.0), built from its source with these switches (no HTML engine, no JavaScript, no
+  # fallback fonts: FreeReader reads the text and draws pages, it doesn't need them).
+  MUPDF_VERSION: "1.28.6"
+  MUPDF_SHA256: dc85000640a45d90ca9b77b061f6ca67cce0c4d4fbecf8819647baf573eef101
+  MUPDF_FLAGS: >-
+    build=release OUT=build/freereader html=no mujs=no brotli=no extract=no tofu=yes tofu_cjk=yes
+    HAVE_X11=no HAVE_GLUT=no HAVE_CURL=no HAVE_LIBCRYPTO=no
+    USE_SYSTEM_FREETYPE=yes USE_SYSTEM_ZLIB=yes USE_SYSTEM_LIBJPEG=yes USE_SYSTEM_HARFBUZZ=yes
+
 permissions:
   contents: write          # needed to create the release
   pull-requests: read      # needed to read the merged pull request's title (for [minor] / [major])
@@ -86,12 +96,39 @@ jobs:
             mingw-w64-ucrt-x86_64-zlib mingw-w64-ucrt-x86_64-pcre2 mingw-w64-ucrt-x86_64-openssl
             mingw-w64-ucrt-x86_64-libb2 mingw-w64-ucrt-x86_64-brotli mingw-w64-ucrt-x86_64-bzip2
             mingw-w64-ucrt-x86_64-libjpeg-turbo mingw-w64-ucrt-x86_64-sqlite
+            mingw-w64-ucrt-x86_64-libarchive
+            mingw-w64-ucrt-x86_64-djvulibre mingw-w64-ucrt-x86_64-chmlib make
+
+      - uses: actions/cache@v4
+        id: mupdf
+        with:
+          path: mupdf
+          key: mupdf-${{ env.MUPDF_VERSION }}-mingw-${{ hashFiles('.github/workflows/build-apps.yml') }}
+
+      - name: MuPDF (PDF and XPS)
+        if: steps.mupdf.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o mupdf.tar.gz "https://mupdf.com/downloads/archive/mupdf-${MUPDF_VERSION}-source.tar.gz"
+          echo "${MUPDF_SHA256}  mupdf.tar.gz" | sha256sum -c
+          tar -xzf mupdf.tar.gz
+          mv "mupdf-${MUPDF_VERSION}-source" mupdf
+          # ARCH_HAS_SSE=0: the SSE 4.1 deskew code (for scanning, not reading) doesn't build without -msse4.1.
+          make -C mupdf -j4 OS=MINGW $MUPDF_FLAGS XCFLAGS=-DARCH_HAS_SSE=0 libs
+          # Only the headers and the two libraries are kept (and cached).
+          find mupdf -mindepth 1 -maxdepth 1 ! -name include ! -name build -exec rm -rf {} +
+          find mupdf/build/freereader -type f ! -name '*.a' -delete
+          ls -l mupdf/build/freereader/*.a
 
       - name: Build the .exe (one self-contained file)
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DSTATIC_BUILD=ON \
-            -DCMAKE_PREFIX_PATH=/ucrt64/qt6-static -DRELEASE_VERSION=${{ needs.version.outputs.version }}
+            -DCMAKE_PREFIX_PATH=/ucrt64/qt6-static -DRELEASE_VERSION=${{ needs.version.outputs.version }} \
+            -DMUPDF_DIR="$PWD/mupdf"
           cmake --build build
+          # Every format library linked in: 7-Zip and RAR comics, PDF and XPS, DjVu, CHM.
+          for f in HAVE_LIBARCHIVE HAVE_MUPDF HAVE_DJVU HAVE_CHMLIB; do
+            grep -q "$f" build/build.ninja || { echo "built without $f"; exit 1; }
+          done
           mkdir -p dist
           cp build/FreeReader.exe dist/
           ls -l dist
@@ -107,6 +144,16 @@ jobs:
           # Draws the window off-screen to a picture and exits: proves Qt, its plugins and the UI all load.
           $p = Start-Process dist/FreeReader.exe -ArgumentList "--screenshot", "$env:RUNNER_TEMP\shot.png" -PassThru -Wait
           if ($p.ExitCode -ne 0 -or -not (Test-Path "$env:RUNNER_TEMP\shot.png")) { throw "The screenshot check failed (exit $($p.ExitCode))" }
+          # A PDF opens (MuPDF is in the exe): a one-page PDF written here.
+          $pdf = "$env:RUNNER_TEMP\hola.pdf"
+          Set-Content -Path $pdf -Encoding ascii -Value @(
+            '%PDF-1.4', '1 0 obj <</Type /Catalog /Pages 2 0 R>> endobj', '2 0 obj <</Type /Pages /Kids [3 0 R] /Count 1>> endobj',
+            '3 0 obj <</Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Contents 4 0 R /Resources <</Font <</F1 5 0 R>>>>>> endobj',
+            '4 0 obj <</Length 44>> stream', 'BT /F1 18 Tf 20 100 Td (Hola mundo) Tj ET', 'endstream endobj',
+            '5 0 obj <</Type /Font /Subtype /Type1 /BaseFont /Helvetica>> endobj', 'trailer <</Root 1 0 R>>', '%%EOF')
+          $p = Start-Process dist/FreeReader.exe -ArgumentList "`"$pdf`"", "--screenshot", "$env:RUNNER_TEMP\pdf.png" -PassThru -Wait
+          if ($p.ExitCode -ne 0 -or -not (Test-Path "$env:RUNNER_TEMP\pdf.png")) { throw "The exe couldn't open a PDF (exit $($p.ExitCode))" }
+          "A PDF opened"
           # Hear Pronunciation: Windows' speech engine (SAPI) is in the exe.
           $p = Start-Process dist/FreeReader.exe -ArgumentList "--check-speech", "$env:RUNNER_TEMP\speech.txt" -PassThru -Wait
           Get-Content "$env:RUNNER_TEMP\speech.txt"
@@ -147,12 +194,37 @@ jobs:
           sudo apt-get install -y --no-install-recommends ninja-build libgl1-mesa-dev libegl1 libxkbcommon0 \
             libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libxcb-render-util0 \
             libxcb-image0 libfontconfig1 libdbus-1-3 libfuse2 zlib1g-dev xvfb \
-            libspeechd2 speech-dispatcher espeak-ng
+            libspeechd2 speech-dispatcher espeak-ng \
+            libarchive-dev libwebp-dev libfreetype-dev libjpeg-dev libdjvulibre-dev libchm-dev
+
+      - uses: actions/cache@v4
+        id: mupdf
+        with:
+          path: mupdf
+          key: mupdf-${{ env.MUPDF_VERSION }}-ubuntu-22.04-${{ hashFiles('.github/workflows/build-apps.yml') }}
+
+      - name: MuPDF (PDF and XPS)
+        if: steps.mupdf.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o mupdf.tar.gz "https://mupdf.com/downloads/archive/mupdf-${MUPDF_VERSION}-source.tar.gz"
+          echo "${MUPDF_SHA256}  mupdf.tar.gz" | sha256sum -c
+          tar -xzf mupdf.tar.gz
+          mv "mupdf-${MUPDF_VERSION}-source" mupdf
+          # -fPIC: linked into FreeReader, which is built position-independent.
+          make -C mupdf -j4 $MUPDF_FLAGS XCFLAGS="-fPIC -DARCH_HAS_SSE=0" libs
+          find mupdf -mindepth 1 -maxdepth 1 ! -name include ! -name build -exec rm -rf {} +
+          find mupdf/build/freereader -type f ! -name '*.a' -delete
+          ls -l mupdf/build/freereader/*.a
 
       - name: Build
         run: |
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DRELEASE_VERSION=${{ needs.version.outputs.version }}
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DRELEASE_VERSION=${{ needs.version.outputs.version }} \
+            -DMUPDF_DIR="$PWD/mupdf"
           cmake --build build
+          # Every format library: 7-Zip and RAR comics, WebP pages, PDF and XPS, DjVu, CHM.
+          for f in HAVE_LIBARCHIVE HAVE_WEBP HAVE_MUPDF HAVE_DJVU HAVE_CHMLIB; do
+            grep -q "$f" build/build.ninja || { echo "built without $f"; exit 1; }
+          done
 
       - name: Package the AppImage
         env:
@@ -192,6 +264,14 @@ jobs:
         run: |
           ./dist/FreeReader-x86_64.AppImage --screenshot "$RUNNER_TEMP/shot.png"
           test -s "$RUNNER_TEMP/shot.png"
+          # A PDF opens (MuPDF is in the AppImage): a one-page PDF written here.
+          printf '%s\n' '%PDF-1.4' '1 0 obj <</Type /Catalog /Pages 2 0 R>> endobj' '2 0 obj <</Type /Pages /Kids [3 0 R] /Count 1>> endobj' \
+            '3 0 obj <</Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Contents 4 0 R /Resources <</Font <</F1 5 0 R>>>>>> endobj' \
+            '4 0 obj <</Length 44>> stream' 'BT /F1 18 Tf 20 100 Td (Hola mundo) Tj ET' 'endstream endobj' \
+            '5 0 obj <</Type /Font /Subtype /Type1 /BaseFont /Helvetica>> endobj' 'trailer <</Root 1 0 R>>' '%%EOF' > "$RUNNER_TEMP/hola.pdf"
+          ./dist/FreeReader-x86_64.AppImage "$RUNNER_TEMP/hola.pdf" --screenshot "$RUNNER_TEMP/pdf.png"
+          test -s "$RUNNER_TEMP/pdf.png"
+          echo "A PDF opened"
           ./dist/FreeReader-x86_64.AppImage --data-folder "$RUNNER_TEMP/appdata" &
           pid=$!
           sleep 20

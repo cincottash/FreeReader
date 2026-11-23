@@ -25,6 +25,12 @@ struct BookMetadata {
     QString publisher;
     QString description;
     QString coverPath;     // resource path of the cover image, if the book names one
+    // Pages turn from right to left (manga; an EPUB whose spine says page-progression-direction="rtl").
+    bool rightToLeft = false;
+    // Every chapter is one picture filling the page (comics, scanned pages): no text to reflow.
+    bool pictures = false;
+    QString series;        // a comic's series and number, from ComicInfo.xml
+    QString seriesNumber;
 };
 
 struct TocEntry {

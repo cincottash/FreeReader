@@ -20,6 +20,9 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QKeySequenceEdit>
+#include <QListWidget>
+#include <QMouseEvent>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QLocale>
@@ -88,13 +91,23 @@ SettingsDialog::SettingsDialog(Settings& settings, const std::vector<Command*>& 
     m_message->setProperty("testId", "settingsMessage");
     m_message->hide();
     lay->addWidget(m_message);
+    // OK keeps the changes (they apply as they are made, so they can be seen); Cancel puts back the settings as
+    // they were when the window opened (the owner's request, 2026-11-23). A saved key, a download and a moved data
+    // folder are done at once by their own buttons and stay.
     auto* buttons = new QHBoxLayout;
-    auto* close = new QPushButton(tr("Close"));
-    close->setDefault(true);
+    auto* ok = new QPushButton(tr("OK"));
+    ok->setDefault(true);
+    ok->setProperty("testId", "settingsOk");
+    auto* cancel = new QPushButton(tr("Cancel"));
+    cancel->setProperty("testId", "settingsCancel");
+    cancel->setToolTip(tr("Puts back the settings as they were when this window opened. A saved key, a download and "
+                          "a moved data folder stay."));
     buttons->addStretch(1);
-    buttons->addWidget(close);
+    buttons->addWidget(ok);
+    buttons->addWidget(cancel);
     lay->addLayout(buttons);
-    connect(close, &QPushButton::clicked, this, &QDialog::accept);
+    connect(ok, &QPushButton::clicked, this, &QDialog::accept);
+    connect(cancel, &QPushButton::clicked, this, &QDialog::reject);
     connect(m_tabs, &QTabWidget::currentChanged, m_message, &QWidget::hide);
 
     resize(640, 660);
@@ -103,6 +116,48 @@ SettingsDialog::SettingsDialog(Settings& settings, const std::vector<Command*>& 
 }
 
 void SettingsDialog::showTab(Tab tab) { m_tabs->setCurrentIndex(int(tab)); }
+
+void SettingsDialog::begin()
+{
+    m_before = std::make_shared<Settings>(m_settings);
+    m_message->hide();
+}
+
+void SettingsDialog::reject()
+{
+    // Only what this window changes goes back; reading options changed meanwhile elsewhere stay.
+    if (m_before) {
+        const Settings& b = *m_before;
+        Settings& s = m_settings;
+        s.translateOnSelect = b.translateOnSelect;
+        s.offlineOnly = b.offlineOnly;
+        s.useGemini = b.useGemini;
+        s.geminiModel = b.geminiModel;
+        s.useLmStudio = b.useLmStudio;
+        s.lmStudioAddress = b.lmStudioAddress;
+        s.lmStudioModel = b.lmStudioModel;
+        s.useDictionary = b.useDictionary;
+        s.useOfflineTranslator = b.useOfflineTranslator;
+        s.shortcuts = b.shortcuts;
+        s.mouseShortcuts = b.mouseShortcuts;
+        s.libraryFolders = b.libraryFolders;
+        if (m_lookReset) s.look = b.look;
+        m_before.reset();
+        m_lookReset = false;
+        fill();
+        fillLibraryFolders();
+        refreshTranslation();
+        emit cancelled();
+    }
+    QDialog::reject();
+}
+
+void SettingsDialog::accept()
+{
+    m_before.reset();
+    m_lookReset = false;
+    QDialog::accept();
+}
 
 // ---------------------------------------------------------------- Translation
 
@@ -799,14 +854,18 @@ QWidget* SettingsDialog::buildShortcutsTab()
     auto* lay = new QVBoxLayout(page);
     lay->setContentsMargins(12, 10, 12, 8);
     lay->setSpacing(8);
-    lay->addWidget(muted(tr("Click a shortcut and press the new keys. Backspace clears it.")));
+    lay->addWidget(muted(tr("Click a shortcut and press the new keys. Backspace clears it. Under Mouse, click and then "
+                            "press the middle, back or forward button (with Ctrl, Shift or Alt if you like); Backspace "
+                            "clears it.")));
     m_list = new QTreeWidget;
-    m_list->setColumnCount(2);
-    m_list->setHeaderLabels({tr("Command"), tr("Shortcut")});
+    m_list->setColumnCount(3);
+    m_list->setHeaderLabels({tr("Command"), tr("Shortcut"), tr("Mouse")});
     m_list->setRootIsDecorated(false);
     m_list->header()->setSectionResizeMode(0, QHeaderView::Stretch);
     m_list->header()->setSectionResizeMode(1, QHeaderView::Fixed);
     m_list->header()->resizeSection(1, 200);
+    m_list->header()->setSectionResizeMode(2, QHeaderView::Fixed);
+    m_list->header()->resizeSection(2, 170);
     m_list->header()->setStretchLastSection(false);
     m_list->setMinimumHeight(300);
     m_list->setProperty("testId", "shortcuts");
@@ -821,6 +880,7 @@ QWidget* SettingsDialog::buildShortcutsTab()
 
 void SettingsDialog::fill()
 {
+    fillLibraryFolders();
     m_list->clear();
     for (Command* c : m_commands) {
         auto* it = new QTreeWidgetItem(m_list, {c->label});
@@ -844,7 +904,76 @@ void SettingsDialog::fill()
         connect(edit, &QKeySequenceEdit::keySequenceChanged, this, [this, id = c->id](const QKeySequence& k) {
             if (k.isEmpty()) setShortcut(id, k);   // the clear button
         });
+        // The mouse button: click, then press it.
+        auto* mouse = new QPushButton(c->mouse.isEmpty() ? QStringLiteral("—") : mouse_shortcut::display(c->mouse));
+        mouse->setProperty("testId", (QStringLiteral("mouse-") + c->id).toLatin1().constData());
+        mouse->setProperty("commandId", c->id);
+        mouse->setCheckable(true);
+        mouse->setFocusPolicy(Qt::StrongFocus);
+        mouse->setToolTip(tr("Click, then press the middle, back or forward mouse button. Backspace clears it."));
+        mouse->installEventFilter(this);
+        m_list->setItemWidget(it, 2, mouse);
+        connect(mouse, &QPushButton::toggled, this, [this, mouse, id = c->id](bool on) {
+            QString current;
+            for (Command* c2 : m_commands)
+                if (c2->id == id) current = c2->mouse;
+            mouse->setText(on ? tr("Press a Button…") : current.isEmpty() ? QStringLiteral("—") : mouse_shortcut::display(current));
+        });
     }
+}
+
+bool SettingsDialog::eventFilter(QObject* o, QEvent* e)
+{
+    // A Mouse cell waiting for its button: the middle, back or forward button sets it, Backspace clears it.
+    auto* b = qobject_cast<QPushButton*>(o);
+    if (!b || !b->isChecked() || !b->property("commandId").isValid()) return QDialog::eventFilter(o, e);
+    const QString id = b->property("commandId").toString();
+    if (e->type() == QEvent::MouseButtonPress || e->type() == QEvent::MouseButtonDblClick) {
+        auto* me = static_cast<QMouseEvent*>(e);
+        const QString binding = mouse_shortcut::fromEvent(me->button(), me->modifiers());
+        if (binding.isEmpty()) return QDialog::eventFilter(o, e);   // a left click: cancels (unchecks)
+        setMouseShortcut(id, binding);
+        b->setChecked(false);
+        return true;
+    }
+    if (e->type() == QEvent::KeyPress) {
+        const int k = static_cast<QKeyEvent*>(e)->key();
+        if (k == Qt::Key_Backspace || k == Qt::Key_Delete) {
+            setMouseShortcut(id, QString());
+            b->setChecked(false);
+            return true;
+        }
+        if (k == Qt::Key_Escape) {
+            b->setChecked(false);
+            return true;
+        }
+    }
+    return QDialog::eventFilter(o, e);
+}
+
+QString SettingsDialog::setMouseShortcut(const QString& id, const QString& binding)
+{
+    Command* target = nullptr;
+    for (Command* c : m_commands)
+        if (c->id == id) target = c;
+    if (!target) return {};
+    if (!binding.isEmpty())
+        for (Command* c : m_commands)
+            if (c != target && c->mouse == binding) {
+                const QString msg = tr("%1 is already used by %2. Change that one first.").arg(mouse_shortcut::display(binding), c->label);
+                m_message->setText(msg);
+                m_message->show();
+                return msg;
+            }
+    QStringList kept;
+    for (const QString& o : m_settings.mouseShortcuts)
+        if (o.section(QLatin1Char('='), 0, 0) != id) kept << o;
+    if (!binding.isEmpty()) kept << id + QLatin1Char('=') + binding;
+    m_settings.mouseShortcuts = kept;
+    target->mouse = binding;
+    m_message->hide();
+    emit shortcutsChanged();
+    return {};
 }
 
 QString SettingsDialog::setShortcut(const QString& id, const QKeySequence& keys)
@@ -877,6 +1006,8 @@ QString SettingsDialog::setShortcut(const QString& id, const QKeySequence& keys)
 void SettingsDialog::resetShortcuts()
 {
     m_settings.shortcuts.clear();
+    m_settings.mouseShortcuts.clear();
+    for (Command* c : m_commands) c->mouse.clear();
     emit shortcutsChanged();
     fill();
     m_message->setText(tr("Every command has its original keys again."));
@@ -892,6 +1023,8 @@ QWidget* SettingsDialog::buildGeneralTab()
     lay->setContentsMargins(12, 4, 12, 8);
     lay->setSpacing(8);
     lay->addWidget(sectionTitle(tr("APP DATA FOLDER")));
+    lay->addWidget(muted(tr("Where the library, reading places, notes, words looked up and settings are kept. Books stay "
+                            "where they are.")));
     auto* folderRow = new QHBoxLayout;
     m_folder = new QLabel;
     m_folder->setWordWrap(true);
@@ -905,19 +1038,81 @@ QWidget* SettingsDialog::buildGeneralTab()
     lay->addLayout(folderRow);
     connect(change, &QPushButton::clicked, this, &SettingsDialog::changeDataFolderRequested);
 
-    lay->addWidget(sectionTitle(tr("RESET")));
-    auto* resetLook = new QPushButton(tr("Reset Text and Layout"));
-    resetLook->setToolTip(tr("Font, size, spacing, margins, page width and columns for all books go back to the defaults. "
-                             "Settings made for a language or a single book stay."));
+    lay->addWidget(sectionTitle(tr("LIBRARY FOLDERS")));
+    lay->addWidget(muted(tr("Each time FreeReader starts, the books put in these folders (or their subfolders) since are "
+                            "added to the library. A book already in the library isn't added twice.")));
+    // The list in a frame, its buttons beside it (not floating below).
+    auto* foldersRow = new QHBoxLayout;
+    foldersRow->setSpacing(10);
+    m_libraryFolders = new QListWidget;
+    m_libraryFolders->setProperty("testId", "libraryFolders");
+    m_libraryFolders->setFrameShape(QFrame::StyledPanel);
+    m_libraryFolders->setObjectName(QStringLiteral("FramedList"));   // a border in every theme (Theme.cpp)
+    m_libraryFolders->setFixedHeight(104);
+    foldersRow->addWidget(m_libraryFolders, 1);
+    auto* folderButtons = new QVBoxLayout;
+    folderButtons->setSpacing(6);
+    auto* addFolder = new QPushButton(tr("Add Folder…"));
+    addFolder->setToolTip(tr("A folder of books: its books are added now and its new books at every start."));
+    addFolder->setProperty("testId", "addLibraryFolder");
+    m_removeFolder = new QPushButton(tr("Remove Folder"));
+    m_removeFolder->setToolTip(tr("FreeReader stops checking this folder. Its books stay in the library."));
+    m_removeFolder->setProperty("testId", "removeLibraryFolder");
+    m_removeFolder->setEnabled(false);
+    folderButtons->addWidget(addFolder);
+    folderButtons->addWidget(m_removeFolder);
+    folderButtons->addStretch(1);
+    foldersRow->addLayout(folderButtons);
+    lay->addLayout(foldersRow);
+    connect(addFolder, &QPushButton::clicked, this, &SettingsDialog::addLibraryFolderRequested);
+    connect(m_removeFolder, &QPushButton::clicked, this, [this] {
+        if (QListWidgetItem* it = m_libraryFolders->currentItem()) removeLibraryFolder(it->data(Qt::UserRole).toString());
+    });
+    connect(m_libraryFolders, &QListWidget::currentItemChanged, this, [this](QListWidgetItem* it) {
+        m_removeFolder->setEnabled(it && !it->data(Qt::UserRole).toString().isEmpty());
+    });
+
+    // Text and layout: what the button resets, said beside it.
+    lay->addWidget(sectionTitle(tr("TEXT AND LAYOUT")));
+    auto* lookRow = new QHBoxLayout;
+    lookRow->setSpacing(10);
+    lookRow->addWidget(muted(tr("Font, size, spacing, margins, page width and columns for all books. Settings made for one "
+                                "language or one book stay as they are.")), 1);
+    auto* resetLook = new QPushButton(tr("Reset to Defaults"));
+    resetLook->setToolTip(tr("Font, size, spacing, margins, page width and columns for all books go back to the defaults."));
     resetLook->setProperty("testId", "resetLook");
-    lay->addWidget(resetLook, 0, Qt::AlignLeft);
+    lookRow->addWidget(resetLook, 0, Qt::AlignTop);
+    lay->addLayout(lookRow);
     lay->addStretch(1);
     connect(resetLook, &QPushButton::clicked, this, [this] {
+        m_lookReset = true;
         emit resetTextAndLayoutRequested();
-        m_message->setText(tr("Text and layout for all books are back to the defaults."));
+        m_message->setText(tr("Text and layout for all books are back to the defaults (Cancel puts them back)."));
         m_message->show();
     });
     return page;
+}
+
+void SettingsDialog::fillLibraryFolders()
+{
+    m_libraryFolders->clear();
+    for (const QString& f : m_settings.libraryFolders) {
+        auto* it = new QListWidgetItem(QDir::toNativeSeparators(f), m_libraryFolders);
+        it->setData(Qt::UserRole, f);
+        if (!QFileInfo(f).isDir()) it->setText(it->text() + tr("  (not found now)"));
+    }
+    if (m_settings.libraryFolders.isEmpty()) {
+        auto* it = new QListWidgetItem(tr("No folders yet: Add Folder… picks one."), m_libraryFolders);
+        it->setFlags(Qt::NoItemFlags);
+    }
+    if (m_removeFolder) m_removeFolder->setEnabled(false);
+}
+
+void SettingsDialog::removeLibraryFolder(const QString& folder)
+{
+    m_settings.libraryFolders.removeAll(folder);
+    fillLibraryFolders();
+    emit libraryFoldersChanged();
 }
 
 void SettingsDialog::setDataFolder(const QString& folder, bool temporary)

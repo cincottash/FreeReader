@@ -45,7 +45,8 @@ PracticeCard answerCard(WordLog& log, const Scheduler& scheduler, QList<Practice
 class Session {
 public:
     explicit Session(WordLog* log) : m_log(log) {}
-    bool start(const WordLog::Filter& filter, int newLimit, const QDateTime& now);
+    // Every card the filter allows, in `order` (see WordLog::allCards).
+    bool start(const WordLog::Filter& filter, const QString& order, const QDateTime& now);
     bool next();   // the next card (words deleted meanwhile are skipped); false at the end
     void rate(Rating rating, const QDateTime& now);
     void reloadWord();   // after its meaning was looked up

@@ -80,16 +80,37 @@ Page {
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.Wrap
                     text: (words.p.summary || "").length > 0 ? words.p.summary
-                          : qsTr("%1 due now · %2 new").arg(words.p.dueNow || 0).arg(words.p.newAvailable || 0)
+                          : (words.p.cards === 1 ? qsTr("1 card to practise") : qsTr("%1 cards to practise").arg(words.p.cards || 0))
                     font.pixelSize: words.theme.body
                     color: words.theme.fg
+                }
+                // The order the cards come in.
+                RowLayout {
+                    Layout.alignment: Qt.AlignHCenter
+                    spacing: 10
+                    Label { text: qsTr("Order"); color: words.theme.fg }
+                    ComboBox {
+                        id: order
+                        objectName: "practiceOrder"
+                        textRole: "label"
+                        valueRole: "key"
+                        model: [
+                            {"key": "random", "label": qsTr("Random")},
+                            {"key": "alphabetical", "label": qsTr("Alphabetical")},
+                            {"key": "newest", "label": qsTr("Newest First")},
+                            {"key": "oldest", "label": qsTr("Oldest First")},
+                            {"key": "book", "label": qsTr("Book Order")}
+                        ]
+                        Component.onCompleted: currentIndex = Math.max(0, indexOfValue(words.app.practiceOrder))
+                        onActivated: words.app.practiceOrder = currentValue
+                    }
                 }
                 Button {
                     objectName: "startPractice"
                     Layout.alignment: Qt.AlignHCenter
                     text: qsTr("Start Practice")
                     highlighted: true
-                    enabled: (words.p.dueNow || 0) + (words.p.newAvailable || 0) > 0
+                    enabled: (words.p.cards || 0) > 0
                     onClicked: words.app.startPractice()
                 }
                 Label {
@@ -220,12 +241,6 @@ Page {
                             highlighted: index === 2
                             contentItem: Column {
                                 Label { anchors.horizontalCenter: parent.horizontalCenter; text: modelData; font.pixelSize: words.theme.body; color: index === 2 ? "white" : words.theme.fg }
-                                Label {
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                    text: (words.p.intervals || [])[index] || ""
-                                    font.pixelSize: 11
-                                    color: index === 2 ? "white" : words.theme.muted
-                                }
                             }
                             onClicked: words.app.rateCard(index + 1)
                         }

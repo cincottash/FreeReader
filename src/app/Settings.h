@@ -20,8 +20,8 @@ struct Settings {
     QString theme = QStringLiteral("midnight");     // a theme key or "system"
     QStringList recentThemes;                        // most recent first; shown as dots in the reader's header
     int readingSpeed = 1100;          // characters per minute, learned from page turns
-    bool footerPagesLeft = false;
-    QStringList highlightOrder;       // the highlight colors, most recently used first (the dots' order)     // the footer shows the pages left in the chapter instead of the time (click it)
+    bool footerPagesLeft = false;     // the footer shows the pages left in the chapter instead of the time (click it)
+    QStringList highlightOrder;       // the highlight colors, most recently used first (the dots' order)
     // Page turn animation: none / slide / cover / fade / curl; how long it takes; how it moves (smooth: fast then
     // slowing down, even: the same speed throughout, gentle: slow start and end).
     QString pageTurn = QStringLiteral("none");
@@ -39,6 +39,7 @@ struct Settings {
     bool translateOnSelect = false;
     bool offlineOnly = false;         // never send text over the internet
     QStringList offlineBooks;         // book ids kept offline
+    QStringList pageDirections;       // "bookId=rtl" / "bookId=ltr": a book's page direction chosen by hand
     bool useGemini = true;
     QString geminiModel;              // empty: the default (latest Flash-Lite)
     bool useLmStudio = true;
@@ -53,11 +54,14 @@ struct Settings {
     bool practiceSentenceFront = false;   // the sentence it came from on the front too
     bool practicePassages = false;
     bool practiceHighlights = true;   // highlighted words (up to 4) join the word log, without a lookup
-    int practiceNewPerDay = 20;
+    int practiceNewPerDay = 20;       // no longer offered (every card is practised); kept so old files still read
+    QString practiceOrder = QStringLiteral("random");   // random, alphabetical, newest, oldest, book
 
     // Files
     QString lastFolder;
     QStringList shortcuts;            // "command-id=Ctrl+X" overrides of the default shortcuts
+    QStringList mouseShortcuts;       // "command-id=Back": mouse buttons that run commands
+    QStringList libraryFolders;       // folders added with Add Folder: checked for new books at every start
 
     bool load(const QString& path);
     bool save(const QString& path) const;

@@ -5,6 +5,7 @@
 #include "core/format/Book.h"
 
 #include <QObject>
+#include <QSet>
 #include <QStringList>
 #include <QThreadPool>
 
@@ -16,7 +17,10 @@ struct ImportedBook {
     QString path;
     BookMetadata meta;
     QByteArray coverPng;   // a thumbnail, empty when the book has no cover
+    QByteArray contentHash;   // SHA-256 of the file (hex): the same book under another name or folder is a duplicate
 };
+
+QByteArray fileHash(const QString& path);   // SHA-256 of a file's bytes (hex), empty when it can't be read
 
 class Importer : public QObject {
     Q_OBJECT
@@ -25,6 +29,8 @@ public:
     ~Importer() override;
 
     void add(const QStringList& filesOrFolders);
+    // `skip`: files (canonical paths) not to read again, the books already in the library (a folder check).
+    void add(const QStringList& filesOrFolders, const QSet<QString>& skip);
     bool isBusy() const { return m_running > 0; }
 
     static QByteArray thumbnail(const Book& book, int height = 360);

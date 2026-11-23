@@ -41,7 +41,12 @@ public:
     {
         QImage img;
         if (m_library) img.loadFromData(m_library->cover(id.section(QLatin1Char('?'), 0, 0).toInt()));
-        if (!img.isNull() && requested.isValid()) img = img.scaled(requested, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        // The library asks for a height only (0 x 400): scaling to that size would give an empty picture.
+        if (!img.isNull()) {
+            if (requested.width() > 0 && requested.height() > 0) img = img.scaled(requested, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+            else if (requested.height() > 0) img = img.scaledToHeight(requested.height(), Qt::SmoothTransformation);
+            else if (requested.width() > 0) img = img.scaledToWidth(requested.width(), Qt::SmoothTransformation);
+        }
         if (size) *size = img.size();
         return img;
     }

@@ -200,6 +200,14 @@ bool BookPage::selectWordAt(qreal x, qreal y)
         clearSelection();
         return false;
     }
+    // A word inside a highlight: the whole highlight is taken (all its words), as on the desktop.
+    if (m_app)
+        for (const layout::Overlay& o : m_app->highlightsIn(m_anchor.spine))
+            if (o.start <= s && o.end >= e) {
+                s = o.start;
+                e = o.end;
+                break;
+            }
     m_selSpine = m_anchor.spine;
     m_selStart = m_selAnchorStart = s;
     m_selEnd = m_selAnchorEnd = e;

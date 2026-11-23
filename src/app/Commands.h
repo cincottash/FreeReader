@@ -20,11 +20,19 @@ struct Command {
     QString hint;           // sentence shown under the label in the palette (optional)
     QKeySequence shortcut;          // in effect (the default, or the one set in Settings)
     QKeySequence defaultShortcut;
+    QString mouse;                  // a mouse button that runs it ("Back", "Ctrl+Forward"), set in Settings
     std::function<void()> run;
     std::function<bool()> enabled;   // null = always
     QAction* action = nullptr;
     bool isEnabled() const { return !enabled || enabled(); }
 };
+
+// Mouse buttons as shortcuts: the middle, back and forward buttons, with Ctrl, Shift or Alt (the left and right
+// buttons are for clicking and the right-click menu).
+namespace mouse_shortcut {
+QString fromEvent(Qt::MouseButton button, Qt::KeyboardModifiers modifiers);   // empty: not a button for shortcuts
+QString display(const QString& binding);                                      // "Ctrl+Back Button"
+}
 
 class CommandPalette : public QFrame {
     Q_OBJECT

@@ -42,6 +42,10 @@ public:
     int columnCount() const;
 
     bool canGoNext() const;
+    // Right to left (manga, books whose spine says rtl): the left edge and the Left key go forward, the right edge
+    // and the Right key go back, and pages slide in from the left.
+    void setRightToLeft(bool rtl) { m_rtl = rtl; }
+    bool rightToLeft() const { return m_rtl; }
     bool canGoPrevious() const;
     bool nextScreen();
     bool previousScreen();
@@ -126,6 +130,8 @@ private:
     int columnAt(const QPointF& pos) const;
     layout::Hit hitAt(const QPointF& pos, int* column = nullptr) const;
     int hoverSide(const QPointF& pos) const;   // -1 left arrow, 1 right arrow, 0 none
+    void turnFromSide(int side);               // the turn an edge (or arrow) gives: forward on the right, or on the left right to left
+    bool m_rtl = false;
     void onLayoutReady(int spine);
     void moveTo(const core::Position& p, bool byTurn);
     bool turnTo(const core::Position& p, int direction);   // a page turn, animated when chosen

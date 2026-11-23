@@ -29,6 +29,7 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QMouseEvent>
 #include <QClipboard>
 #include <QCloseEvent>
 #include <QDir>
@@ -123,6 +124,8 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     connect(m_start, &LibraryView::openRequested, this, &MainWindow::openBook);
     connect(m_start, &LibraryView::settingsLinkClicked, this, &MainWindow::changeDataFolder);
     connect(m_start, &LibraryView::settingsChanged, this, &MainWindow::saveSettingsSoon);
+    // The library's folders: books put there since the last start are added (quietly when there are none).
+    if (interactive) QTimer::singleShot(400, m_start, &LibraryView::checkFolders);
     m_start->setPrompt([this](const QString& title, const QString& placeholder, std::function<QString(const QString&)> accept) {
         m_palette->showPrompt(title, placeholder, std::move(accept));
     });
@@ -208,6 +211,23 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
 
 MainWindow::~MainWindow() = default;
 
+bool MainWindow::eventFilter(QObject* o, QEvent* e)
+{
+    // A mouse button set as a shortcut (Settings > Keyboard Shortcuts > Mouse), pressed anywhere in this window.
+    if (e->type() != QEvent::MouseButtonPress && e->type() != QEvent::MouseButtonDblClick) return false;
+    auto* w = qobject_cast<QWidget*>(o);
+    if (!w || w->window() != this) return false;
+    auto* me = static_cast<QMouseEvent*>(e);
+    const QString binding = mouse_shortcut::fromEvent(me->button(), me->modifiers());
+    if (binding.isEmpty()) return false;
+    for (auto& c : m_commands)
+        if (c->mouse == binding) {
+            if (c->isEnabled()) c->run();
+            return true;
+        }
+    return false;
+}
+
 void MainWindow::addCommand(const QString& id, const QString& label, const QKeySequence& key, std::function<void()> run,
                             std::function<bool()> enabled, const QString& hint)
 {
@@ -263,6 +283,9 @@ void MainWindow::buildCommands()
     }, reading);
     addCommand(QStringLiteral("back"), tr("Back"), QKeySequence(Qt::ALT | Qt::Key_Left), [this] { m_reader->goBack(); },
                [this] { return isReading() && m_reader->canGoBack(); }, tr("Return to where you were before the last jump."));
+    // No keys of their own (the arrow keys turn pages already): for a mouse button, or a key of one's choosing.
+    addCommand(QStringLiteral("next-page"), tr("Next Page"), QKeySequence(), [this] { m_reader->pages()->nextScreen(); }, reading);
+    addCommand(QStringLiteral("previous-page"), tr("Previous Page"), QKeySequence(), [this] { m_reader->pages()->previousScreen(); }, reading);
     addCommand(QStringLiteral("next-chapter"), tr("Next Chapter"), QKeySequence(Qt::CTRL | Qt::Key_PageDown), [this] { m_reader->nextChapter(); }, reading);
     addCommand(QStringLiteral("previous-chapter"), tr("Previous Chapter"), QKeySequence(Qt::CTRL | Qt::Key_PageUp),
                [this] { m_reader->previousChapter(); }, reading);
@@ -307,6 +330,12 @@ void MainWindow::buildCommands()
         m_reader->setBookOffline(!m_reader->bookIsOffline());
     }, [this] { return isReading() && !m_settings.offlineOnly; }, tr("Text from this book is never sent to Gemini."));
     if (Command* c = command(QStringLiteral("book-offline"))) c->action->setCheckable(true);
+    addCommand(QStringLiteral("pages-right-to-left"), tr("Pages Right to Left"), QKeySequence(), [this] {
+        m_reader->setPagesRightToLeft(!m_reader->pagesRightToLeft());
+        syncChecks();
+        saveSettingsSoon();
+    }, reading, tr("For manga: the left edge and the Left key turn to the next page."));
+    if (Command* c = command(QStringLiteral("pages-right-to-left"))) c->action->setCheckable(true);
     addCommand(QStringLiteral("import-kindle"), tr("Import Kindle Highlights…"), QKeySequence(), [this] { importKindle(); }, reading,
                tr("Highlights, notes and bookmarks from a Kindle export (Bookcision's JSON or My Clippings.txt) into this book."));
     addCommand(QStringLiteral("search-book"), tr("Search This Book…"), QKeySequence(Qt::CTRL | Qt::Key_F), [this] {
@@ -315,6 +344,10 @@ void MainWindow::buildCommands()
     addCommand(QStringLiteral("search-library"), tr("Search All Books…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_F), [this] {
         showLibrarySearch(isReading() && m_reader->pages()->hasSelection() ? m_reader->pages()->selectedText() : QString());
     }, nullptr, tr("A word or phrase in the text of every book in the library."));
+    addCommand(QStringLiteral("read-aloud"), tr("Read Aloud"), QKeySequence(), [this] {
+        if (m_reader->isReadingAloud()) m_reader->stopReadingAloud();
+        else m_reader->readSelectionAloud();
+    }, reading, tr("Reads the selected words aloud in the book's language; again stops it."));
     addCommand(QStringLiteral("bookmark"), tr("Bookmark This Page"), QKeySequence(Qt::CTRL | Qt::Key_D), [this] { m_reader->toggleBookmark(); },
                reading, tr("Adds a bookmark, or removes the one on this page."));
     addCommand(QStringLiteral("notebook"), tr("Show or Hide Notebook"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_N),
@@ -353,6 +386,7 @@ void MainWindow::buildCommands()
     addCommand(QStringLiteral("keyboard-shortcuts"), tr("Keyboard Shortcuts"), QKeySequence(), [this] { showSettings(SettingsDialog::ShortcutsTab); },
                nullptr, tr("Every shortcut, and changing them."));
     applyShortcuts();
+    qApp->installEventFilter(this);   // mouse-button shortcuts
 }
 
 void MainWindow::buildMenus()
@@ -393,6 +427,7 @@ void MainWindow::buildMenus()
     add(view, "notebook");
     add(view, "bilingual");
     add(view, "book-offline");
+    add(view, "pages-right-to-left");
     view->addSeparator();
     add(view, "larger");
     add(view, "smaller");
@@ -513,6 +548,9 @@ void MainWindow::applyShortcuts()
                 changed = true;
             }
         c->shortcut = keys;
+        c->mouse.clear();
+        for (const QString& o : m_settings.mouseShortcuts)
+            if (o.section(QLatin1Char('='), 0, 0) == c->id) c->mouse = o.section(QLatin1Char('='), 1);
         QList<QKeySequence> all;
         if (!keys.isEmpty()) all << keys;
         if (!changed) all << extra.value(c->id);
@@ -603,6 +641,7 @@ void MainWindow::syncChecks()
     set("offline-only", m_settings.offlineOnly);
     set("book-offline", m_reader && m_reader->bookIsOffline());
     set("bilingual", m_reader && m_reader->bilingualVisible());
+    set("pages-right-to-left", m_reader && isReading() && m_reader->pagesRightToLeft());
 }
 
 void MainWindow::showSettings(int tab)
@@ -619,6 +658,7 @@ void MainWindow::showSettings(int tab)
             applyTranslationSettings();
             saveSettingsSoon();
         });
+        connect(m_settingsDialog, &SettingsDialog::libraryFoldersChanged, this, &MainWindow::saveSettingsSoon);
         connect(m_settingsDialog, &SettingsDialog::shortcutsChanged, this, [this] {
             applyShortcuts();
             saveSettingsSoon();
@@ -632,9 +672,23 @@ void MainWindow::showSettings(int tab)
             changeDataFolder();
             m_settingsDialog->setDataFolder(appdata::folder(), appdata::isTemporary());
         });
+        connect(m_settingsDialog, &SettingsDialog::addLibraryFolderRequested, this, [this] {
+            if (m_interactive) m_start->chooseFolderToAdd();
+            m_settingsDialog->fillLibraryFolders();
+            saveSettingsSoon();
+        });
+        // Cancel put the settings back: apply them all again.
+        connect(m_settingsDialog, &SettingsDialog::cancelled, this, [this] {
+            applyTranslationSettings();
+            applyShortcuts();
+            if (isReading()) m_reader->applyReadingOptions();
+            saveSettingsSoon();
+        });
     }
+    if (!m_settingsDialog->isVisible()) m_settingsDialog->begin();
     m_settingsDialog->setDataFolder(appdata::folder(), appdata::isTemporary());
     m_settingsDialog->refreshTranslation();
+    m_settingsDialog->fillLibraryFolders();
     m_settingsDialog->showTab(SettingsDialog::Tab(tab));
     m_settingsDialog->show();
     m_settingsDialog->raise();
@@ -826,18 +880,37 @@ void MainWindow::resizeEvent(QResizeEvent* e)
 void MainWindow::showTheme(const Theme& t, bool preview)
 {
     if (preview) {
-        applyThemeTo(m_stack, t);
-    } else {
-        clearThemeFrom(m_stack);
-        applyTheme(*qApp, t);
-        m_theme = t;
+        // Only the screen in view is restyled for a preview: restyling the whole window (the hidden library,
+        // practice, statistics, ...) was most of a preview's time and made the theme list lag (the owner's report,
+        // 2026-11-23). The rest follows when a theme is chosen.
+        QWidget* target = m_stack->currentWidget();
+        if (m_previewTarget && m_previewTarget != target) clearThemeFrom(m_previewTarget);
+        m_previewTarget = target;
+        applyThemeTo(target, t);
+        if (target == m_reader) m_reader->setTheme(t);
+        else if (target == m_start) m_start->setTheme(t);
+        else if (target == m_practice) m_practice->setTheme(t);
+        else if (target == m_librarySearch) m_librarySearch->setTheme(t);
+        else if (target == m_statistics) m_statistics->setTheme(t);
+        else if (target == m_imageViewer) m_imageViewer->setTheme(t);
+        return;
     }
+    endPreview();
+    applyTheme(*qApp, t);
+    m_theme = t;
     m_reader->setTheme(t);
     m_start->setTheme(t);
     m_practice->setTheme(t);
     m_librarySearch->setTheme(t);
     m_statistics->setTheme(t);
     m_imageViewer->setTheme(t);
+}
+
+void MainWindow::endPreview()
+{
+    if (!m_previewTarget) return;
+    clearThemeFrom(m_previewTarget);
+    m_previewTarget = nullptr;
 }
 
 void MainWindow::showPractice(bool wordList)
@@ -895,10 +968,13 @@ void MainWindow::previewTheme(const QString& key)
     m_previewKey = key;
     if (key.isEmpty() || key == m_settings.theme) {
         // Back to the saved theme (only if a preview was showing).
-        if (!m_stack->styleSheet().isEmpty()) {
-            clearThemeFrom(m_stack);
+        if (m_previewTarget) {
+            endPreview();
             m_reader->setTheme(m_theme);
             m_start->setTheme(m_theme);
+            m_practice->setTheme(m_theme);
+            m_librarySearch->setTheme(m_theme);
+            m_statistics->setTheme(m_theme);
             m_imageViewer->setTheme(m_theme);
         }
         return;

@@ -114,7 +114,8 @@ const dom::Node* findNav(const dom::Node* n, const QString& type)
 bool EpubFormat::canOpen(const QString& path, const QByteArray& head) const
 {
     // A zip holding application/epub+zip, or any file named .epub (a damaged one then gets a precise message).
-    if (QFileInfo(path).suffix().compare(QLatin1String("epub"), Qt::CaseInsensitive) == 0) return true;
+    const QString suffix = QFileInfo(path).suffix();
+    if (suffix.compare(QLatin1String("epub"), Qt::CaseInsensitive) == 0 || suffix.compare(QLatin1String("kepub"), Qt::CaseInsensitive) == 0) return true;
     return head.startsWith("PK\x03\x04") && head.contains("application/epub+zip");
 }
 
@@ -242,6 +243,7 @@ std::shared_ptr<Book> EpubFormat::open(const QString& path, QString* error) cons
     // Spine
     if (const dom::Node* spine = package->firstElement("spine")) {
         if (ncxPath.isEmpty() && manifest.contains(spine->attr("toc"))) ncxPath = manifest.value(spine->attr("toc")).path;
+        book->metadata.rightToLeft = spine->attr("page-progression-direction") == QLatin1String("rtl");
         for (const dom::Node* ref : spine->elements("itemref")) {
             const auto it = manifest.constFind(ref->attr("idref"));
             if (it == manifest.cend() || !book->zip.contains(it->path)) continue;

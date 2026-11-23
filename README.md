@@ -1,13 +1,13 @@
 # FreeReader
 
-An e-book reader for DRM-free EPUB books, for Windows (tested) and Linux (experimental), built to make reading in
+An e-book reader for DRM-free books (EPUB, PDF, Kindle, FB2, comics, documents and more), for Windows (tested) and Linux (experimental), built to make reading in
 another language easy: right-click a word or a passage and its English meaning appears next to it. Every word you
 look up or highlight is saved, ready to practise as flashcards.
 
 ![FreeReader showing Don Quijote with the contents panel open](.github/screenshot.png)
 
 **Status:** early development (phase 4 of 7). The library, reading, themes, text settings, translation, the word
-log, flashcard practice, highlights, notes, bookmarks and search work. A Linux release and more formats come next.
+log, flashcard practice, highlights, notes, bookmarks and search work, in many book formats, PDF included.
 
 ## Download
 
@@ -18,11 +18,38 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 | Windows 10 and 11 | `FreeReader.exe` (one file, nothing to install) | Tested |
 | Linux | `FreeReader-x86_64.AppImage` | Experimental |
 
+## Book formats
+
+| Kind | Files |
+| --- | --- |
+| E-books | EPUB (2 and 3), KEPUB, FB2 (also `.fb2.zip`, `.fbz`) |
+| PDF and other fixed pages | PDF, XPS and OXPS, DjVu |
+| Kindle (without DRM) | MOBI, AZW, AZW3 (KF8), PRC, Palm PDB |
+| Comics, manga, graphic novels | CBZ, CBR, CB7, CBT, a ZIP of pictures; JPEG, PNG, GIF, WebP pages |
+| Documents | Word (DOCX; the text of old `.doc` files), OpenDocument (ODT), RTF |
+| Text and web pages | TXT, Markdown, HTML, calibre's HTMLZ and TXTZ, a zipped web page (Project Gutenberg's `-h.zip`) |
+| Help files | CHM |
+
+- Everything works the same in every format: translation, highlights, notes, the word log, search.
+- A **PDF** with text reads like any other book: the text flows to the window and the text size. Paragraphs run
+  on across lines and pages, poems keep their lines, and page headers, footers and numbers are left out. The
+  PDF's bookmarks are the contents, and **Go to Page** uses its page numbers.
+- **Scanned books** (a PDF of page pictures, DjVu) are shown page by page, like comics.
+- **Comics** fill the window, one page at a time. **Manga** turn right to left (from the
+  comic's ComicInfo.xml, or **View ▸ Pages Right to Left**): the left edge and the Left key go forward.
+- Plain text finds its chapters ("Capítulo I", "CHAPTER 2"); a book that doesn't say its language gets it from its
+  words.
+- Books with DRM (Adobe, Kindle) can't be opened; FreeReader says so and where they can be read.
+
 ## Library
 
 <img src=".github/readme/library.png" align="right" width="420" alt="The library with two books">
 
 - **Add Books** takes files or a whole folder, or drop them on the window. The files stay where they are.
+- A folder added with **Add Folder…** is kept: each time FreeReader starts, the books put there since are added
+  (Settings ▸ General lists the folders). A book already in the library isn't added twice, even under another
+  name or in another format (an EPUB and a MOBI of it: the same title and author). An edition in another
+  language is a book of its own. A book whose file moved is found again.
 - Filter by **Reading**, **Finished**, **Not Started**, by **language**, or by your **collections**: make one with
   **+ New Collection**, then drag books onto it.
 - Search by title or author, sort, and switch between covers and a list. Ctrl+wheel over the covers (or Ctrl+= and
@@ -85,8 +112,9 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 
 - **Practice Words** (Ctrl+P, or the Practice button in the library) turns the words you looked up or
   highlighted into flashcards (a highlighted word is never looked up for this: the offline dictionary fills in its
-  meaning, or its card has a **Look Up Meaning** button), scheduled with FSRS (the spaced-repetition method Anki uses): each card comes back just before you
-  would forget it.
+  meaning, or its card has a **Look Up Meaning** button). Each session goes through all your cards in the **Order**
+  you choose: Random, Alphabetical, Newest First, Oldest First, or Book Order. A card you mark **Again** comes back
+  later in the same session.
 - Choose the directions: Spanish → English, English → Spanish, Definition → Word, or the book's sentence with a
   gap. Flip the card, or type the answer (missing accents are accepted but pointed out).
 - **Word List:** every word with its meaning, book and page. Search, change a meaning, star, **Show in Book**,
@@ -158,7 +186,8 @@ FreeReader only opens books without DRM. It never removes or works around DRM.
 <details>
 <summary>Keyboard shortcuts</summary>
 
-Every shortcut can be changed in **Settings** (Ctrl+,).
+Every shortcut can be changed in **Settings** (Ctrl+,). A command can also have a mouse button: the middle, back
+or forward button, with Ctrl, Shift or Alt if you like (**Next Page** and **Previous Page** are there for that).
 
 | Command | Shortcut |
 | --- | --- |
@@ -200,8 +229,8 @@ desktop yet. It runs through X11; on a Wayland desktop it uses XWayland, which m
 <summary>Command line</summary>
 
 ```
-FreeReader [book.epub] [--data-folder FOLDER]
-FreeReader [book.epub] --screenshot out.png [--page N | --percent P] [--turn N] [--size WxH]
+FreeReader [book] [--data-folder FOLDER]
+FreeReader [book] --screenshot out.png [--page N | --percent P] [--turn N] [--size WxH]
            [--columns one|two|auto] [--text-size PERCENT] [--font FAMILY] [--theme KEY]
            [--contents] [--palette] [--appearance] [--theme-list] [--add-books FOLDER] [--list-view]
 FreeReader --check-translation result.txt
@@ -222,6 +251,9 @@ C++20, Qt 6 (Widgets, Svg, Sql, Concurrent, Network; TextToSpeech when available
   pronunciation). For the single-file
   exe, add `qt6-static` and configure with `-DSTATIC_BUILD=ON -DCMAKE_PREFIX_PATH=<msys2>/ucrt64/qt6-static`.
 - **Linux:** Qt 6.5 or newer, zlib, CMake and Ninja.
+- **Optional formats**, each used when it is found: libarchive (7-Zip and RAR comics), libwebp (WebP pages),
+  DjVuLibre (DjVu), chmlib (CHM). For PDF and XPS, build MuPDF's libraries from its source and pass its folder
+  as `-DMUPDF_DIR=<folder>` (the exact `make` command is in `.github/workflows/build-apps.yml`).
 
 ```
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -233,8 +265,11 @@ cmake --build build
 <details>
 <summary>How it works</summary>
 
-- `src/core/format`: format plug-ins turn a file into a book (metadata, contents, chapters, resources). EPUB 2
-  and 3 first.
+- `src/core/format`: format plug-ins turn a file into a book (metadata, contents, chapters, resources). EPUB is
+  read as it is; every other format is turned into HTML chapters in memory (`Convert.h`), so the rest of the app
+  doesn't know the difference. 7-Zip and RAR comics use libarchive. PDF and XPS use MuPDF: the text of each
+  page is rebuilt into paragraphs and headings (`pdf/PdfFormat.cpp`). Pages shown as pictures (scans, DjVu
+  through DjVuLibre) are drawn only when they are shown (`pages/PageBook.h`). CHM files use chmlib.
 - `src/core/html`, `src/core/css`: a forgiving HTML parser and the CSS subset books use, with the cascade.
 - `src/core/layout`: FreeReader's own layout engine. Each chapter becomes a flow of paragraphs, images and
   tables with stable character positions, laid out into pages on background threads (with hyphenation by
@@ -258,6 +293,9 @@ cmake --build build
   the SIL Open Font License (`resources/fonts`).
 - Hyphenation patterns from the [hyph-utf8](https://github.com/hyphenation/tex-hyphen) project for Spanish,
   English, French, German, Italian and Portuguese, each under its own free license (`resources/hyphenation`).
+- Book formats: [MuPDF](https://mupdf.com) (Artifex, AGPL-3.0) for PDF and XPS,
+  [DjVuLibre](https://djvu.sourceforge.net) (GPL-2.0 or later) for DjVu, [chmlib](http://www.jedrea.com/chmlib/)
+  (LGPL-2.1) for CHM, and [libarchive](https://libarchive.org) (BSD) for 7-Zip and RAR comics.
 - The dark and light themes are adjusted from popular editor color schemes (Nord, Dracula, Solarized, Gruvbox,
   Catppuccin, Rosé Pine, Tokyo Night, Everforest, Kanagawa, Ayu, One, Palenight, Night Owl, Cobalt2,
   Synthwave '84, Tomorrow, Monokai, Zenburn) and keep their authors' names.

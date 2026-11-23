@@ -50,6 +50,10 @@ public:
     void addBooks(const QStringList& filesOrFolders);   // background import
     void chooseFilesToAdd();
     void chooseFolderToAdd();
+    // Adds a folder of books and keeps it in the library's folders, checked for new books at every start.
+    void addFolder(const QString& dir);
+    // The library's folders: the books there that aren't in the library yet are added (quietly when there are none).
+    void checkFolders();
     void newCollection();
     bool isImporting() const;
 
@@ -128,4 +132,5 @@ private:
     BookFilter* m_proxy;
     class QStyledItemDelegate* m_coverDelegate = nullptr;
     int m_zoomWheel = 0;
+    bool m_quietImport = false;   // the folder check at start
 };
