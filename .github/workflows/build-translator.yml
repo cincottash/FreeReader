@@ -96,30 +96,26 @@ jobs:
 
       - uses: ilammy/msvc-dev-cmd@v1
 
+      # pcre2 (used to split sentences) from vcpkg, as Bergamot's own Windows build does: static, release only, with
+      # the static runtime. The copy Bergamot would build itself comes out as a Debug library here.
+      - name: pcre2 from vcpkg
+        shell: pwsh
+        run: |
+          Add-Content "$env:VCPKG_INSTALLATION_ROOT\triplets\x64-windows-static.cmake" "set(VCPKG_BUILD_TYPE release)"
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install pcre2:x64-windows-static
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Get-ChildItem "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static\lib" -Filter "pcre2*" | ForEach-Object { "found: $($_.Name)" }
+
+      # BUILD_ARCH: the default ("native") would build for the CI machine's processor (AVX2), and the program could
+      # crash on older computers. x86-64-v2 runs on every 64-bit PC since about 2009; the matrix code (intgemm) still
+      # picks AVX2 or AVX-512 when the computer has it.
       - name: Build (Microsoft's compiler, static runtime)
         shell: cmd
         run: |
           cmake -S bergamot -B bergamot\build -G Ninja -DCMAKE_BUILD_TYPE=Release -DUSE_WASM_COMPATIBLE_SOURCE=on ^
-            -DCOMPILE_TESTS=off -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DUSE_STATIC_LIBS=on -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
-          cmake --build bergamot\build --target pcre2
-
-      # With Microsoft's compiler pcre2 names its static library differently from what ssplit links to
-      # (lib\pcre2-8.lib): copy it to that name.
-      - name: Put pcre2's library where ssplit looks
-        shell: pwsh
-        run: |
-          $libs = Get-ChildItem bergamot\build -Recurse -Filter "pcre2-8*.lib"
-          $libs | ForEach-Object { "found: $($_.FullName) ($($_.Length) bytes)" }
-          New-Item -ItemType Directory -Force bergamot\build\lib | Out-Null
-          if (-not (Test-Path bergamot\build\lib\pcre2-8.lib)) {
-            $pick = $libs | Where-Object { $_.Name -notmatch 'd\.lib$' } | Select-Object -First 1
-            if (-not $pick) { throw "pcre2's library wasn't built" }
-            Copy-Item $pick.FullName bergamot\build\lib\pcre2-8.lib
-          }
-
-      - name: Build the translator
-        shell: cmd
-        run: cmake --build bergamot\build --target bergamot
+            -DCOMPILE_TESTS=off -DUSE_STATIC_LIBS=on -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded -DBUILD_ARCH=x86-64-v2 ^
+            -DSSPLIT_USE_INTERNAL_PCRE2=off -DCMAKE_PREFIX_PATH=%VCPKG_INSTALLATION_ROOT%\installed\x64-windows-static
+          cmake --build bergamot\build --target bergamot
 
       - name: Test with the Spanish model
         shell: bash
@@ -174,11 +170,11 @@ jobs:
           git checkout FETCH_HEAD
           git submodule update --init --recursive --depth 1
 
-      - name: Build (C++ runtime linked in)
+      - name: Build (C++ runtime linked in; BUILD_ARCH as for Windows)
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build
           cmake -S bergamot -B bergamot/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DUSE_WASM_COMPATIBLE_SOURCE=on \
-            -DCOMPILE_TESTS=off -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc"
+            -DCOMPILE_TESTS=off -DBUILD_ARCH=x86-64-v2 -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc"
           cmake --build bergamot/build --target bergamot
 
       - name: Test with the Spanish model
