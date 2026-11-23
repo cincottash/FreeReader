@@ -23,6 +23,9 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 <img src=".github/readme/library.png" align="right" width="420" alt="The library with two books">
 
 - **Add Books** takes files or a whole folder, or drop them on the window. The files stay where they are.
+- A folder added with **Add Folder…** is kept: each time FreeReader starts, the EPUB books put there since are added
+  (Settings ▸ General lists the folders). A book already in the library, even under another name, isn't added
+  twice; a book whose file moved is found again.
 - Filter by **Reading**, **Finished**, **Not Started**, by **language**, or by your **collections**: make one with
   **+ New Collection**, then drag books onto it.
 - Search by title or author, sort, and switch between covers and a list. Ctrl+wheel over the covers (or Ctrl+= and
@@ -85,8 +88,9 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 
 - **Practice Words** (Ctrl+P, or the Practice button in the library) turns the words you looked up or
   highlighted into flashcards (a highlighted word is never looked up for this: the offline dictionary fills in its
-  meaning, or its card has a **Look Up Meaning** button), scheduled with FSRS (the spaced-repetition method Anki uses): each card comes back just before you
-  would forget it.
+  meaning, or its card has a **Look Up Meaning** button). Each session goes through all your cards in the **Order**
+  you choose: Random, Alphabetical, Newest First, Oldest First, or Book Order. A card you mark **Again** comes back
+  later in the same session.
 - Choose the directions: Spanish → English, English → Spanish, Definition → Word, or the book's sentence with a
   gap. Flip the card, or type the answer (missing accents are accepted but pointed out).
 - **Word List:** every word with its meaning, book and page. Search, change a meaning, star, **Show in Book**,
@@ -158,7 +162,8 @@ FreeReader only opens books without DRM. It never removes or works around DRM.
 <details>
 <summary>Keyboard shortcuts</summary>
 
-Every shortcut can be changed in **Settings** (Ctrl+,).
+Every shortcut can be changed in **Settings** (Ctrl+,). A command can also have a mouse button: the middle, back
+or forward button, with Ctrl, Shift or Alt if you like (**Next Page** and **Previous Page** are there for that).
 
 | Command | Shortcut |
 | --- | --- |
