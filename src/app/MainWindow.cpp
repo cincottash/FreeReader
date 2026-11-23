@@ -826,18 +826,37 @@ void MainWindow::resizeEvent(QResizeEvent* e)
 void MainWindow::showTheme(const Theme& t, bool preview)
 {
     if (preview) {
-        applyThemeTo(m_stack, t);
-    } else {
-        clearThemeFrom(m_stack);
-        applyTheme(*qApp, t);
-        m_theme = t;
+        // Only the screen in view is restyled for a preview: restyling the whole window (the hidden library,
+        // practice, statistics, ...) was most of a preview's time and made the theme list lag (the owner's report,
+        // 2026-11-23). The rest follows when a theme is chosen.
+        QWidget* target = m_stack->currentWidget();
+        if (m_previewTarget && m_previewTarget != target) clearThemeFrom(m_previewTarget);
+        m_previewTarget = target;
+        applyThemeTo(target, t);
+        if (target == m_reader) m_reader->setTheme(t);
+        else if (target == m_start) m_start->setTheme(t);
+        else if (target == m_practice) m_practice->setTheme(t);
+        else if (target == m_librarySearch) m_librarySearch->setTheme(t);
+        else if (target == m_statistics) m_statistics->setTheme(t);
+        else if (target == m_imageViewer) m_imageViewer->setTheme(t);
+        return;
     }
+    endPreview();
+    applyTheme(*qApp, t);
+    m_theme = t;
     m_reader->setTheme(t);
     m_start->setTheme(t);
     m_practice->setTheme(t);
     m_librarySearch->setTheme(t);
     m_statistics->setTheme(t);
     m_imageViewer->setTheme(t);
+}
+
+void MainWindow::endPreview()
+{
+    if (!m_previewTarget) return;
+    clearThemeFrom(m_previewTarget);
+    m_previewTarget = nullptr;
 }
 
 void MainWindow::showPractice(bool wordList)
@@ -895,10 +914,13 @@ void MainWindow::previewTheme(const QString& key)
     m_previewKey = key;
     if (key.isEmpty() || key == m_settings.theme) {
         // Back to the saved theme (only if a preview was showing).
-        if (!m_stack->styleSheet().isEmpty()) {
-            clearThemeFrom(m_stack);
+        if (m_previewTarget) {
+            endPreview();
             m_reader->setTheme(m_theme);
             m_start->setTheme(m_theme);
+            m_practice->setTheme(m_theme);
+            m_librarySearch->setTheme(m_theme);
+            m_statistics->setTheme(m_theme);
             m_imageViewer->setTheme(m_theme);
         }
         return;

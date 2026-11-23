@@ -674,6 +674,16 @@ void PageView::contextMenuEvent(QContextMenuEvent* e)
             clearSelection();
             return;
         }
+        // A word inside a highlight: the menu is for the whole highlight (all its words, the owner's report,
+        // 2026-11-23), not the one word clicked.
+        if (m_highlightSpine == m_anchor.spine)
+            for (const layout::Overlay& o : m_highlights)
+                if (o.start <= m_selStart && o.end >= m_selEnd && o.end - o.start > m_selEnd - m_selStart) {
+                    m_selStart = o.start;
+                    m_selEnd = o.end;
+                    update();
+                    break;
+                }
     }
     if (selectedText().trimmed().isEmpty()) return;
     m_pressed = false;

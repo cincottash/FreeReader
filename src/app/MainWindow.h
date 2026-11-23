@@ -99,6 +99,7 @@ private:
     void changeDataFolder();
     void about();
     void showTheme(const Theme& t, bool preview);
+    void endPreview();   // the screen a preview restyled goes back to the app's theme
     void applyShortcuts();
     void applyPendingJump();
 
@@ -148,6 +149,7 @@ private:
     ThemePicker* m_themePicker;
     QString m_previewKey;
     QPointer<SettingsDialog> m_settingsDialog;
+    QPointer<QWidget> m_previewTarget;   // the screen a theme preview is shown on
     QPointer<class KindleImportDialog> m_kindleDialog;
     QMenu* m_themeMenu = nullptr;
     QNetworkAccessManager* m_net;
