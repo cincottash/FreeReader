@@ -78,6 +78,7 @@ signals:
     void bookFailed(const QString& message);
 
 protected:
+    bool eventFilter(QObject* o, QEvent* e) override;   // mouse-button shortcuts
     void closeEvent(QCloseEvent*) override;
     void dragEnterEvent(QDragEnterEvent*) override;
     void dropEvent(QDropEvent*) override;

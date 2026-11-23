@@ -20,6 +20,8 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QKeySequenceEdit>
+#include <QMouseEvent>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QLocale>
@@ -799,14 +801,18 @@ QWidget* SettingsDialog::buildShortcutsTab()
     auto* lay = new QVBoxLayout(page);
     lay->setContentsMargins(12, 10, 12, 8);
     lay->setSpacing(8);
-    lay->addWidget(muted(tr("Click a shortcut and press the new keys. Backspace clears it.")));
+    lay->addWidget(muted(tr("Click a shortcut and press the new keys. Backspace clears it. Under Mouse, click and then "
+                            "press the middle, back or forward button (with Ctrl, Shift or Alt if you like); Backspace "
+                            "clears it.")));
     m_list = new QTreeWidget;
-    m_list->setColumnCount(2);
-    m_list->setHeaderLabels({tr("Command"), tr("Shortcut")});
+    m_list->setColumnCount(3);
+    m_list->setHeaderLabels({tr("Command"), tr("Shortcut"), tr("Mouse")});
     m_list->setRootIsDecorated(false);
     m_list->header()->setSectionResizeMode(0, QHeaderView::Stretch);
     m_list->header()->setSectionResizeMode(1, QHeaderView::Fixed);
     m_list->header()->resizeSection(1, 200);
+    m_list->header()->setSectionResizeMode(2, QHeaderView::Fixed);
+    m_list->header()->resizeSection(2, 170);
     m_list->header()->setStretchLastSection(false);
     m_list->setMinimumHeight(300);
     m_list->setProperty("testId", "shortcuts");
@@ -844,7 +850,76 @@ void SettingsDialog::fill()
         connect(edit, &QKeySequenceEdit::keySequenceChanged, this, [this, id = c->id](const QKeySequence& k) {
             if (k.isEmpty()) setShortcut(id, k);   // the clear button
         });
+        // The mouse button: click, then press it.
+        auto* mouse = new QPushButton(c->mouse.isEmpty() ? QStringLiteral("—") : mouse_shortcut::display(c->mouse));
+        mouse->setProperty("testId", (QStringLiteral("mouse-") + c->id).toLatin1().constData());
+        mouse->setProperty("commandId", c->id);
+        mouse->setCheckable(true);
+        mouse->setFocusPolicy(Qt::StrongFocus);
+        mouse->setToolTip(tr("Click, then press the middle, back or forward mouse button. Backspace clears it."));
+        mouse->installEventFilter(this);
+        m_list->setItemWidget(it, 2, mouse);
+        connect(mouse, &QPushButton::toggled, this, [this, mouse, id = c->id](bool on) {
+            QString current;
+            for (Command* c2 : m_commands)
+                if (c2->id == id) current = c2->mouse;
+            mouse->setText(on ? tr("Press a Button…") : current.isEmpty() ? QStringLiteral("—") : mouse_shortcut::display(current));
+        });
     }
+}
+
+bool SettingsDialog::eventFilter(QObject* o, QEvent* e)
+{
+    // A Mouse cell waiting for its button: the middle, back or forward button sets it, Backspace clears it.
+    auto* b = qobject_cast<QPushButton*>(o);
+    if (!b || !b->isChecked() || !b->property("commandId").isValid()) return QDialog::eventFilter(o, e);
+    const QString id = b->property("commandId").toString();
+    if (e->type() == QEvent::MouseButtonPress || e->type() == QEvent::MouseButtonDblClick) {
+        auto* me = static_cast<QMouseEvent*>(e);
+        const QString binding = mouse_shortcut::fromEvent(me->button(), me->modifiers());
+        if (binding.isEmpty()) return QDialog::eventFilter(o, e);   // a left click: cancels (unchecks)
+        setMouseShortcut(id, binding);
+        b->setChecked(false);
+        return true;
+    }
+    if (e->type() == QEvent::KeyPress) {
+        const int k = static_cast<QKeyEvent*>(e)->key();
+        if (k == Qt::Key_Backspace || k == Qt::Key_Delete) {
+            setMouseShortcut(id, QString());
+            b->setChecked(false);
+            return true;
+        }
+        if (k == Qt::Key_Escape) {
+            b->setChecked(false);
+            return true;
+        }
+    }
+    return QDialog::eventFilter(o, e);
+}
+
+QString SettingsDialog::setMouseShortcut(const QString& id, const QString& binding)
+{
+    Command* target = nullptr;
+    for (Command* c : m_commands)
+        if (c->id == id) target = c;
+    if (!target) return {};
+    if (!binding.isEmpty())
+        for (Command* c : m_commands)
+            if (c != target && c->mouse == binding) {
+                const QString msg = tr("%1 is already used by %2. Change that one first.").arg(mouse_shortcut::display(binding), c->label);
+                m_message->setText(msg);
+                m_message->show();
+                return msg;
+            }
+    QStringList kept;
+    for (const QString& o : m_settings.mouseShortcuts)
+        if (o.section(QLatin1Char('='), 0, 0) != id) kept << o;
+    if (!binding.isEmpty()) kept << id + QLatin1Char('=') + binding;
+    m_settings.mouseShortcuts = kept;
+    target->mouse = binding;
+    m_message->hide();
+    emit shortcutsChanged();
+    return {};
 }
 
 QString SettingsDialog::setShortcut(const QString& id, const QKeySequence& keys)
@@ -877,6 +952,8 @@ QString SettingsDialog::setShortcut(const QString& id, const QKeySequence& keys)
 void SettingsDialog::resetShortcuts()
 {
     m_settings.shortcuts.clear();
+    m_settings.mouseShortcuts.clear();
+    for (Command* c : m_commands) c->mouse.clear();
     emit shortcutsChanged();
     fill();
     m_message->setText(tr("Every command has its original keys again."));

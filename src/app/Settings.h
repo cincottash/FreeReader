@@ -58,6 +58,7 @@ struct Settings {
     // Files
     QString lastFolder;
     QStringList shortcuts;            // "command-id=Ctrl+X" overrides of the default shortcuts
+    QStringList mouseShortcuts;       // "command-id=Back": mouse buttons that run commands
 
     bool load(const QString& path);
     bool save(const QString& path) const;

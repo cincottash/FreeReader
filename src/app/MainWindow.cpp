@@ -29,6 +29,7 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QMouseEvent>
 #include <QClipboard>
 #include <QCloseEvent>
 #include <QDir>
@@ -208,6 +209,23 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
 
 MainWindow::~MainWindow() = default;
 
+bool MainWindow::eventFilter(QObject* o, QEvent* e)
+{
+    // A mouse button set as a shortcut (Settings > Keyboard Shortcuts > Mouse), pressed anywhere in this window.
+    if (e->type() != QEvent::MouseButtonPress && e->type() != QEvent::MouseButtonDblClick) return false;
+    auto* w = qobject_cast<QWidget*>(o);
+    if (!w || w->window() != this) return false;
+    auto* me = static_cast<QMouseEvent*>(e);
+    const QString binding = mouse_shortcut::fromEvent(me->button(), me->modifiers());
+    if (binding.isEmpty()) return false;
+    for (auto& c : m_commands)
+        if (c->mouse == binding) {
+            if (c->isEnabled()) c->run();
+            return true;
+        }
+    return false;
+}
+
 void MainWindow::addCommand(const QString& id, const QString& label, const QKeySequence& key, std::function<void()> run,
                             std::function<bool()> enabled, const QString& hint)
 {
@@ -263,6 +281,9 @@ void MainWindow::buildCommands()
     }, reading);
     addCommand(QStringLiteral("back"), tr("Back"), QKeySequence(Qt::ALT | Qt::Key_Left), [this] { m_reader->goBack(); },
                [this] { return isReading() && m_reader->canGoBack(); }, tr("Return to where you were before the last jump."));
+    // No keys of their own (the arrow keys turn pages already): for a mouse button, or a key of one's choosing.
+    addCommand(QStringLiteral("next-page"), tr("Next Page"), QKeySequence(), [this] { m_reader->pages()->nextScreen(); }, reading);
+    addCommand(QStringLiteral("previous-page"), tr("Previous Page"), QKeySequence(), [this] { m_reader->pages()->previousScreen(); }, reading);
     addCommand(QStringLiteral("next-chapter"), tr("Next Chapter"), QKeySequence(Qt::CTRL | Qt::Key_PageDown), [this] { m_reader->nextChapter(); }, reading);
     addCommand(QStringLiteral("previous-chapter"), tr("Previous Chapter"), QKeySequence(Qt::CTRL | Qt::Key_PageUp),
                [this] { m_reader->previousChapter(); }, reading);
@@ -353,6 +374,7 @@ void MainWindow::buildCommands()
     addCommand(QStringLiteral("keyboard-shortcuts"), tr("Keyboard Shortcuts"), QKeySequence(), [this] { showSettings(SettingsDialog::ShortcutsTab); },
                nullptr, tr("Every shortcut, and changing them."));
     applyShortcuts();
+    qApp->installEventFilter(this);   // mouse-button shortcuts
 }
 
 void MainWindow::buildMenus()
@@ -513,6 +535,9 @@ void MainWindow::applyShortcuts()
                 changed = true;
             }
         c->shortcut = keys;
+        c->mouse.clear();
+        for (const QString& o : m_settings.mouseShortcuts)
+            if (o.section(QLatin1Char('='), 0, 0) == c->id) c->mouse = o.section(QLatin1Char('='), 1);
         QList<QKeySequence> all;
         if (!keys.isEmpty()) all << keys;
         if (!changed) all << extra.value(c->id);

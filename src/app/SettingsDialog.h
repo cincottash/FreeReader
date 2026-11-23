@@ -43,6 +43,8 @@ public:
 
     // Sets a command's shortcut; returns a message when the keys are taken (then nothing changes).
     QString setShortcut(const QString& id, const QKeySequence& keys);
+    // A mouse button for a command ("Back", "Ctrl+Forward"; empty clears it). A message when another command has it.
+    QString setMouseShortcut(const QString& id, const QString& binding);
     void resetShortcuts();
     QTreeWidget* shortcutList() const { return m_list; }
     void setDataFolder(const QString& folder, bool temporary);
@@ -78,6 +80,9 @@ public:
     bool isDownloadingTranslator() const;
     void setTranslatorSource(const core::DictionaryDownload::Source& s);
     QString lastMessage() const;
+
+protected:
+    bool eventFilter(QObject* o, QEvent* e) override;   // the Mouse cells waiting for a button
 
 signals:
     void changeDataFolderRequested();
