@@ -26,6 +26,10 @@
 #ifdef HAVE_CHMLIB
 #include <chm_lib.h>
 #endif
+#ifdef Q_OS_ANDROID
+#include <QJniEnvironment>
+#include <QJniObject>
+#endif
 #ifdef Q_OS_WIN
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -112,10 +116,22 @@ QString decodeCodePage(const QByteArray& data, int cp, const QString& name)
         }
     }
 #endif
-    // Elsewhere through Qt's converters (ICU), by name.
     static const QHash<int, const char*> cpNames{{932, "Shift_JIS"}, {936, "GBK"}, {950, "Big5"}, {949, "EUC-KR"}, {20866, "KOI8-R"}};
     QString n = name;
     if (n.isEmpty()) n = cpNames.contains(cp) ? QString::fromLatin1(cpNames.value(cp)) : QStringLiteral("windows-%1").arg(cp);
+#ifdef Q_OS_ANDROID
+    // Qt for Android has no converters for these (no ICU): Java's decoders have them all.
+    if (!data.isEmpty()) {
+        QJniEnvironment env;
+        jbyteArray bytes = env->NewByteArray(jsize(data.size()));
+        env->SetByteArrayRegion(bytes, 0, jsize(data.size()), reinterpret_cast<const jbyte*>(data.constData()));
+        const QJniObject charset = QJniObject::fromString(n);
+        const QJniObject text("java/lang/String", "([BLjava/lang/String;)V", bytes, charset.object<jstring>());
+        env->DeleteLocalRef(bytes);
+        if (!env.checkAndClearExceptions() && text.isValid()) return text.toString();
+    }
+#endif
+    // Elsewhere through Qt's converters (ICU), by name.
     QStringDecoder dec(n.toLatin1().constData());
     if (dec.isValid()) return dec(data);
     return convert::decodeAs(data, n);
