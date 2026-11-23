@@ -58,6 +58,7 @@ if(ANDROID)
         set_target_properties(freereader_mobile PROPERTIES QT_ANDROID_PACKAGE_SOURCE_DIR ${CMAKE_SOURCE_DIR}/android)
     endif()
     set_target_properties(freereader_mobile PROPERTIES
+        QT_ANDROID_PACKAGE_NAME org.cincottash.freereader
         QT_ANDROID_TARGET_SDK_VERSION 35
         QT_ANDROID_MIN_SDK_VERSION 28
         QT_ANDROID_VERSION_NAME ${APP_VERSION}
