@@ -55,6 +55,7 @@ void fields(Settings& s, F&& f)
     f("last_folder", s.lastFolder);
     f("shortcuts", s.shortcuts);
     f("mouse_shortcuts", s.mouseShortcuts);
+    f("library_folders", s.libraryFolders);
 }
 
 void get(const QJsonObject& o, const char* k, QString& v) { if (o.value(QLatin1String(k)).isString()) v = o.value(QLatin1String(k)).toString(); }

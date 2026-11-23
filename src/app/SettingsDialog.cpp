@@ -20,6 +20,7 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QKeySequenceEdit>
+#include <QListWidget>
 #include <QMouseEvent>
 #include <QKeyEvent>
 #include <QLabel>
@@ -827,6 +828,7 @@ QWidget* SettingsDialog::buildShortcutsTab()
 
 void SettingsDialog::fill()
 {
+    fillLibraryFolders();
     m_list->clear();
     for (Command* c : m_commands) {
         auto* it = new QTreeWidgetItem(m_list, {c->label});
@@ -982,6 +984,22 @@ QWidget* SettingsDialog::buildGeneralTab()
     lay->addLayout(folderRow);
     connect(change, &QPushButton::clicked, this, &SettingsDialog::changeDataFolderRequested);
 
+    lay->addWidget(sectionTitle(tr("LIBRARY FOLDERS")));
+    lay->addWidget(muted(tr("Folders added with Add Folder… in the library. Each time FreeReader starts, the EPUB books put "
+                            "in them (or their subfolders) since are added to the library. A book already in the "
+                            "library isn't added twice.")));
+    m_libraryFolders = new QListWidget;
+    m_libraryFolders->setProperty("testId", "libraryFolders");
+    m_libraryFolders->setMaximumHeight(110);
+    lay->addWidget(m_libraryFolders);
+    auto* removeFolder = new QPushButton(tr("Remove Folder"));
+    removeFolder->setToolTip(tr("FreeReader stops checking this folder. Its books stay in the library."));
+    removeFolder->setProperty("testId", "removeLibraryFolder");
+    lay->addWidget(removeFolder, 0, Qt::AlignLeft);
+    connect(removeFolder, &QPushButton::clicked, this, [this] {
+        if (QListWidgetItem* it = m_libraryFolders->currentItem()) removeLibraryFolder(it->data(Qt::UserRole).toString());
+    });
+
     lay->addWidget(sectionTitle(tr("RESET")));
     auto* resetLook = new QPushButton(tr("Reset Text and Layout"));
     resetLook->setToolTip(tr("Font, size, spacing, margins, page width and columns for all books go back to the defaults. "
@@ -995,6 +1013,27 @@ QWidget* SettingsDialog::buildGeneralTab()
         m_message->show();
     });
     return page;
+}
+
+void SettingsDialog::fillLibraryFolders()
+{
+    m_libraryFolders->clear();
+    for (const QString& f : m_settings.libraryFolders) {
+        auto* it = new QListWidgetItem(QDir::toNativeSeparators(f), m_libraryFolders);
+        it->setData(Qt::UserRole, f);
+        if (!QFileInfo(f).isDir()) it->setText(it->text() + tr("  (not found now)"));
+    }
+    if (m_settings.libraryFolders.isEmpty()) {
+        auto* it = new QListWidgetItem(tr("None yet."), m_libraryFolders);
+        it->setFlags(Qt::NoItemFlags);
+    }
+}
+
+void SettingsDialog::removeLibraryFolder(const QString& folder)
+{
+    m_settings.libraryFolders.removeAll(folder);
+    fillLibraryFolders();
+    emit libraryFoldersChanged();
 }
 
 void SettingsDialog::setDataFolder(const QString& folder, bool temporary)

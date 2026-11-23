@@ -1,4 +1,7 @@
 #include "Importer.h"
+#include <algorithm>
+#include <QFile>
+#include <QCryptographicHash>
 
 #include "core/format/FormatPlugin.h"
 
@@ -43,11 +46,22 @@ QByteArray Importer::thumbnail(const Book& book, int height)
     return png;
 }
 
-void Importer::add(const QStringList& filesOrFolders)
+QByteArray fileHash(const QString& path)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) return {};
+    QCryptographicHash h(QCryptographicHash::Sha256);
+    if (!h.addData(&f)) return {};
+    return h.result().toHex();
+}
+
+void Importer::add(const QStringList& filesOrFolders) { add(filesOrFolders, {}); }
+
+void Importer::add(const QStringList& filesOrFolders, const QSet<QString>& skip)
 {
     ++m_running;
     m_stop = false;
-    m_pool.start([this, filesOrFolders] {
+    m_pool.start([this, filesOrFolders, skip] {
         // Expand folders into the book files inside them.
         const QStringList suffixes = FormatRegistry::instance().fileSuffixes();
         QStringList patterns;
@@ -62,6 +76,9 @@ void Importer::add(const QStringList& filesOrFolders)
                 files << p;
             }
         }
+        if (!skip.isEmpty())
+            files.erase(std::remove_if(files.begin(), files.end(), [&](const QString& f) { return skip.contains(QFileInfo(f).canonicalFilePath()); }),
+                        files.end());
         files.sort(Qt::CaseInsensitive);
         int done = 0, bad = 0;
         for (const QString& f : files) {
@@ -74,7 +91,7 @@ void Importer::add(const QStringList& filesOrFolders)
                 ++bad;
                 QMetaObject::invokeMethod(this, [this, f, error] { emit failed(f, error); }, Qt::QueuedConnection);
             } else {
-                ImportedBook ib{f, book->metadata, thumbnail(*book)};
+                ImportedBook ib{f, book->metadata, thumbnail(*book), fileHash(f)};
                 QMetaObject::invokeMethod(this, [this, ib] { emit bookRead(ib); }, Qt::QueuedConnection);
             }
             ++done;

@@ -80,6 +80,9 @@ public:
     bool isDownloadingTranslator() const;
     void setTranslatorSource(const core::DictionaryDownload::Source& s);
     QString lastMessage() const;
+    // The library's folders (checked for new books at every start).
+    void fillLibraryFolders();
+    void removeLibraryFolder(const QString& folder);
 
 protected:
     bool eventFilter(QObject* o, QEvent* e) override;   // the Mouse cells waiting for a button
@@ -89,6 +92,7 @@ signals:
     void shortcutsChanged();
     void resetTextAndLayoutRequested();
     void translationChanged();   // a translation option changed: apply it and save the settings
+    void libraryFoldersChanged();
 
 private:
     QWidget* buildTranslationTab();
@@ -107,6 +111,7 @@ private:
     QTreeWidget* m_list;
     QLabel* m_message;
     QLabel* m_folder;
+    class QListWidget* m_libraryFolders;
 
     QLabel* m_keyStatus;
     QLineEdit* m_keyEdit;

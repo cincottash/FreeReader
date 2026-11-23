@@ -124,6 +124,8 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     connect(m_start, &LibraryView::openRequested, this, &MainWindow::openBook);
     connect(m_start, &LibraryView::settingsLinkClicked, this, &MainWindow::changeDataFolder);
     connect(m_start, &LibraryView::settingsChanged, this, &MainWindow::saveSettingsSoon);
+    // The library's folders: books put there since the last start are added (quietly when there are none).
+    if (interactive) QTimer::singleShot(400, m_start, &LibraryView::checkFolders);
     m_start->setPrompt([this](const QString& title, const QString& placeholder, std::function<QString(const QString&)> accept) {
         m_palette->showPrompt(title, placeholder, std::move(accept));
     });
@@ -644,6 +646,7 @@ void MainWindow::showSettings(int tab)
             applyTranslationSettings();
             saveSettingsSoon();
         });
+        connect(m_settingsDialog, &SettingsDialog::libraryFoldersChanged, this, &MainWindow::saveSettingsSoon);
         connect(m_settingsDialog, &SettingsDialog::shortcutsChanged, this, [this] {
             applyShortcuts();
             saveSettingsSoon();
@@ -660,6 +663,7 @@ void MainWindow::showSettings(int tab)
     }
     m_settingsDialog->setDataFolder(appdata::folder(), appdata::isTemporary());
     m_settingsDialog->refreshTranslation();
+    m_settingsDialog->fillLibraryFolders();
     m_settingsDialog->showTab(SettingsDialog::Tab(tab));
     m_settingsDialog->show();
     m_settingsDialog->raise();

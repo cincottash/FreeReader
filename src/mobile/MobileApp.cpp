@@ -185,10 +185,17 @@ MobileApp::MobileApp(const QString& dataFolder, QObject* parent) : QObject(paren
 
     m_importer = new core::Importer(this);
     connect(m_importer, &core::Importer::bookRead, this, [this](const core::ImportedBook& b) {
-        if (m_library) m_library->addBook(b.path, b.meta, b.coverPng);
+        const QString title = b.meta.title.isEmpty() ? QFileInfo(b.path).completeBaseName() : b.meta.title;
+        // A book already in the library isn't added twice: the app's new copy of it goes again.
+        if (m_library && m_library->duplicateOf(b.path, b.meta, b.contentHash)) {
+            QFile::remove(b.path);
+            setMessage(tr("%1 is already in your library.").arg(title));
+            return;
+        }
+        if (m_library) m_library->addBook(b.path, b.meta, b.coverPng, b.contentHash);
         m_model->refresh();
         emit booksChanged();
-        setMessage(tr("Added %1.").arg(b.meta.title.isEmpty() ? QFileInfo(b.path).completeBaseName() : b.meta.title));
+        setMessage(tr("Added %1.").arg(title));
     });
     connect(m_importer, &core::Importer::failed, this, [this](const QString& path, const QString& why) {
         QFile::remove(path);   // the app's own copy of a file it can't read

@@ -577,17 +577,48 @@ LibraryView::LibraryView(core::Library* library, Settings& settings, QWidget* pa
     connect(m_importer, &core::Importer::progress, this, [this](int done, int total, const QString& name) {
         if (!name.isEmpty()) setMessage(tr("Adding books… %1 of %2: %3").arg(QLocale().toString(done + 1), QLocale().toString(total), name));
     });
-    connect(m_importer, &core::Importer::bookRead, this, [this](const core::ImportedBook& b) {
-        if (m_library) m_library->addBook(b.path, b.meta, b.coverPng);
-    });
     auto failures = std::make_shared<QStringList>();
+    auto duplicates = std::make_shared<QStringList>();
+    connect(m_importer, &core::Importer::bookRead, this, [this, duplicates](const core::ImportedBook& b) {
+        if (!m_library) return;
+        // A book already in the library (the same file elsewhere, or the same book in another file) isn't added
+        // again; when its old file is gone, the library uses this one instead.
+        if (const int dup = m_library->duplicateOf(b.path, b.meta, b.contentHash)) {
+            const core::LibraryBook old = m_library->book(dup);
+            if (!QFileInfo::exists(old.path)) {
+                m_library->setPath(dup, b.path);
+                m_library->addBook(b.path, b.meta, b.coverPng, b.contentHash);
+            } else {
+                *duplicates << (old.title.isEmpty() ? QFileInfo(b.path).fileName() : old.title);
+                m_library->rememberDuplicate(b.path, dup);
+            }
+            return;
+        }
+        m_library->addBook(b.path, b.meta, b.coverPng, b.contentHash);
+    });
     connect(m_importer, &core::Importer::failed, this, [failures](const QString& path, const QString& message) {
         *failures << QStringLiteral("• %1: %2").arg(QFileInfo(path).fileName(), message);
     });
-    connect(m_importer, &core::Importer::finished, this, [this, failures](int read, int bad) {
-        QString msg = read == 0 && bad == 0 ? tr("No EPUB books were found there.") : count(read, tr("Added %1 book."), tr("Added %1 books."));
+    connect(m_importer, &core::Importer::finished, this, [this, failures, duplicates](int read, int bad) {
+        const int dups = int(duplicates->size());
+        const int added = read - dups;
+        const bool quiet = m_quietImport;
+        m_quietImport = false;
+        // The folder check at start says nothing when nothing changed.
+        if (quiet && read == 0 && bad == 0) {
+            refresh();
+            return;
+        }
+        QString msg = read == 0 && bad == 0 ? tr("No EPUB books were found there.")
+                      : quiet               ? count(added, tr("Added %1 new book from your folders."), tr("Added %1 new books from your folders."))
+                                            : count(added, tr("Added %1 book."), tr("Added %1 books."));
+        if (dups)
+            msg += QLatin1Char('\n') + count(dups, tr("%1 was already in the library, so it wasn't added again:"),
+                                             tr("%1 were already in the library, so they weren't added again:")) +
+                   QLatin1Char(' ') + duplicates->join(QStringLiteral(", "));
         if (bad) msg += QLatin1Char('\n') + count(bad, tr("%1 file couldn't be added:"), tr("%1 files couldn't be added:")) + QLatin1Char('\n') + failures->join(QLatin1Char('\n'));
         failures->clear();
+        duplicates->clear();
         setMessage(msg);
         refresh();
     });
@@ -868,7 +899,28 @@ void LibraryView::chooseFolderToAdd()
     const QString dir = QFileDialog::getExistingDirectory(this, tr("Add a Folder of Books"), m_settings.lastFolder.isEmpty() ? QDir::homePath() : m_settings.lastFolder);
     if (dir.isEmpty()) return;
     m_settings.lastFolder = dir;
-    addBooks({dir});
+    addFolder(dir);
+}
+
+void LibraryView::addFolder(const QString& dir)
+{
+    const QString d = QDir::cleanPath(QDir::fromNativeSeparators(dir));
+    if (!m_settings.libraryFolders.contains(d, Qt::CaseInsensitive)) {
+        m_settings.libraryFolders << d;
+        emit settingsChanged();
+    }
+    addBooks({d});
+}
+
+void LibraryView::checkFolders()
+{
+    if (!m_library || m_settings.libraryFolders.isEmpty() || isImporting()) return;
+    QStringList existing;
+    for (const QString& f : m_settings.libraryFolders)
+        if (QFileInfo(f).isDir()) existing << f;   // a folder that is gone (an unplugged drive) is skipped this time
+    if (existing.isEmpty()) return;
+    m_quietImport = true;
+    m_importer->add(existing, m_library->bookPaths());
 }
 
 void LibraryView::newCollection()

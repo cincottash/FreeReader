@@ -56,7 +56,12 @@ public:
     // Opening a book: adds it or updates its details, and records that it was opened. Returns its id (0 on failure).
     int touchBook(const QString& path, const BookMetadata& meta);
     // Adding a book to the library (import): adds it or updates its details, keeps the cover thumbnail (PNG).
-    int addBook(const QString& path, const BookMetadata& meta, const QByteArray& coverPng);
+    int addBook(const QString& path, const BookMetadata& meta, const QByteArray& coverPng, const QByteArray& contentHash = {});
+    // A book already in the library that the file at `path` is a copy of: the same bytes (fingerprint), or the same
+    // identifier, title and author. 0 when it's new (or when it's that same path: adding it again updates it).
+    int duplicateOf(const QString& path, const BookMetadata& meta, const QByteArray& contentHash);
+    QSet<QString> bookPaths() const;   // every book's file, and the copies already found (canonical paths)
+    void rememberDuplicate(const QString& path, int bookId);   // a folder check reads it no more
     QList<LibraryBook> books() const;
     QList<LibraryBook> recentBooks(int limit) const;   // opened books, most recent first
     LibraryBook book(int id) const;

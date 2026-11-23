@@ -1,4 +1,5 @@
 #include "Library.h"
+#include "Importer.h"
 
 #include "core/format/Book.h"
 
@@ -15,7 +16,7 @@ namespace core {
 
 namespace {
 
-constexpr int kSchemaVersion = 7;
+constexpr int kSchemaVersion = 8;
 
 QString nowIso() { return QDateTime::currentDateTimeUtc().toString(Qt::ISODate); }
 
@@ -157,6 +158,13 @@ bool Library::open(const QString& databaseFile, QString* error)
                  " PRIMARY KEY (book_id, day))"))
             return false;
     }
+    if (version < 8) {
+        // Each book file's fingerprint (SHA-256), to tell when a file being added is a book already in the library.
+        if (!run("ALTER TABLE books ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''")) return false;
+        // Files found to be copies of a book in the library, so a folder check doesn't read them again.
+        if (!run("CREATE TABLE IF NOT EXISTS duplicate_files (path TEXT PRIMARY KEY, book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE)"))
+            return false;
+    }
     if (version < kSchemaVersion) q.exec(QStringLiteral("PRAGMA user_version=%1").arg(kSchemaVersion));
     m_open = true;
     return true;
@@ -174,21 +182,23 @@ int Library::touchBook(const QString& path, const BookMetadata& meta)
     return id;
 }
 
-int Library::addBook(const QString& path, const BookMetadata& meta, const QByteArray& coverPng)
+int Library::addBook(const QString& path, const BookMetadata& meta, const QByteArray& coverPng, const QByteArray& contentHash)
 {
     if (!m_open) return 0;
     QSqlDatabase db = QSqlDatabase::database(m_connection);
     const QString p = canonicalPath(path);
     QSqlQuery q(db);
-    q.prepare(QStringLiteral("INSERT INTO books (path, identifier, title, author, language, added) VALUES (?,?,?,?,?,?) "
+    q.prepare(QStringLiteral("INSERT INTO books (path, identifier, title, author, language, added, content_hash) VALUES (?,?,?,?,?,?,?) "
                              "ON CONFLICT(path) DO UPDATE SET identifier=excluded.identifier, title=excluded.title, "
-                             "author=excluded.author, language=excluded.language"));
+                             "author=excluded.author, language=excluded.language, "
+                             "content_hash=CASE WHEN excluded.content_hash<>'' THEN excluded.content_hash ELSE books.content_hash END"));
     q.addBindValue(p);
     q.addBindValue(meta.identifier);
     q.addBindValue(meta.title);
     q.addBindValue(meta.authors.join(QStringLiteral(", ")));
     q.addBindValue(meta.language);
     q.addBindValue(nowIso());
+    q.addBindValue(contentHash.isEmpty() ? QStringLiteral("") : QString::fromLatin1(contentHash));   // never NULL (opening a book has none)
     if (!q.exec()) return 0;
     const int id = bookIdForPath(p);
     if (id && !coverPng.isEmpty()) {
@@ -199,6 +209,69 @@ int Library::addBook(const QString& path, const BookMetadata& meta, const QByteA
         c.exec();
     }
     return id;
+}
+
+int Library::duplicateOf(const QString& path, const BookMetadata& meta, const QByteArray& contentHash)
+{
+    if (!m_open) return 0;
+    const QString p = canonicalPath(path);
+    const qint64 size = QFileInfo(path).size();
+    QSqlQuery q(QSqlDatabase::database(m_connection));
+    q.prepare(QStringLiteral("SELECT id, path, identifier, title, author, content_hash FROM books WHERE path<>?"));
+    q.addBindValue(p);
+    if (!q.exec()) return 0;
+    QList<QPair<int, QString>> unhashed;
+    while (q.next()) {
+        const int id = q.value(0).toInt();
+        const QString otherPath = q.value(1).toString(), identifier = q.value(2).toString();
+        const QString hash = q.value(5).toString();
+        // The same bytes: the same file, copied or renamed.
+        if (!contentHash.isEmpty() && hash == QString::fromLatin1(contentHash)) return id;
+        // The same book in another file (another download of it): the same identifier, title and author.
+        if (!meta.identifier.isEmpty() && identifier == meta.identifier && !meta.title.isEmpty() &&
+            q.value(3).toString().compare(meta.title, Qt::CaseInsensitive) == 0 &&
+            q.value(4).toString().compare(meta.authors.join(QStringLiteral(", ")), Qt::CaseInsensitive) == 0)
+            return id;
+        if (hash.isEmpty()) unhashed << qMakePair(id, otherPath);
+    }
+    // Books added before fingerprints were kept: the ones with the same size get theirs now.
+    if (!contentHash.isEmpty())
+        for (const auto& [id, otherPath] : unhashed) {
+            if (QFileInfo(otherPath).size() != size) continue;
+            const QByteArray h = fileHash(otherPath);
+            if (h.isEmpty()) continue;
+            QSqlQuery u(QSqlDatabase::database(m_connection));
+            u.prepare(QStringLiteral("UPDATE books SET content_hash=? WHERE id=?"));
+            u.addBindValue(QString::fromLatin1(h));
+            u.addBindValue(id);
+            u.exec();
+            if (h == contentHash) return id;
+        }
+    return 0;
+}
+
+QSet<QString> Library::bookPaths() const
+{
+    QSet<QString> out;
+    if (!m_open) return out;
+    QSqlQuery q(QSqlDatabase::database(m_connection));
+    if (q.exec(QStringLiteral("SELECT path FROM books")))
+        while (q.next()) out.insert(q.value(0).toString());
+    // Copies already found, while their book's own file is there (when it's gone, a copy can take its place).
+    if (q.exec(QStringLiteral("SELECT d.path, b.path FROM duplicate_files d JOIN books b ON b.id = d.book_id")))
+        while (q.next())
+            if (QFileInfo::exists(q.value(1).toString())) out.insert(q.value(0).toString());
+    return out;
+}
+
+void Library::rememberDuplicate(const QString& path, int bookId)
+{
+    if (!m_open) return;
+    QSqlQuery q(QSqlDatabase::database(m_connection));
+    q.prepare(QStringLiteral("INSERT INTO duplicate_files (path, book_id) VALUES (?,?) ON CONFLICT(path) DO UPDATE SET book_id=excluded.book_id"));
+    q.addBindValue(canonicalPath(path));
+    q.addBindValue(bookId);
+    q.exec();
 }
 
 int Library::bookIdForPath(const QString& path) const
