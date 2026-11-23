@@ -117,6 +117,9 @@ public:
     core::OfflineTranslator* offlineTranslator() const { return m_offline; }
     core::SavedWords* savedWords() const { return m_savedWords; }
     SettingsDialog* settingsDialog() const;
+    // File > Import Kindle Highlights…: ile empty asks for one. The dialog stays open with the result.
+    void importKindle(const QString& file = QString());
+    class KindleImportDialog* kindleDialog() const;
 
 private:
 
@@ -143,6 +146,7 @@ private:
     ThemePicker* m_themePicker;
     QString m_previewKey;
     QPointer<SettingsDialog> m_settingsDialog;
+    QPointer<class KindleImportDialog> m_kindleDialog;
     QMenu* m_themeMenu = nullptr;
     QNetworkAccessManager* m_net;
     core::GeminiProvider* m_gemini;

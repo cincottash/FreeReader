@@ -10,6 +10,8 @@
 
 #include <QLineEdit>
 #include "SettingsDialog.h"
+#include "KindleImportDialog.h"
+#include "core/services/KindleImport.h"
 #include "ThemePicker.h"
 
 #include "core/format/FormatPlugin.h"
@@ -36,6 +38,8 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QStandardPaths>
+#include <QGuiApplication>
 #include <QMimeData>
 #include <QNetworkAccessManager>
 #include <QScreen>
@@ -299,6 +303,8 @@ void MainWindow::buildCommands()
         m_reader->setBookOffline(!m_reader->bookIsOffline());
     }, [this] { return isReading() && !m_settings.offlineOnly; }, tr("Text from this book is never sent to Gemini."));
     if (Command* c = command(QStringLiteral("book-offline"))) c->action->setCheckable(true);
+    addCommand(QStringLiteral("import-kindle"), tr("Import Kindle Highlights…"), QKeySequence(), [this] { importKindle(); }, reading,
+               tr("Highlights, notes and bookmarks from a Kindle export (Bookcision's JSON or My Clippings.txt) into this book."));
     addCommand(QStringLiteral("search-book"), tr("Search This Book…"), QKeySequence(Qt::CTRL | Qt::Key_F), [this] {
         m_reader->openSearch(m_reader->pages()->hasSelection() ? m_reader->pages()->selectedText() : QString());
     }, reading, tr("Every place a word or phrase appears, with its page."));
@@ -370,6 +376,7 @@ void MainWindow::buildMenus()
     add(file, "add-books");
     add(file, "add-folder");
     add(file, "new-collection");
+    add(file, "import-kindle");
     file->addSeparator();
     add(file, "library");
     file->addSeparator();
@@ -510,6 +517,40 @@ void MainWindow::applyShortcuts()
 }
 
 QString MainWindow::translatorFolder() { return QDir(appdata::folder()).filePath(QStringLiteral("translator")); }
+
+KindleImportDialog* MainWindow::kindleDialog() const { return m_kindleDialog; }
+
+void MainWindow::importKindle(const QString& fileArg)
+{
+    const core::Book* book = m_engine->book();
+    if (!isReading() || !book) return;
+    QString file = fileArg;
+    if (file.isEmpty()) {
+        if (!m_interactive) return;
+        file = QFileDialog::getOpenFileName(this, tr("Import Kindle Highlights"), QStandardPaths::writableLocation(QStandardPaths::DownloadLocation),
+                                            tr("Kindle highlights (*.json *.txt);;All files (*)"));
+        if (file.isEmpty()) return;
+    }
+    QFile f(file);
+    QString error;
+    core::KindleExport ex;
+    if (!f.open(QIODevice::ReadOnly)) error = tr("The file can't be read: %1").arg(f.errorString());
+    else ex = core::parseKindleExport(f.readAll(), book->metadata.title);
+    if (error.isEmpty()) error = ex.error;
+    if (!error.isEmpty()) {
+        m_lastError = error;
+        if (m_interactive) QMessageBox::information(this, tr("Import Kindle Highlights"), error);
+        return;
+    }
+    QGuiApplication::setOverrideCursor(Qt::WaitCursor);
+    const core::KindlePlan plan = core::planKindleImport(*book, ex);
+    QGuiApplication::restoreOverrideCursor();
+    if (m_kindleDialog) m_kindleDialog->deleteLater();
+    m_kindleDialog = new KindleImportDialog(ex, plan, book->metadata.title,
+                                            [this, plan](const ReaderView::KindleOptions& o) { return m_reader->importKindle(plan, o); }, this);
+    m_kindleDialog->setAttribute(Qt::WA_DeleteOnClose);
+    if (m_interactive) m_kindleDialog->open();
+}
 
 QString MainWindow::dictionaryFile(const QString& language)
 {

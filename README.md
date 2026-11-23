@@ -93,6 +93,10 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 - **Bookmark This Page** (Ctrl+D, or the bookmark button).
 - **Notebook** (Ctrl+Shift+N): the book's highlights, notes and bookmarks in reading order, filtered by kind or
   color. Click one to go there; **Export…** saves them as Markdown, or as JSON for other tools.
+- **File ▸ Import Kindle Highlights…** brings highlights, notes and bookmarks from a Kindle (a Bookcision JSON
+  export or a Kindle's My Clippings.txt) into the open book, and can continue from your Kindle place. Each highlight
+  is found by its text, so another edition of the book works too; words that edition says differently still go to the
+  Word List, and passages and notes it doesn't have become bookmarks at about their place.
 - **Search This Book** (Ctrl+F): every place a word or phrase appears, with its page. Accents and capitals don't
   matter unless you ask ("razon" finds "razón").
 - **Search All Books** (Ctrl+Shift+F, or **Search Inside Books** in the library): the same in the text of every

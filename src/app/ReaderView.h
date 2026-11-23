@@ -40,6 +40,7 @@ class QTextToSpeech;
 struct Settings;
 
 namespace core {
+struct KindlePlan;
 class OfflineTranslator;
 class BookEngine;
 class Library;
@@ -102,6 +103,17 @@ public:
 
     // Highlights, notes, bookmarks (phase 4).
     void setAnnotations(core::Annotations* a) { m_notes = a; }
+    // Kindle highlights (see core/services/KindleImport.h) into the open book: highlights with their notes, words
+    // for the Word List (also those this edition words differently, at about their place), bookmarks, and the
+    // Kindle reading place. Anything already there is skipped, so importing twice adds nothing.
+    struct KindleOptions {
+        bool highlights = true, words = true, missingWords = true, missingPassages = true, bookmarks = true, moveToLastRead = true;
+    };
+    struct KindleResult {
+        int highlights = 0, words = 0, missingWords = 0, passages = 0, bookmarks = 0, skipped = 0;
+        bool moved = false;
+    };
+    KindleResult importKindle(const core::KindlePlan& plan, const KindleOptions& options);
     int highlightSelection(const QString& color);   // the highlight's id; an existing one changes color
     bool removeHighlightAtSelection();
     int highlightAtSelection() const;              // the highlight the selection is in, 0 when none

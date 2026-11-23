@@ -1,0 +1,139 @@
+#include "KindleImportDialog.h"
+
+#include <QCheckBox>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QListWidget>
+#include <QLocale>
+#include <QPushButton>
+#include <QVBoxLayout>
+
+KindleImportDialog::KindleImportDialog(const core::KindleExport& ex, const core::KindlePlan& plan, const QString& bookTitle, Apply apply,
+                                       QWidget* parent)
+    : QDialog(parent), m_apply(std::move(apply))
+{
+    setWindowTitle(tr("Import Kindle Highlights"));
+    const QLocale loc;
+    auto* lay = new QVBoxLayout(this);
+    lay->setContentsMargins(18, 14, 18, 14);
+    lay->setSpacing(10);
+
+    int words = 0, missingWords = 0, missingPassages = 0;
+    for (const core::KindlePlaced& p : plan.items) {
+        if (p.item.bookmark) continue;
+        const int n = int(p.item.text.simplified().split(QLatin1Char(' '), Qt::SkipEmptyParts).size());
+        if (!p.found && (n > 4 || !p.item.note.isEmpty())) ++missingPassages;
+        if (n > 4) continue;
+        (p.found ? words : missingWords) += 1;
+    }
+    QString s = tr("From <b>%1</b> into <b>%2</b>:").arg(ex.title.toHtmlEscaped(), bookTitle.toHtmlEscaped());
+    s += QStringLiteral("<ul style='margin-left:-20px'>");
+    s += QStringLiteral("<li>") + tr("%1 highlights found in this book").arg(loc.toString(plan.found));
+    if (plan.notes) s += tr(" (%1 with notes)").arg(loc.toString(plan.notes));
+    s += QStringLiteral("</li>");
+    if (plan.notFound)
+        s += QStringLiteral("<li>") + tr("%1 not in this book's text: your Kindle edition words them differently").arg(loc.toString(plan.notFound)) +
+             QStringLiteral("</li>");
+    if (plan.bookmarks) s += QStringLiteral("<li>") + tr("%1 bookmarks").arg(loc.toString(plan.bookmarks)) + QStringLiteral("</li>");
+    if (plan.lastLocation)
+        s += QStringLiteral("<li>") + tr("Your Kindle place: location %1, about %2 % through the book")
+                                         .arg(loc.toString(plan.lastLocation), loc.toString(qRound(plan.lastFraction * 100))) + QStringLiteral("</li>");
+    s += QStringLiteral("</ul>");
+    m_summary = new QLabel(s);
+    m_summary->setWordWrap(true);
+    m_summary->setTextFormat(Qt::RichText);
+    m_summary->setProperty("testId", "kindleSummary");
+    lay->addWidget(m_summary);
+
+    auto check = [&](const QString& text, const char* id, bool on, bool enabled) {
+        auto* c = new QCheckBox(text);
+        c->setChecked(on && enabled);
+        c->setEnabled(enabled);
+        c->setProperty("testId", id);
+        lay->addWidget(c);
+        return c;
+    };
+    m_highlights = check(tr("Highlight Them in the Book (With Their Notes)"), "kindleHighlights", true, plan.found > 0);
+    m_words = check(tr("Add the Words and Short Phrases to the Word List (%1)").arg(loc.toString(words)), "kindleWords", true, words > 0);
+    m_missing = check(tr("Also Add the Words This Edition Doesn't Have (%1), Marked as From Kindle").arg(loc.toString(missingWords)),
+                      "kindleMissing", true, missingWords > 0);
+    m_passages = check(tr("Keep the Passages and Notes This Edition Doesn't Have (%1) as Bookmarks at About Their Place").arg(loc.toString(missingPassages)),
+                       "kindlePassages", true, missingPassages > 0);
+    m_bookmarks = check(tr("Add the Bookmarks (%1)").arg(loc.toString(plan.bookmarks)), "kindleBookmarks", true, plan.bookmarks > 0);
+    m_move = check(tr("Continue Reading From My Kindle Place (About %1 %)").arg(loc.toString(qRound(plan.lastFraction * 100))), "kindleMove",
+                   true, plan.lastLocation > 0);
+    m_missing->setToolTip(tr("They go to the Word List with the chapter they're in, for practice; the book has no place to highlight."));
+
+    m_showMissing = new QPushButton(tr("Show the Highlights Not Found (%1)").arg(loc.toString(plan.notFound)));
+    m_showMissing->setObjectName(QStringLiteral("Link"));
+    m_showMissing->setCursor(Qt::PointingHandCursor);
+    m_showMissing->setVisible(plan.notFound > 0);
+    m_showMissing->setProperty("testId", "kindleShowMissing");
+    lay->addWidget(m_showMissing, 0, Qt::AlignLeft);
+    m_missingList = new QListWidget;
+    m_missingList->setProperty("testId", "kindleMissingList");
+    for (const core::KindlePlaced& p : plan.items)
+        if (!p.found && !p.item.bookmark) m_missingList->addItem(tr("Location %1: %2").arg(p.item.location).arg(p.item.text));
+    m_missingList->setMinimumHeight(180);
+    m_missingList->hide();
+    lay->addWidget(m_missingList, 1);
+    connect(m_showMissing, &QPushButton::clicked, this, [this] {
+        m_missingList->setVisible(!m_missingList->isVisible());
+        adjustSize();
+    });
+
+    m_result = new QLabel;
+    m_result->setWordWrap(true);
+    m_result->setProperty("testId", "kindleResult");
+    m_result->hide();
+    lay->addWidget(m_result);
+
+    auto* buttons = new QHBoxLayout;
+    buttons->addStretch(1);
+    m_close = new QPushButton(tr("Cancel"));
+    m_import = new QPushButton(tr("Import"));
+    m_import->setDefault(true);
+    m_import->setObjectName(QStringLiteral("Suggested"));
+    m_import->setProperty("testId", "kindleImport");
+    m_close->setProperty("testId", "kindleClose");
+    buttons->addWidget(m_close);
+    buttons->addWidget(m_import);
+    lay->addLayout(buttons);
+    connect(m_import, &QPushButton::clicked, this, &KindleImportDialog::runImport);
+    connect(m_close, &QPushButton::clicked, this, [this] { m_done ? accept() : reject(); });
+    resize(560, sizeHint().height());
+}
+
+ReaderView::KindleOptions KindleImportDialog::options() const
+{
+    ReaderView::KindleOptions o;
+    o.highlights = m_highlights->isChecked();
+    o.words = m_words->isChecked();
+    o.missingWords = m_missing->isChecked();
+    o.missingPassages = m_passages->isChecked();
+    o.bookmarks = m_bookmarks->isChecked();
+    o.moveToLastRead = m_move->isChecked();
+    return o;
+}
+
+QString KindleImportDialog::summary() const { return m_summary->text(); }
+QString KindleImportDialog::resultText() const { return m_result->text(); }
+
+void KindleImportDialog::runImport()
+{
+    if (m_done || !m_apply) return;
+    const ReaderView::KindleResult r = m_apply(options());
+    m_done = true;
+    const QLocale loc;
+    QStringList lines;
+    lines << tr("Imported: %1 highlights, %2 words to the Word List, %3 words this edition doesn't have, %4 bookmarks.")
+                 .arg(loc.toString(r.highlights), loc.toString(r.words), loc.toString(r.missingWords), loc.toString(r.bookmarks));
+    if (r.passages) lines << tr("%1 passages and notes this edition doesn't have are bookmarks at about their place.").arg(loc.toString(r.passages));
+    if (r.skipped) lines << tr("%1 were already there and were left as they are.").arg(loc.toString(r.skipped));
+    if (r.moved) lines << tr("The book is open at your Kindle place.");
+    m_result->setText(lines.join(QLatin1Char('\n')));
+    m_result->show();
+    m_import->setEnabled(false);
+    for (QCheckBox* c : {m_highlights, m_words, m_missing, m_passages, m_bookmarks, m_move}) c->setEnabled(false);
+    m_close->setText(tr("Close"));
+}
