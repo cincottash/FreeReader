@@ -334,6 +334,11 @@ void MobileApp::importBook(const QUrl& url)
 
 QStringList MobileApp::bookFilters() const
 {
+#ifdef Q_OS_ANDROID
+    // Android's picker turns name filters into file types and greys out the ones it doesn't know (.cbz, .cbr,
+    // .azw3…): every file can be picked, and the format is read from its bytes.
+    return {tr("All files (*)")};
+#endif
     QStringList patterns;
     for (const QString& s : core::FormatRegistry::instance().fileSuffixes()) patterns << QStringLiteral("*.") + s;
     return {tr("Books (%1)").arg(patterns.join(QLatin1Char(' '))), tr("All files (*)")};
