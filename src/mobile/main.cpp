@@ -2,14 +2,16 @@
 //
 // Test mode (desktop builds): --data-folder <folder> keeps everything in a folder of its own; --screenshot <png>
 // renders the window off-screen and exits, never showing anything (with --book <epub> to add and open a book,
-// --page N to turn N pages, --lookup to long-press a word, --size WxH, --theme paper|sepia|night, --screen
-// library|reader|settings). Problems are reported on the command line, never in a dialog.
+// --page N to turn N pages, --lookup to long-press a word, --select, --highlight pink,blue, --bookmark, --size WxH,
+// --theme <any theme key>, --screen library|reader|settings|menu, --part contents|notebook|search|look|selection|
+// dictionary). Problems are reported on the command line, never in a dialog.
 #include "BookPage.h"
 #include "MobileApp.h"
 
 #include "app/Appearance.h"
 #include "core/format/FormatPlugin.h"
 #include "core/services/Library.h"
+#include "core/services/Secrets.h"
 
 #include <QCommandLineParser>
 #include <QDir>
@@ -80,6 +82,8 @@ int main(int argc, char** argv)
     if (screenshot) {
         qputenv("QT_QPA_PLATFORM", "offscreen");
         QQuickWindow::setGraphicsApi(QSGRendererInterface::Software);
+        // Never the computer's real key store: a key saved for the real app isn't read, shown or changed.
+        core::secrets::useMemoryStore(true);
     }
     QGuiApplication app(argc, argv);
     QGuiApplication::setApplicationName(QStringLiteral(APP_NAME));
@@ -96,6 +100,10 @@ int main(int argc, char** argv)
     cli.addOption({QStringLiteral("size"), QStringLiteral("With --screenshot: window size, e.g. 412x915."), QStringLiteral("WxH")});
     cli.addOption({QStringLiteral("theme"), QStringLiteral("With --screenshot: paper, sepia or night."), QStringLiteral("key")});
     cli.addOption({QStringLiteral("screen"), QStringLiteral("With --screenshot: library, reader, settings or menu."), QStringLiteral("name")});
+    cli.addOption({QStringLiteral("highlight"), QStringLiteral("With --screenshot: highlight a few words in these colors (comma-separated)."), QStringLiteral("colors")});
+    cli.addOption({QStringLiteral("bookmark"), QStringLiteral("With --screenshot: bookmark the page.")});
+    cli.addOption({QStringLiteral("select"), QStringLiteral("With --screenshot: select a word on the page (no lookup).")});
+    cli.addOption({QStringLiteral("part"), QStringLiteral("With --screenshot: open contents, notebook, search, look, selection or dictionary."), QStringLiteral("name")});
     cli.process(app);
 
     QString folder = cli.value(QStringLiteral("data-folder"));
@@ -152,6 +160,23 @@ int main(int argc, char** argv)
                 waitFor([&] { return page->isReady(); }, 10000);
             }
             wait(100);
+            // A word at a height on the page; false when there is none near it.
+            auto selectNear = [&](qreal fromY) {
+                page->clearSelection();
+                for (qreal y = fromY; y < page->height() - 40 && !page->hasSelection(); y += 24) page->selectWordAt(page->width() / 2, y);
+                return page->hasSelection();
+            };
+            if (cli.isSet(QStringLiteral("highlight"))) {
+                qreal y = 60;
+                for (const QString& color : cli.value(QStringLiteral("highlight")).split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+                    if (!selectNear(y)) return fail(QStringLiteral("No word to highlight."));
+                    page->extendSelectionTo(page->width() * 0.85, y + 30);
+                    mobile.highlight(page, color.trimmed());
+                    y += 110;
+                }
+            }
+            if (cli.isSet(QStringLiteral("bookmark"))) mobile.toggleBookmark();
+            if (cli.isSet(QStringLiteral("select")) && !selectNear(80)) return fail(QStringLiteral("No word to select."));
             if (cli.isSet(QStringLiteral("lookup"))) {
                 // The first word a little below the top of the page.
                 for (qreal y = 80; y < page->height() - 40 && !page->hasSelection(); y += 24)
@@ -165,6 +190,8 @@ int main(int argc, char** argv)
     const QString screen = cli.value(QStringLiteral("screen"));
     if (screen == QLatin1String("settings") || screen == QLatin1String("menu"))
         QMetaObject::invokeMethod(window, "showScreen", Q_ARG(QVariant, screen));
+    if (cli.isSet(QStringLiteral("part")))
+        QMetaObject::invokeMethod(window, "showScreen", Q_ARG(QVariant, QStringLiteral("part:") + cli.value(QStringLiteral("part"))));
     wait(400);
     const QImage img = window->grabWindow();
     if (img.isNull() || !img.save(cli.value(QStringLiteral("screenshot")))) return fail(QStringLiteral("The picture couldn't be saved."));

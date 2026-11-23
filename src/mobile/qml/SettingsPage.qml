@@ -1,4 +1,4 @@
-// Settings: reading (text size, margins, theme), translation (the Gemini key, the offline dictionary) and About.
+// Settings: reading (text size, margins, theme), translation (the Gemini key, the offline dictionaries) and About.
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -56,18 +56,12 @@ Page {
             Slider { Layout.fillWidth: true; from: 60; to: 250; stepSize: 10; value: settings.app.textSize; onMoved: settings.app.textSize = value }
             Label { text: qsTr("Margins: %1 px").arg(settings.app.margins); color: settings.theme.fg }
             Slider { Layout.fillWidth: true; from: 4; to: 80; stepSize: 4; value: settings.app.margins; onMoved: settings.app.margins = value }
-            RowLayout {
-                spacing: 8
-                Repeater {
-                    model: [["paper", qsTr("Paper")], ["sepia", qsTr("Sepia")], ["night", qsTr("Night")]]
-                    delegate: Button {
-                        required property var modelData
-                        text: modelData[1]
-                        checkable: true
-                        checked: settings.app.theme === modelData[0]
-                        onClicked: settings.app.theme = modelData[0]
-                    }
-                }
+            Label { text: qsTr("Theme"); color: settings.theme.fg }
+            ThemeList {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 300
+                app: settings.app
+                theme: settings.theme
             }
 
             Section { text: qsTr("GEMINI (GOOGLE, ONLINE)") }
@@ -94,14 +88,31 @@ Page {
             }
             Note { id: keyMessage; visible: text.length > 0 }
 
-            Section { text: qsTr("OFFLINE DICTIONARY") }
-            Note { text: qsTr("Answers single words with no internet, and while Gemini's answer is on its way. Made from Wiktionary (CC BY-SA 4.0).") }
-            Label { text: settings.app.dictionaryStatus; color: settings.theme.fg; wrapMode: Text.Wrap; Layout.fillWidth: true }
-            ProgressBar { Layout.fillWidth: true; visible: settings.app.downloadProgress >= 0; value: Math.max(0, settings.app.downloadProgress) }
-            Button {
-                visible: !settings.app.dictionaryInstalled
-                text: settings.app.downloadProgress >= 0 ? qsTr("Cancel Download") : qsTr("Download")
-                onClicked: settings.app.downloadProgress >= 0 ? settings.app.cancelDownload() : settings.app.downloadDictionary()
+            Section { text: qsTr("OFFLINE DICTIONARIES") }
+            Note { text: qsTr("Optional downloads that work with no internet. Each is made from free data (Wiktionary, CC BY-SA 4.0; Open English WordNet, CC BY 4.0).") }
+            Repeater {
+                model: settings.app.dictionaries
+                delegate: ColumnLayout {
+                    required property var modelData
+                    Layout.fillWidth: true
+                    spacing: 4
+                    Label { text: modelData.title; font.weight: Font.DemiBold; color: settings.theme.fg }
+                    Note { text: modelData.about + " " + modelData.status }
+                    ProgressBar { Layout.fillWidth: true; visible: modelData.downloading; value: Math.max(0, modelData.progress) }
+                    RowLayout {
+                        Button {
+                            objectName: "download-" + modelData.key
+                            visible: !modelData.installed
+                            text: modelData.downloading ? qsTr("Cancel Download") : qsTr("Download (%1 MB)").arg(modelData.sizeMb)
+                            onClicked: modelData.downloading ? settings.app.cancelDownload(modelData.key) : settings.app.downloadDictionary(modelData.key)
+                        }
+                        Button {
+                            visible: modelData.installed
+                            text: qsTr("Remove")
+                            onClicked: settings.app.removeDictionary(modelData.key)
+                        }
+                    }
+                }
             }
 
             Section { text: qsTr("ABOUT") }

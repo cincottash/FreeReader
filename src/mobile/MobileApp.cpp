@@ -2,18 +2,24 @@
 
 #include "BookPage.h"
 
+#include "core/services/Annotations.h"
 #include "core/services/BookEngine.h"
+#include "core/services/BookIndex.h"
+#include "core/services/Highlighting.h"
 #include "core/services/Importer.h"
 #include "core/services/Library.h"
 #include "core/services/Secrets.h"
 #include "core/services/WordLog.h"
 #include "core/translate/AiProviders.h"
+#include "core/translate/DictionaryCardHtml.h"
 #include "core/translate/DictionaryDownload.h"
 #include "core/translate/OfflineDictionary.h"
 #include "core/translate/SavedWords.h"
 #include "core/translate/TranslationService.h"
 
+#include <QClipboard>
 #include <QDesktopServices>
+#include <QGuiApplication>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
@@ -27,30 +33,51 @@ namespace {
 
 const QString kGeminiKey = QStringLiteral("gemini-api-key");
 
-// The reading themes of the touch app.
+// The page's colors: the same themes as the desktop app.
 MobileApp::Colors themeColors(const QString& key)
 {
-    MobileApp::Colors c;   // paper
-    if (key == QLatin1String("sepia")) {
-        c.bg = QColor(0xF3, 0xE9, 0xD2);
-        c.fg = QColor(0x4A, 0x3B, 0x2A);
-        c.muted = QColor(0x8A, 0x75, 0x56);
-        c.accent = QColor(0x9C, 0x5B, 0x1F);
-        c.line = QColor(0xD6, 0xC7, 0xA6);
-        c.surface = QColor(0xEA, 0xDF, 0xC4);
-        c.sel = QColor(0xE0, 0xB0, 0x60, 0x90);
-        c.pop = QColor(0xFB, 0xF4, 0xE4);
-    } else if (key == QLatin1String("night")) {
-        c.bg = QColor(0x14, 0x14, 0x14);
-        c.fg = QColor(0xDA, 0xD4, 0xC8);
-        c.muted = QColor(0x8E, 0x87, 0x7B);
-        c.accent = QColor(0xE0, 0xA8, 0x4B);
-        c.line = QColor(0x2E, 0x2E, 0x2E);
-        c.surface = QColor(0x1E, 0x1E, 0x1E);
-        c.sel = QColor(0x4A, 0x5A, 0x78, 0xC0);
-        c.pop = QColor(0x24, 0x24, 0x24);
-    }
+    const Theme t = Theme::forChoice(key);
+    MobileApp::Colors c;
+    c.bg = t.bg;
+    c.fg = t.fg;
+    c.muted = t.muted;
+    c.accent = t.accent;
+    c.line = t.line;
+    c.surface = t.surface;
+    c.sel = t.sel;
+    c.pop = t.pop;
+    c.dark = t.dark;
     return c;
+}
+
+bool isThemeKey(const QString& key)
+{
+    if (key == QLatin1String("system")) return true;
+    for (const ThemeDef& d : themeTable())
+        if (d.key == key) return true;
+    return false;
+}
+
+// The offline dictionaries: Spanish -> English, English definitions, Spanish definitions (as on the desktop).
+struct DictionaryKind {
+    const char* key;
+    const char* file;
+};
+const DictionaryKind kDictionaries[] = {{"es", "es-en.sqlite"}, {"en", "en-en.sqlite"}, {"es-es", "es-es.sqlite"}};
+
+core::DictionaryDownload::Source sourceFor(const QString& key)
+{
+    if (key == QLatin1String("en")) return core::DictionaryDownload::englishDefinitions();
+    if (key == QLatin1String("es-es")) return core::DictionaryDownload::spanishDefinitions();
+    return core::DictionaryDownload::spanishEnglish();
+}
+
+QString keyOf(const core::DictionaryInfo& info)
+{
+    if (info.language == QLatin1String("es") && info.target == QLatin1String("en")) return QStringLiteral("es");
+    if (info.language == QLatin1String("en") && info.target == QLatin1String("en")) return QStringLiteral("en");
+    if (info.language == QLatin1String("es") && info.target == QLatin1String("es")) return QStringLiteral("es-es");
+    return {};
 }
 
 QString safeFileName(QString name)
@@ -120,7 +147,9 @@ MobileApp::MobileApp(const QString& dataFolder, QObject* parent) : QObject(paren
     m_settings.look.lineSpacingPct = 150;
     m_settings.theme = QStringLiteral("paper");
     m_settings.load(QDir(m_folder).filePath(QStringLiteral("settings.json")));
-    if (!QStringList{"paper", "sepia", "night"}.contains(m_settings.theme)) m_settings.theme = QStringLiteral("paper");
+    // The first touch app had three themes of its own; "night" is Midnight now.
+    if (m_settings.theme == QLatin1String("night")) m_settings.theme = QStringLiteral("midnight");
+    if (!isThemeKey(m_settings.theme)) m_settings.theme = QStringLiteral("paper");
 
     m_library = std::make_unique<core::Library>();
     QString err;
@@ -130,6 +159,7 @@ MobileApp::MobileApp(const QString& dataFolder, QObject* parent) : QObject(paren
     }
     m_model = new BookListModel(m_library.get(), this);
     if (m_library) m_words = std::make_unique<core::WordLog>(m_library.get());
+    if (m_library) m_notes = std::make_unique<core::Annotations>(m_library.get());
 
     m_engine = new core::BookEngine(this);
     connect(m_engine, &core::BookEngine::opened, this, &MobileApp::onOpened);
@@ -138,7 +168,19 @@ MobileApp::MobileApp(const QString& dataFolder, QObject* parent) : QObject(paren
         m_openingId = 0;
         setMessage(why);
     });
-    connect(m_engine, &core::BookEngine::indexReady, this, &MobileApp::updateLocation);
+    connect(m_engine, &core::BookEngine::indexReady, this, [this] {
+        updateLocation();
+        emit contentsChanged();
+    });
+    connect(m_engine, &core::BookEngine::searchFinished, this, [this](int id, const QList<core::SearchHit>& hits, bool truncated) {
+        if (id != m_searchId) return;
+        m_searchId = 0;
+        m_hits = hits;
+        m_searchSummary = hits.isEmpty() ? tr("Not found.")
+                          : truncated   ? tr("The first %1 matches.").arg(hits.size())
+                                        : tr("%n match(es).", nullptr, int(hits.size()));
+        emit searchChanged();
+    });
 
     m_importer = new core::Importer(this);
     connect(m_importer, &core::Importer::bookRead, this, [this](const core::ImportedBook& b) {
@@ -161,14 +203,18 @@ MobileApp::MobileApp(const QString& dataFolder, QObject* parent) : QObject(paren
     m_gemini = new core::GeminiProvider(m_net, this);
     m_gemini->setKey(core::secrets::read(kGeminiKey));
     m_dictionary = new core::OfflineDictionary(this);
-    m_dictionary->open(dictionaryFile());
+    m_dictionary->open(dictionaryFile(QStringLiteral("es")));
+    m_dictionaryEn = new core::OfflineDictionary(this);
+    m_dictionaryEn->open(dictionaryFile(QStringLiteral("en")));
+    m_definitionsEs = new core::OfflineDictionary(this);   // the Dictionary card only, never a translation
+    m_definitionsEs->open(dictionaryFile(QStringLiteral("es-es")));
     m_savedWords = new core::SavedWords(this);
-    m_savedWords->setDictionaries({m_dictionary});
+    m_savedWords->setDictionaries({m_dictionary, m_dictionaryEn});
     m_savedWords->setWordLog(m_words.get());
     m_translator = new core::TranslationService(this);
     m_translator->setCache(m_library.get());
-    m_translator->setProviders({m_gemini, m_savedWords, m_dictionary});
-    m_translator->setInstant({m_dictionary});
+    m_translator->setProviders({m_gemini, m_savedWords, m_dictionary, m_dictionaryEn});
+    m_translator->setInstant({m_dictionary, m_dictionaryEn});
     connect(m_translator, &core::TranslationService::finished, this, &MobileApp::onTranslated);
     connect(m_translator, &core::TranslationService::interim, this, [this](int id, const core::TranslationResult& r) {
         if (id != m_lookupId) return;
@@ -182,6 +228,7 @@ MobileApp::MobileApp(const QString& dataFolder, QObject* parent) : QObject(paren
     m_saveTimer.setSingleShot(true);
     m_saveTimer.setInterval(1500);
     connect(&m_saveTimer, &QTimer::timeout, this, &MobileApp::savePosition);
+    connect(this, &MobileApp::annotationsChanged, this, &MobileApp::bookmarkChanged);
 }
 
 MobileApp::~MobileApp()
@@ -201,7 +248,20 @@ void MobileApp::setMessage(const QString& text)
 
 QString MobileApp::version() const { return QStringLiteral(APP_VERSION); }
 
-QString MobileApp::dictionaryFile() const { return QDir(m_folder).filePath(QStringLiteral("dictionaries/es-en.sqlite")); }
+QString MobileApp::dictionaryFile(const QString& key) const
+{
+    for (const DictionaryKind& k : kDictionaries)
+        if (key == QLatin1String(k.key)) return QDir(m_folder).filePath(QStringLiteral("dictionaries/") + QLatin1String(k.file));
+    return {};
+}
+
+core::OfflineDictionary* MobileApp::dictionaryFor(const QString& key) const
+{
+    if (key == QLatin1String("es")) return m_dictionary;
+    if (key == QLatin1String("en")) return m_dictionaryEn;
+    if (key == QLatin1String("es-es")) return m_definitionsEs;
+    return nullptr;
+}
 
 // ---------------------------------------------------------------- library
 
@@ -260,6 +320,8 @@ void MobileApp::onOpened()
     m_model->refresh();
     emit readingChanged();
     emit locationChanged();
+    emit annotationsChanged();
+    emit contentsChanged();
     emit bookOpened();
 }
 
@@ -273,6 +335,14 @@ void MobileApp::closeBook()
     m_chapter.clear();
     m_pageText.clear();
     closeLookup();
+    closeCard();
+    m_engine->cancelSearch();
+    m_searchId = 0;
+    m_hits.clear();
+    m_searchSummary.clear();
+    emit searchChanged();
+    emit annotationsChanged();
+    emit contentsChanged();
     m_model->refresh();
     emit readingChanged();
     emit locationChanged();
@@ -316,6 +386,7 @@ void MobileApp::pageMoved(QObject* object)
     m_position = page->position();
     updateLocation();
     m_saveTimer.start();
+    emit bookmarkChanged();
 }
 
 void MobileApp::updateLocation()
@@ -446,7 +517,7 @@ void MobileApp::setMargins(int px)
 
 void MobileApp::setTheme(const QString& key)
 {
-    if (key == m_settings.theme || !QStringList{"paper", "sepia", "night"}.contains(key)) return;
+    if (key == m_settings.theme || !isThemeKey(key)) return;
     m_settings.theme = key;
     saveSettings();
     emit lookChanged();
@@ -459,7 +530,7 @@ QVariantMap MobileApp::colors() const
     const Colors c = pageColors();
     return {{QStringLiteral("bg"), c.bg}, {QStringLiteral("fg"), c.fg}, {QStringLiteral("muted"), c.muted},
             {QStringLiteral("accent"), c.accent}, {QStringLiteral("line"), c.line}, {QStringLiteral("surface"), c.surface},
-            {QStringLiteral("pop"), c.pop}, {QStringLiteral("dark"), m_settings.theme == QLatin1String("night")}};
+            {QStringLiteral("pop"), c.pop}, {QStringLiteral("dark"), c.dark}};
 }
 
 bool MobileApp::hasGeminiKey() const { return m_gemini->hasKey(); }
@@ -492,17 +563,22 @@ QString MobileApp::dictionaryStatus() const
     return tr("Spanish → English: not installed (%1 MB download).").arg((core::DictionaryDownload::spanishEnglish().size + 500000) / 1000000);
 }
 
-void MobileApp::downloadDictionary()
+void MobileApp::downloadDictionary(const QString& key)
 {
-    if (m_download && m_download->isRunning()) return;
-    if (!m_download) {
-        m_download = new core::DictionaryDownload(this);
-        connect(m_download, &core::DictionaryDownload::progress, this, [this](qint64 got, qint64 total) {
-            m_downloadProgress = total > 0 ? double(got) / double(total) : 0;
+    core::OfflineDictionary* dict = dictionaryFor(key);
+    if (!dict) return;
+    core::DictionaryDownload*& d = m_downloads[key];
+    if (d && d->isRunning()) return;
+    if (!d) {
+        d = new core::DictionaryDownload(this);
+        connect(d, &core::DictionaryDownload::progress, this, [this, key](qint64 got, qint64 total) {
+            m_progressByKey[key] = total > 0 ? double(got) / double(total) : 0;
+            if (key == QLatin1String("es")) m_downloadProgress = m_progressByKey[key];
             emit downloadChanged();
         });
-        connect(m_download, &core::DictionaryDownload::finished, this, [this](const QString& file, const QString& error) {
-            m_downloadProgress = -1;
+        connect(d, &core::DictionaryDownload::finished, this, [this, key](const QString& file, const QString& error) {
+            m_progressByKey.remove(key);
+            if (key == QLatin1String("es")) m_downloadProgress = -1;
             emit downloadChanged();
             if (!error.isEmpty()) {
                 QFile::remove(file);
@@ -510,28 +586,336 @@ void MobileApp::downloadDictionary()
                 return;
             }
             const core::DictionaryInfo info = core::OfflineDictionary::inspect(file);
-            if (!info.ok || info.language != QLatin1String("es")) {
+            if (!info.ok || keyOf(info) != key) {
                 QFile::remove(file);
                 setMessage(tr("The downloaded dictionary can't be used."));
                 return;
             }
-            m_dictionary->close();
-            QFile::remove(dictionaryFile());
-            QFile::rename(file, dictionaryFile());
-            m_dictionary->open(dictionaryFile());
+            core::OfflineDictionary* target = dictionaryFor(key);
+            target->close();
+            QFile::remove(dictionaryFile(key));
+            QFile::rename(file, dictionaryFile(key));
+            target->open(dictionaryFile(key));
             setMessage(tr("The dictionary is installed."));
             emit translationChanged();
+            emit downloadChanged();
         });
     }
-    QDir().mkpath(QFileInfo(dictionaryFile()).absolutePath());
-    m_downloadProgress = 0;
+    QDir().mkpath(QFileInfo(dictionaryFile(key)).absolutePath());
+    m_progressByKey[key] = 0;
+    if (key == QLatin1String("es")) m_downloadProgress = 0;
     emit downloadChanged();
-    m_download->start(core::DictionaryDownload::spanishEnglish(), dictionaryFile() + QStringLiteral(".download"));
+    d->start(sourceFor(key), dictionaryFile(key) + QStringLiteral(".download"));
 }
 
-void MobileApp::cancelDownload()
+void MobileApp::cancelDownload(const QString& key)
 {
-    if (m_download) m_download->cancel();
+    for (auto it = m_downloads.begin(); it != m_downloads.end(); ++it)
+        if ((key.isEmpty() || it.key() == key) && it.value()) it.value()->cancel();
+}
+
+void MobileApp::removeDictionary(const QString& key)
+{
+    core::OfflineDictionary* d = dictionaryFor(key);
+    if (!d) return;
+    d->close();
+    QFile::remove(dictionaryFile(key));   // the app's own copy
+    emit translationChanged();
+    emit downloadChanged();
+}
+
+QVariantList MobileApp::dictionaries() const
+{
+    QVariantList out;
+    for (const DictionaryKind& k : kDictionaries) {
+        const QString key = QLatin1String(k.key);
+        const core::OfflineDictionary* d = dictionaryFor(key);
+        const QString title = key == QLatin1String("es") ? tr("Spanish → English")
+                            : key == QLatin1String("en") ? tr("English definitions")
+                                                         : tr("Spanish definitions");
+        const QString about = key == QLatin1String("es") ? tr("Single words at once, with no internet (Wiktionary).")
+                            : key == QLatin1String("en") ? tr("For English books (Open English WordNet).")
+                                                         : tr("For the Dictionary card in Spanish books (Spanish Wiktionary).");
+        const bool installed = d && d->info().ok;
+        const core::DictionaryDownload* dl = m_downloads.value(key);
+        const qint64 size = sourceFor(key).size;
+        QVariantMap m;
+        m[QStringLiteral("key")] = key;
+        m[QStringLiteral("title")] = title;
+        m[QStringLiteral("about")] = about;
+        m[QStringLiteral("installed")] = installed;
+        m[QStringLiteral("downloading")] = dl && dl->isRunning();
+        m[QStringLiteral("progress")] = m_progressByKey.value(key, -1);
+        m[QStringLiteral("sizeMb")] = int((size + 500000) / 1000000);
+        m[QStringLiteral("status")] = installed ? tr("%1 words.").arg(QLocale().toString(d->info().entries)) : tr("Not installed.");
+        out << m;
+    }
+    return out;
+}
+
+QVariantList MobileApp::themes() const
+{
+    QVariantList out;
+    for (const ThemeDef& d : themeTable()) {
+        const Theme t = Theme::fromDef(d);
+        out << QVariantMap{{QStringLiteral("key"), t.key}, {QStringLiteral("name"), t.name}, {QStringLiteral("group"), t.group},
+                           {QStringLiteral("bg"), t.bg}, {QStringLiteral("fg"), t.fg}, {QStringLiteral("accent"), t.accent}};
+    }
+    return out;
+}
+
+// ---------------------------------------------------------------- the Dictionary card
+
+bool MobileApp::showDictionary(QObject* object)
+{
+    auto* page = qobject_cast<BookPage*>(object);
+    if (!page || !page->hasSelection()) return false;
+    const core::FoundCard f = core::findDictionaryCard({m_definitionsEs, m_dictionaryEn, m_dictionary}, page->selectedText(), languageCode());
+    if (!f.found()) return false;
+    const Colors c = pageColors();
+    m_card = {{QStringLiteral("found"), true},
+              {QStringLiteral("title"), f.title.toUpper()},
+              {QStringLiteral("html"), core::dictionaryCardHtml(f.card, c.fg, c.muted, c.line)},
+              {QStringLiteral("source"), f.source},
+              {QStringLiteral("url"), f.fullDefinition.toString(QUrl::FullyEncoded)},
+              {QStringLiteral("offer"), f.offerDefinitions},
+              {QStringLiteral("word"), f.card.headwords.first().word}};
+    emit cardChanged();
+    return true;
+}
+
+void MobileApp::closeCard()
+{
+    if (m_card.isEmpty()) return;
+    m_card.clear();
+    emit cardChanged();
+}
+
+// ---------------------------------------------------------------- highlights, notes, bookmarks
+
+int MobileApp::annotationAt(QObject* object) const
+{
+    auto* page = qobject_cast<BookPage*>(object);
+    if (!page || !m_notes || !m_bookId || !page->hasSelection()) return 0;
+    for (const core::Annotation& a : m_notes->highlightsAt(m_bookId, page->selectionSpine(), page->selectionStart(), page->selectionEnd()))
+        if (a.start <= page->selectionStart() && a.end >= page->selectionEnd()) return a.id;
+    return 0;
+}
+
+int MobileApp::highlight(QObject* object, const QString& color)
+{
+    auto* page = qobject_cast<BookPage*>(object);
+    if (!page || !m_notes || !m_bookId || !page->hasSelection()) return 0;
+    const int spine = page->selectionSpine();
+    const core::HighlightChange c = core::highlightRange(*m_notes, *m_engine, m_bookId, spine, page->selectionStart(),
+                                                         page->selectionEnd(), color, chapterTitleAt({spine, page->selectionStart()}),
+                                                         page->selectedText());
+    page->clearSelection();
+    emit annotationsChanged();
+    return c.id;
+}
+
+QString MobileApp::highlightColorAt(QObject* page) const
+{
+    const int id = annotationAt(page);
+    return id ? m_notes->get(id).color : QString();
+}
+
+QString MobileApp::noteAt(QObject* page) const
+{
+    const int id = annotationAt(page);
+    return id ? m_notes->get(id).note : QString();
+}
+
+int MobileApp::setNote(QObject* object, const QString& note)
+{
+    auto* page = qobject_cast<BookPage*>(object);
+    if (!page || !m_notes || !page->hasSelection()) return 0;
+    int id = annotationAt(page);
+    if (!id) {
+        // A note goes on a highlight: yellow when the words aren't highlighted yet.
+        const int spine = page->selectionSpine();
+        id = core::highlightRange(*m_notes, *m_engine, m_bookId, spine, page->selectionStart(), page->selectionEnd(),
+                                  QStringLiteral("yellow"), chapterTitleAt({spine, page->selectionStart()}), page->selectedText()).id;
+    }
+    if (!id) return 0;
+    core::Annotation a = m_notes->get(id);
+    a.note = note.trimmed();
+    m_notes->update(a);
+    page->clearSelection();
+    emit annotationsChanged();
+    return id;
+}
+
+void MobileApp::removeHighlightAt(QObject* object)
+{
+    auto* page = qobject_cast<BookPage*>(object);
+    const int id = annotationAt(object);
+    if (!id) return;
+    m_notes->remove(id);
+    if (page) page->clearSelection();
+    emit annotationsChanged();
+}
+
+namespace {
+
+// The end of the page that starts at `p` (its chapter must be laid out), else `p` itself.
+int pageEnd(core::BookEngine* engine, const core::Position& p)
+{
+    const auto cl = engine->layout(p.spine);
+    if (!cl) return p.offset;
+    const int page = cl->pageForOffset(p.offset);
+    return page >= 0 && page < int(cl->pages.size()) ? cl->pages[size_t(page)].end : p.offset;
+}
+
+}  // namespace
+
+void MobileApp::toggleBookmark()
+{
+    if (!m_notes || !m_bookId) return;
+    const int end = pageEnd(m_engine, m_position);
+    if (const int existing = m_notes->bookmarkAt(m_bookId, m_position.spine, m_position.offset, qMax(m_position.offset, end - 1))) {
+        m_notes->remove(existing);
+    } else {
+        const auto cl = m_engine->layout(m_position.spine);
+        core::Annotation a;
+        a.bookId = m_bookId;
+        a.kind = core::Annotation::Bookmark;
+        a.spine = m_position.spine;
+        a.start = a.end = m_position.offset;
+        a.text = cl ? cl->flow->textRange(m_position.offset, qMin(end, m_position.offset + 120)).simplified() : QString();
+        a.cfi = m_engine->cfiFor(m_position);
+        if (const auto ix = m_engine->index()) a.pageLabel = ix->pageLabel(m_position);
+        a.chapter = chapterTitleAt(m_position);
+        m_notes->add(a);
+    }
+    emit annotationsChanged();
+}
+
+bool MobileApp::pageBookmarked() const
+{
+    if (!m_notes || !m_bookId) return false;
+    const int end = pageEnd(m_engine, m_position);
+    return m_notes->bookmarkAt(m_bookId, m_position.spine, m_position.offset, qMax(m_position.offset, end - 1)) != 0;
+}
+
+void MobileApp::removeAnnotation(int id)
+{
+    if (!m_notes) return;
+    m_notes->remove(id);
+    emit annotationsChanged();
+}
+
+void MobileApp::goToAnnotation(int id)
+{
+    if (!m_notes) return;
+    const core::Annotation a = m_notes->get(id);
+    if (a.id == 0 || a.bookId != m_bookId) return;
+    core::Position p{a.spine, a.start};
+    if (!a.cfi.isEmpty()) {
+        core::Position fromCfi;
+        if (m_engine->positionForCfi(a.cfi, &fromCfi)) p = fromCfi;
+    }
+    emit jumpRequested(p.spine, p.offset);
+}
+
+void MobileApp::copyText(const QString& text)
+{
+    if (QClipboard* c = QGuiApplication::clipboard()) c->setText(text);
+}
+
+QVariantList MobileApp::notebook() const
+{
+    QVariantList out;
+    if (!m_notes || !m_bookId) return out;
+    for (const core::Annotation& a : m_notes->forBook(m_bookId)) {
+        const bool hl = a.kind == core::Annotation::Highlight;
+        out << QVariantMap{{QStringLiteral("id"), a.id},
+                           {QStringLiteral("kind"), hl ? QStringLiteral("highlight") : QStringLiteral("bookmark")},
+                           {QStringLiteral("color"), a.color},
+                           {QStringLiteral("swatch"), hl ? core::Annotations::colorValue(a.color) : pageColors().accent},
+                           {QStringLiteral("text"), a.text},
+                           {QStringLiteral("note"), a.note},
+                           {QStringLiteral("page"), a.pageLabel},
+                           {QStringLiteral("chapter"), a.chapter}};
+    }
+    return out;
+}
+
+QVariantList MobileApp::highlightColors() const
+{
+    QVariantList out;
+    for (const QString& c : core::Annotations::colors())
+        out << QVariantMap{{QStringLiteral("key"), c}, {QStringLiteral("swatch"), core::Annotations::colorValue(c)}};
+    return out;
+}
+
+std::vector<layout::Overlay> MobileApp::highlightsIn(int spine) const
+{
+    std::vector<layout::Overlay> out;
+    if (!m_notes || !m_bookId) return out;
+    const bool dark = pageColors().dark;
+    for (const core::Annotation& a : m_notes->inChapter(m_bookId, spine)) {
+        if (a.kind != core::Annotation::Highlight) continue;
+        QColor c = core::Annotations::colorValue(a.color);
+        c.setAlphaF(dark ? 0.34f : 0.42f);
+        out.push_back({a.start, a.end, c});
+    }
+    return out;
+}
+
+// ---------------------------------------------------------------- contents and search
+
+QVariantList MobileApp::contents() const
+{
+    QVariantList out;
+    const core::Book* book = m_engine->book();
+    if (!book) return out;
+    const auto ix = m_engine->index();
+    const int current = ix ? ix->tocEntryAt(m_position) : -1;
+    for (size_t i = 0; i < book->toc.size(); ++i)
+        out << QVariantMap{{QStringLiteral("title"), book->toc[i].title.simplified()},
+                           {QStringLiteral("depth"), book->toc[i].depth},
+                           {QStringLiteral("current"), int(i) == current}};
+    return out;
+}
+
+void MobileApp::goToContents(int index)
+{
+    const auto ix = m_engine->index();
+    if (!ix || index < 0 || index >= int(ix->toc.size()) || ix->toc[size_t(index)].spine < 0) return;
+    emit jumpRequested(ix->toc[size_t(index)].spine, ix->toc[size_t(index)].offset);
+}
+
+void MobileApp::search(const QString& query)
+{
+    m_hits.clear();
+    m_searchSummary.clear();
+    if (!m_bookId || query.trimmed().size() < 2) {
+        m_engine->cancelSearch();
+        m_searchId = 0;
+        emit searchChanged();
+        return;
+    }
+    m_searchId = m_engine->search(query.trimmed(), core::SearchOptions{});
+    m_searchSummary = tr("Searching…");
+    emit searchChanged();
+}
+
+void MobileApp::goToSearchResult(int index)
+{
+    if (index < 0 || index >= m_hits.size()) return;
+    emit jumpRequested(m_hits[index].spine, m_hits[index].start);
+}
+
+QVariantList MobileApp::searchResults() const
+{
+    QVariantList out;
+    const auto ix = m_engine->index();
+    for (const core::SearchHit& h : m_hits)
+        out << QVariantMap{{QStringLiteral("before"), h.before}, {QStringLiteral("match"), h.match}, {QStringLiteral("after"), h.after},
+                           {QStringLiteral("page"), ix ? ix->pageLabel({h.spine, h.start}) : QString()}};
+    return out;
 }
 
 void MobileApp::openLink(const QString& url) { QDesktopServices::openUrl(QUrl(url)); }

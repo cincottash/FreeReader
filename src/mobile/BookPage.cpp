@@ -33,6 +33,8 @@ void BookPage::setApp(MobileApp* app)
             applyParams();
             render();
         });
+        connect(m_app, &MobileApp::annotationsChanged, this, &BookPage::render);
+        connect(m_app, &MobileApp::jumpRequested, this, [this](int spine, int offset) { moveTo({spine, offset}); });
         m_anchor = m_app->startPosition();
         applyParams();
     }
@@ -273,7 +275,7 @@ void BookPage::render()
     if (cl && !cl->pages.empty()) {
         QPainter p(&img);
         const layout::RenderColors colors{c.fg, c.muted, c.accent, c.line, c.surface};
-        std::vector<layout::Overlay> overlays;
+        std::vector<layout::Overlay> overlays = m_app ? m_app->highlightsIn(m_anchor.spine) : std::vector<layout::Overlay>();
         if (m_selSpine == m_anchor.spine && hasSelection()) overlays.push_back({m_selStart, m_selEnd, c.sel});
         layout::paintPage(p, *cl, cl->pageForOffset(m_anchor.offset), pageRect().topLeft(), colors, overlays);
     }

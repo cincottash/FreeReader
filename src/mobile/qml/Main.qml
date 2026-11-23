@@ -11,14 +11,15 @@ ApplicationWindow {
     height: 915
     visible: true
     title: "FreeReader"
-    color: theme.bg
+    color: appTheme.bg
 
-    Theme { id: theme; colors: win.app.colors }
+    Theme { id: appTheme; colors: win.app.colors }
 
     // The screenshot mode opens a screen by name.
     function showScreen(name) {
         if (name === "settings") stack.push(settingsScreen)
         else if (name === "menu" && stack.currentItem && stack.currentItem.showChrome) stack.currentItem.showChrome(true)
+        else if (name.startsWith("part:") && stack.currentItem && stack.currentItem.showPart) stack.currentItem.showPart(name.substring(5))
     }
 
     StackView {
@@ -26,7 +27,7 @@ ApplicationWindow {
         anchors.fill: parent
         initialItem: LibraryPage {
             app: win.app
-            theme: theme
+            theme: appTheme
             onSettingsRequested: stack.push(settingsScreen)
         }
     }
@@ -35,7 +36,7 @@ ApplicationWindow {
         id: readerScreen
         ReaderPage {
             app: win.app
-            theme: theme
+            theme: appTheme
             onSettingsRequested: stack.push(settingsScreen)
             onCloseRequested: stack.pop()
         }
@@ -44,7 +45,7 @@ ApplicationWindow {
         id: settingsScreen
         SettingsPage {
             app: win.app
-            theme: theme
+            theme: appTheme
             onCloseRequested: stack.pop()
         }
     }

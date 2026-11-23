@@ -31,7 +31,10 @@ QString dictionaryCardHtml(const DictionaryCard& card, const QColor& fg, const Q
     QString h = QStringLiteral("<div style=\"font-family: 'Literata', Georgia, serif; font-size: 15px; color: %1;\">").arg(fg.name());
     for (int i = 0; i < card.headwords.size(); ++i) {
         const DictionaryHeadword& w = card.headwords[i];
-        if (i) h += QStringLiteral("<hr style=\"color: %1;\"/>").arg(line.name());
+        // A thin rule between headwords (Qt's <hr> ignores its color: a one-pixel table cell instead).
+        if (i)
+            h += QStringLiteral("<table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin: 10px 0 6px 0;\">"
+                                "<tr><td bgcolor=\"%1\" height=\"1\" style=\"font-size: 1px;\"></td></tr></table>").arg(line.name());
         QString ipa;
         for (const DictionaryEntry& e : w.entries)
             if (!e.pronunciation.isEmpty()) {

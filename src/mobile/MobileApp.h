@@ -4,6 +4,9 @@
 #pragma once
 
 #include "app/Settings.h"
+#include "app/Theme.h"
+#include "core/layout/PageRenderer.h"
+#include "core/services/BookSearch.h"
 #include "core/position/Position.h"
 #include "core/translate/Translation.h"
 
@@ -16,6 +19,7 @@
 #include <QVariantMap>
 
 #include <memory>
+#include <vector>
 
 class BookPage;
 class QNetworkAccessManager;
@@ -25,6 +29,7 @@ class BookEngine;
 class DictionaryDownload;
 class GeminiProvider;
 class Importer;
+class Annotations;
 class Library;
 class OfflineDictionary;
 class SavedWords;
@@ -78,6 +83,23 @@ class MobileApp : public QObject {
     Q_PROPERTY(QString dictionaryStatus READ dictionaryStatus NOTIFY translationChanged)
     Q_PROPERTY(bool dictionaryInstalled READ dictionaryInstalled NOTIFY translationChanged)
     Q_PROPERTY(double downloadProgress READ downloadProgress NOTIFY downloadChanged)
+    // Each offline dictionary: {key, title, status, installed, downloading, progress, sizeMb, about}.
+    Q_PROPERTY(QVariantList dictionaries READ dictionaries NOTIFY downloadChanged)
+    // Every theme: {key, name, group, bg, fg, accent}.
+    Q_PROPERTY(QVariantList themes READ themes CONSTANT)
+    // The Dictionary card: {found, title, html, source, url, offer}; empty when closed.
+    Q_PROPERTY(QVariantMap card READ card NOTIFY cardChanged)
+    // Highlights, notes and bookmarks of the open book, in reading order:
+    // {id, kind ("highlight"/"bookmark"), color, swatch, text, note, page, chapter}.
+    Q_PROPERTY(QVariantList notebook READ notebook NOTIFY annotationsChanged)
+    Q_PROPERTY(bool pageBookmarked READ pageBookmarked NOTIFY bookmarkChanged)
+    Q_PROPERTY(QVariantList highlightColors READ highlightColors CONSTANT)   // {key, swatch}
+    // The book's contents: {title, depth, current}.
+    Q_PROPERTY(QVariantList contents READ contents NOTIFY contentsChanged)
+    // Search This Book: {before, match, after, page}; `searching` while it runs.
+    Q_PROPERTY(QVariantList searchResults READ searchResults NOTIFY searchChanged)
+    Q_PROPERTY(bool searching READ isSearching NOTIFY searchChanged)
+    Q_PROPERTY(QString searchSummary READ searchSummary NOTIFY searchChanged)
     Q_PROPERTY(QString version READ version CONSTANT)
 public:
     MobileApp(const QString& dataFolder, QObject* parent = nullptr);
@@ -122,15 +144,49 @@ public:
     QString dictionaryStatus() const;
     bool dictionaryInstalled() const;
     double downloadProgress() const { return m_downloadProgress; }
-    Q_INVOKABLE void downloadDictionary();
-    Q_INVOKABLE void cancelDownload();
+    Q_INVOKABLE void downloadDictionary(const QString& key = QStringLiteral("es"));
+    Q_INVOKABLE void cancelDownload(const QString& key = QString());   // empty: every running download
+    Q_INVOKABLE void removeDictionary(const QString& key);
+    QVariantList dictionaries() const;
+    QVariantList themes() const;
+
+    // The Dictionary card for the page's selection; false when no dictionary knows the word (then look it up).
+    Q_INVOKABLE bool showDictionary(QObject* page);
+    Q_INVOKABLE void closeCard();
+    QVariantMap card() const { return m_card; }
+
+    // Highlights, notes and bookmarks (the same rules as the desktop: whole words, merged, the same color again
+    // takes a highlight away). `page`: a BookPage with a selection.
+    Q_INVOKABLE int highlight(QObject* page, const QString& color);
+    Q_INVOKABLE QString highlightColorAt(QObject* page) const;   // the selection's highlight color, empty if none
+    Q_INVOKABLE QString noteAt(QObject* page) const;
+    Q_INVOKABLE int setNote(QObject* page, const QString& note);  // highlights in yellow when it isn't yet
+    Q_INVOKABLE void removeHighlightAt(QObject* page);
+    Q_INVOKABLE void toggleBookmark();
+    Q_INVOKABLE void removeAnnotation(int id);
+    Q_INVOKABLE void goToAnnotation(int id);
+    Q_INVOKABLE void copyText(const QString& text);
+    QVariantList notebook() const;
+    bool pageBookmarked() const;
+    QVariantList highlightColors() const;
+    std::vector<layout::Overlay> highlightsIn(int spine) const;   // for painting
+    core::Annotations* annotations() const { return m_notes.get(); }
+
+    // Contents and search.
+    QVariantList contents() const;
+    Q_INVOKABLE void goToContents(int index);
+    Q_INVOKABLE void search(const QString& query);
+    Q_INVOKABLE void goToSearchResult(int index);
+    QVariantList searchResults() const;
+    bool isSearching() const { return m_searchId > 0; }
+    QString searchSummary() const { return m_searchSummary; }
     Q_INVOKABLE void openLink(const QString& url);
     QString version() const;
 
     // For the reading surface.
     struct Colors {
-        QColor bg{0xFA, 0xF7, 0xF0}, fg{0x2B, 0x27, 0x21}, muted{0x7A, 0x72, 0x66}, accent{0xB5, 0x65, 0x1D},
-            line{0xDD, 0xD5, 0xC6}, surface{0xF1, 0xEC, 0xE1}, sel{0xF0, 0xC8, 0x78, 0x90}, pop{0xFF, 0xFF, 0xFF};
+        QColor bg, fg, muted, accent, line, surface, sel, pop;
+        bool dark = false;
     };
     Colors pageColors() const;
     core::BookEngine* engine() const { return m_engine; }
@@ -152,6 +208,12 @@ signals:
     void translationChanged();
     void downloadChanged();
     void bookOpened();
+    void cardChanged();
+    void annotationsChanged();
+    void bookmarkChanged();   // the page moved, or its bookmark changed
+    void contentsChanged();
+    void searchChanged();
+    void jumpRequested(int spine, int offset);   // the reader goes there (contents, notebook, search)
 
 private:
     void setMessage(const QString& text);
@@ -161,7 +223,9 @@ private:
     void updateLocation();   // chapter, page and progress of m_position
     void saveSettings();
     QString chapterTitleAt(const core::Position& p) const;
-    QString dictionaryFile() const;
+    QString dictionaryFile(const QString& key = QStringLiteral("es")) const;
+    core::OfflineDictionary* dictionaryFor(const QString& key) const;
+    int annotationAt(QObject* page) const;   // the highlight holding the page's selection, 0 if none
 
     QString m_folder;
     Settings m_settings;
@@ -173,9 +237,17 @@ private:
     QNetworkAccessManager* m_net;
     core::GeminiProvider* m_gemini;
     core::SavedWords* m_savedWords;
-    core::OfflineDictionary* m_dictionary;
+    core::OfflineDictionary* m_dictionary;     // Spanish -> English
+    core::OfflineDictionary* m_dictionaryEn;   // English definitions
+    core::OfflineDictionary* m_definitionsEs;  // Spanish definitions (the Dictionary card only)
+    QHash<QString, core::DictionaryDownload*> m_downloads;
+    QHash<QString, double> m_progressByKey;
+    std::unique_ptr<core::Annotations> m_notes;
+    QVariantMap m_card;
+    int m_searchId = 0;
+    QList<core::SearchHit> m_hits;
+    QString m_searchSummary;
     core::TranslationService* m_translator;
-    core::DictionaryDownload* m_download = nullptr;
     double m_downloadProgress = -1;
 
     QString m_message;

@@ -1,6 +1,7 @@
 // Reading: tap the left third for the previous page and the right third for the next one, or swipe; tap the middle
-// for the menu (back to the library, text size, margins, theme). Press and hold a word to look it up; keep holding
-// and drag to take in more words.
+// for the menu (Library, Contents and Notebook, Search, Bookmark, text and theme). Press and hold a word, and keep
+// holding and drag to take in more words; lifting the finger shows what to do with them: highlight, note,
+// Dictionary, Translate, Copy.
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -12,16 +13,28 @@ Page {
     property Theme theme
     property bool chrome: false
     property bool selecting: false
+    property real pressY: 0
     signal settingsRequested()
     signal closeRequested()
 
     function showChrome(on) { chrome = on }
+    // The screenshot mode opens these by name.
+    function showPart(name) {
+        if (name === "contents") { nav.tab = 0; nav.open() }
+        else if (name === "notebook") { nav.tab = 1; nav.open() }
+        else if (name === "search") search.open()
+        else if (name === "look") { chrome = true; look.open() }
+        else if (name === "selection") { selectionBar.show(book.height * 0.3) }
+        else if (name === "dictionary") { if (reader.app.showDictionary(book)) card.open() }
+    }
+    function lookUpSelection() { reader.app.lookUp(book) }
 
     background: Rectangle { color: reader.theme.bg }
     StackView.onRemoved: app.closeBook()
 
     BookPage {
         id: book
+        objectName: "bookPage"
         anchors.fill: parent
         anchors.bottomMargin: footer.height
         app: reader.app
@@ -32,6 +45,7 @@ Page {
             enabled: !reader.selecting
             onTapped: (point) => {
                 if (sheet.opened) { sheet.close(); return }
+                if (card.opened) { card.close(); return }
                 if (book.hasSelection) { book.clearSelection(); return }
                 const x = point.position.x
                 if (x < book.width / 3) book.previousPage()
@@ -42,6 +56,7 @@ Page {
                 if (book.selectWordAt(point.position.x, point.position.y)) {
                     reader.selecting = true
                     reader.chrome = false
+                    reader.pressY = point.position.y
                 }
             }
         }
@@ -59,11 +74,11 @@ Page {
                 else if (translation.x > 40) book.previousPage()
             }
         }
-        // Lifting the finger after a long press looks the selection up.
+        // Lifting the finger after a long press shows what to do with the words.
         PointHandler {
             onActiveChanged: if (!active && reader.selecting) {
                 reader.selecting = false
-                if (book.hasSelection) reader.app.lookUp(book)
+                if (book.hasSelection) selectionBar.show(reader.pressY)
             }
         }
     }
@@ -92,13 +107,10 @@ Page {
         color: reader.theme.surface
         RowLayout {
             anchors.fill: parent
-            anchors.leftMargin: 4
-            anchors.rightMargin: 4
-            BarButton {
-                text: qsTr("‹ Library")
-                theme: reader.theme
-                onClicked: reader.closeRequested()
-            }
+            anchors.leftMargin: 2
+            anchors.rightMargin: 2
+            spacing: 0
+            IconButton { theme: reader.theme; iconName: "back"; text: qsTr("Library"); onClicked: reader.closeRequested() }
             Label {
                 Layout.fillWidth: true
                 text: reader.app.bookTitle
@@ -106,13 +118,25 @@ Page {
                 font.pixelSize: reader.theme.body
                 font.weight: Font.DemiBold
                 color: reader.theme.fg
-                horizontalAlignment: Text.AlignHCenter
+            }
+            IconButton { objectName: "contentsButton"; theme: reader.theme; iconName: "toc"; text: qsTr("Contents and Notebook"); onClicked: { nav.tab = 0; nav.open() } }
+            IconButton { objectName: "searchButton"; theme: reader.theme; iconName: "search"; text: qsTr("Search This Book"); onClicked: search.open() }
+            IconButton {
+                objectName: "bookmarkButton"
+                theme: reader.theme
+                iconName: "bookmark"
+                text: reader.app.pageBookmarked ? qsTr("Remove the Bookmark") : qsTr("Bookmark This Page")
+                filled: reader.app.pageBookmarked
+                iconColor: reader.app.pageBookmarked ? reader.theme.accent : reader.theme.fg
+                onClicked: reader.app.toggleBookmark()
             }
             BarButton {
+                objectName: "lookButton"
                 text: "Aa"
                 theme: reader.theme
                 textColor: reader.theme.fg
                 font.pixelSize: 18
+                font.family: reader.theme.serif
                 onClicked: look.opened ? look.close() : look.open()
             }
         }
@@ -151,12 +175,13 @@ Page {
         id: look
         x: parent.width - width - 8
         y: topBar.height + 4
-        width: Math.min(340, parent.width - 16)
+        width: Math.min(360, parent.width - 16)
+        height: Math.min(parent.height - topBar.height - 60, 620)
         padding: 16
         background: Rectangle { color: reader.theme.pop; radius: 10; border.color: reader.theme.line }
         ColumnLayout {
-            width: parent.width
-            spacing: 12
+            anchors.fill: parent
+            spacing: 10
             Label { text: qsTr("Text Size"); color: reader.theme.muted; font.pixelSize: reader.theme.small }
             RowLayout {
                 Button { text: "A−"; onClicked: reader.app.textSize = reader.app.textSize - 10 }
@@ -170,18 +195,12 @@ Page {
                 Button { text: qsTr("Wider"); onClicked: reader.app.margins = reader.app.margins + 8 }
             }
             Label { text: qsTr("Theme"); color: reader.theme.muted; font.pixelSize: reader.theme.small }
-            RowLayout {
-                spacing: 8
-                Repeater {
-                    model: [["paper", qsTr("Paper")], ["sepia", qsTr("Sepia")], ["night", qsTr("Night")]]
-                    delegate: Button {
-                        required property var modelData
-                        text: modelData[1]
-                        checkable: true
-                        checked: reader.app.theme === modelData[0]
-                        onClicked: reader.app.theme = modelData[0]
-                    }
-                }
+            ThemeList {
+                objectName: "themeList"
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                app: reader.app
+                theme: reader.theme
             }
             Button {
                 text: qsTr("Settings…")
@@ -190,6 +209,25 @@ Page {
             }
         }
     }
+
+    SelectionBar {
+        id: selectionBar
+        objectName: "selectionBar"
+        app: reader.app
+        theme: reader.theme
+        page: book
+        onNoteRequested: note.edit()
+        onDictionaryRequested: {
+            // No dictionary knows the word: the translation sheet, as on the desktop.
+            if (reader.app.showDictionary(book)) card.open()
+            else reader.lookUpSelection()
+        }
+        onTranslateRequested: reader.lookUpSelection()
+    }
+
+    NoteEditor { id: note; app: reader.app; theme: reader.theme; page: book; onClosed: book.clearSelection() }
+    Navigator { id: nav; app: reader.app; theme: reader.theme }
+    SearchSheet { id: search; app: reader.app; theme: reader.theme }
 
     Connections {
         target: reader.app
@@ -202,5 +240,14 @@ Page {
         theme: reader.theme
         page: book
         onClosed: book.clearSelection()
+    }
+    DictionarySheet {
+        id: card
+        objectName: "dictionarySheet"
+        app: reader.app
+        theme: reader.theme
+        onTranslateRequested: reader.lookUpSelection()
+        onSettingsRequested: reader.settingsRequested()
+        onClosed: if (!sheet.opened) book.clearSelection()
     }
 }

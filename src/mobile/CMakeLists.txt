@@ -8,6 +8,8 @@ qt_add_executable(freereader_mobile
     BookPage.cpp
     ../app/Settings.cpp
     ../app/Appearance.cpp
+    ../app/ThemeCore.cpp
+    ../app/ThemeData.cpp
 )
 set_target_properties(freereader_mobile PROPERTIES OUTPUT_NAME FreeReaderMobile)
 if(ANDROID)
@@ -26,6 +28,14 @@ qt_add_qml_module(freereader_mobile
         qml/SettingsPage.qml
         qml/Theme.qml
         qml/BarButton.qml
+        qml/Icon.qml
+        qml/IconButton.qml
+        qml/SelectionBar.qml
+        qml/DictionarySheet.qml
+        qml/NoteEditor.qml
+        qml/Navigator.qml
+        qml/SearchSheet.qml
+        qml/ThemeList.qml
     SOURCES
         BookPage.h
         MobileApp.h
