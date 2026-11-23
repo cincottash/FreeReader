@@ -58,7 +58,9 @@ public:
     // Adding a book to the library (import): adds it or updates its details, keeps the cover thumbnail (PNG).
     int addBook(const QString& path, const BookMetadata& meta, const QByteArray& coverPng, const QByteArray& contentHash = {});
     // A book already in the library that the file at `path` is a copy of: the same bytes (fingerprint), or the same
-    // identifier, title and author. 0 when it's new (or when it's that same path: adding it again updates it).
+    // book in another file or format (the same title and authors, ignoring case, accents and punctuation, unless
+    // the two are in different languages; or the same identifier and title). 0 when it's new (or when it's that
+    // same path: adding it again updates it).
     int duplicateOf(const QString& path, const BookMetadata& meta, const QByteArray& contentHash);
     QSet<QString> bookPaths() const;   // every book's file, and the copies already found (canonical paths)
     void rememberDuplicate(const QString& path, int bookId);   // a folder check reads it no more

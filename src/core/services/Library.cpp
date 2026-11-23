@@ -20,6 +20,36 @@ constexpr int kSchemaVersion = 8;
 
 QString nowIso() { return QDateTime::currentDateTimeUtc().toString(Qt::ISODate); }
 
+// The words of a title or an author list, for telling the same book apart from another: accents, case and
+// punctuation dropped ("Don Quijote de La Mancha" = "don quijote de la mancha", "T.S. Eliot" = "t s eliot").
+QStringList matchWords(const QString& s)
+{
+    const QString d = s.normalized(QString::NormalizationForm_KD);
+    QStringList words;
+    QString w;
+    for (const QChar c : d) {
+        if (c.isMark()) continue;
+        if (c.isLetterOrNumber()) {
+            w += c.toCaseFolded();
+        } else if (!w.isEmpty()) {
+            words << w;
+            w.clear();
+        }
+    }
+    if (!w.isEmpty()) words << w;
+    return words;
+}
+
+// The authors' words in any order: "Eliot, T. S." and "T. S. Eliot" are the same author.
+QStringList authorWords(const QString& s)
+{
+    QStringList w = matchWords(s);
+    w.sort();
+    return w;
+}
+
+QString primaryLanguage(const QString& tag) { return tag.section(QLatin1Char('-'), 0, 0).section(QLatin1Char('_'), 0, 0).toLower(); }
+
 const char* kBookColumns =
     "SELECT b.id, b.path, b.title, b.author, b.language, b.added, b.last_opened, b.finished, "
     "COALESCE(p.progress, 0), COALESCE(p.page_label, ''), COALESCE(p.page_count, ''), (c.book_id IS NOT NULL) "
@@ -217,23 +247,35 @@ int Library::duplicateOf(const QString& path, const BookMetadata& meta, const QB
     const QString p = canonicalPath(path);
     const qint64 size = QFileInfo(path).size();
     QSqlQuery q(QSqlDatabase::database(m_connection));
-    q.prepare(QStringLiteral("SELECT id, path, identifier, title, author, content_hash FROM books WHERE path<>?"));
+    q.prepare(QStringLiteral("SELECT id, path, identifier, title, author, content_hash, language FROM books WHERE path<>?"));
     q.addBindValue(p);
     if (!q.exec()) return 0;
+    const QStringList title = matchWords(meta.title), authors = authorWords(meta.authors.join(QStringLiteral(", ")));
+    const QString language = primaryLanguage(meta.language);
     QList<QPair<int, QString>> unhashed;
+    int sameBook = 0;
     while (q.next()) {
         const int id = q.value(0).toInt();
         const QString otherPath = q.value(1).toString(), identifier = q.value(2).toString();
         const QString hash = q.value(5).toString();
         // The same bytes: the same file, copied or renamed.
         if (!contentHash.isEmpty() && hash == QString::fromLatin1(contentHash)) return id;
-        // The same book in another file (another download of it): the same identifier, title and author.
-        if (!meta.identifier.isEmpty() && identifier == meta.identifier && !meta.title.isEmpty() &&
-            q.value(3).toString().compare(meta.title, Qt::CaseInsensitive) == 0 &&
-            q.value(4).toString().compare(meta.authors.join(QStringLiteral(", ")), Qt::CaseInsensitive) == 0)
-            return id;
+        // The same book in another file: another download of it, or the same book in another format (an EPUB and
+        // a MOBI of it, an FB2 and a DOCX): the same title and the same authors. An edition in another language
+        // (an English translation with the same title) is a book of its own.
+        if (!sameBook && !title.isEmpty() && !authors.isEmpty() && matchWords(q.value(3).toString()) == title &&
+            authorWords(q.value(4).toString()) == authors) {
+            const QString otherLanguage = primaryLanguage(q.value(6).toString());
+            if (language.isEmpty() || otherLanguage.isEmpty() || language == otherLanguage) sameBook = id;
+        }
+        // An identifier alone isn't enough (some tools give every book the same one), but with the same title
+        // it is, even when one copy names no author.
+        if (!sameBook && !meta.identifier.isEmpty() && identifier == meta.identifier && !title.isEmpty() &&
+            matchWords(q.value(3).toString()) == title)
+            sameBook = id;
         if (hash.isEmpty()) unhashed << qMakePair(id, otherPath);
     }
+    if (sameBook) return sameBook;
     // Books added before fingerprints were kept: the ones with the same size get theirs now.
     if (!contentHash.isEmpty())
         for (const auto& [id, otherPath] : unhashed) {

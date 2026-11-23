@@ -42,8 +42,9 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 
 - **Add Books** takes files or a whole folder, or drop them on the window. The files stay where they are.
 - A folder added with **Add Folder…** is kept: each time FreeReader starts, the books put there since are added
-  (Settings ▸ General lists the folders). A book already in the library, even under another name, isn't added
-  twice; a book whose file moved is found again.
+  (Settings ▸ General lists the folders). A book already in the library isn't added twice, even under another
+  name or in another format (an EPUB and a MOBI of it: the same title and author). An edition in another
+  language is a book of its own. A book whose file moved is found again.
 - Filter by **Reading**, **Finished**, **Not Started**, by **language**, or by your **collections**: make one with
   **+ New Collection**, then drag books onto it.
 - Search by title or author, sort, and switch between covers and a list. Ctrl+wheel over the covers (or Ctrl+= and
