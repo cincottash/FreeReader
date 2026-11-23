@@ -1298,9 +1298,12 @@ ReaderView::KindleResult ReaderView::importKindle(const core::KindlePlan& plan, 
             continue;
         }
         const QString word = isShort(it.text);
-        if (p.found) {
+        // An equivalent: this edition's words for a highlight it words differently (orange, noted with the Kindle words).
+        const bool equivalent = !p.found && p.placed() && options.equivalents;
+        if (p.found || equivalent) {
             const auto flow = flowOf(p.spine);
             const QString sentence = sentenceAt(*flow, p.start, p.end);
+            const QString bookWords = flow->textRange(p.start, p.end).simplified();
             if (options.highlights) {
                 if (!m_notes->highlightsAt(m_bookId, p.spine, p.start, p.end).isEmpty()) {
                     ++res.skipped;
@@ -1311,20 +1314,25 @@ ReaderView::KindleResult ReaderView::importKindle(const core::KindlePlan& plan, 
                     a.spine = p.spine;
                     a.start = p.start;
                     a.end = p.end;
-                    a.text = flow->textRange(p.start, p.end).simplified();
-                    a.color = QStringLiteral("yellow");
-                    a.note = it.note;
+                    a.text = bookWords;
+                    a.color = p.found ? QStringLiteral("yellow") : QStringLiteral("orange");
+                    a.note = p.found ? it.note
+                                     : tr("Kindle: «%1»").arg(it.text.simplified()) + (it.note.isEmpty() ? QString() : QStringLiteral("\n\n") + it.note);
                     a.cfi = core::makeCfi(p.spine, *flow, p.start);
                     a.chapter = chapterTitleAt({p.spine, p.start});
                     if (const auto ix = m_engine->index()) a.pageLabel = ix->pageLabel({p.spine, p.start});
-                    if (m_notes->add(a)) ++res.highlights;
+                    if (m_notes->add(a)) ++(p.found ? res.highlights : res.equivalents);
                 }
             }
-            if (options.words && m_words && !word.isEmpty()) {
+            if (m_words && !word.isEmpty() && (p.found ? options.words : options.missingWords)) {
+                // The word as highlighted on the Kindle, with this edition's sentence around its equivalent.
                 core::TranslationResult meaning = m_translator ? m_translator->offlineMeaning(word, lang) : core::TranslationResult();
                 meaning.text = word;
+                if (!p.found)
+                    meaning.note = tr("From your Kindle edition (location %1); this edition says «%2» here.").arg(it.location).arg(bookWords) +
+                                   (it.note.isEmpty() ? QString() : QStringLiteral("\n\n") + it.note);
                 const core::WordPlace place = placeAt(p.spine, p.start, p.end, sentence);
-                if (m_words->mark(meaning, place, now)) ++res.words;
+                if (m_words->mark(meaning, place, now)) ++(p.found ? res.words : res.missingWords);
             }
         } else {
             const QString from = tr("From your Kindle edition (location %1); this edition words it differently.").arg(it.location);

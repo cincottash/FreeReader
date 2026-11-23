@@ -108,9 +108,10 @@ public:
     // Kindle reading place. Anything already there is skipped, so importing twice adds nothing.
     struct KindleOptions {
         bool highlights = true, words = true, missingWords = true, missingPassages = true, bookmarks = true, moveToLastRead = true;
+        bool equivalents = true;   // highlights this edition words differently: on their equivalent words, in orange
     };
     struct KindleResult {
-        int highlights = 0, words = 0, missingWords = 0, passages = 0, bookmarks = 0, skipped = 0;
+        int highlights = 0, equivalents = 0, words = 0, missingWords = 0, passages = 0, bookmarks = 0, skipped = 0;
         bool moved = false;
     };
     KindleResult importKindle(const core::KindlePlan& plan, const KindleOptions& options);

@@ -543,7 +543,14 @@ void MainWindow::importKindle(const QString& fileArg)
         return;
     }
     QGuiApplication::setOverrideCursor(Qt::WaitCursor);
-    const core::KindlePlan plan = core::planKindleImport(*book, ex);
+    // Equivalents for the highlights this edition words differently; the offline dictionary gives meanings.
+    core::MeaningsOf meanings;
+    if (m_dictionary->info().ok && m_dictionary->info().language == QLatin1String("es"))
+        meanings = [this](const QString& w) {
+            const core::TranslationResult r = m_dictionary->lookUp(w, QStringLiteral("es"));
+            return QStringList{r.translation} + r.alternatives;
+        };
+    const core::KindlePlan plan = core::planKindleImport(*book, ex, nullptr, true, meanings);
     QGuiApplication::restoreOverrideCursor();
     if (m_kindleDialog) m_kindleDialog->deleteLater();
     m_kindleDialog = new KindleImportDialog(ex, plan, book->metadata.title,

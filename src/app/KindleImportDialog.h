@@ -31,7 +31,7 @@ private:
     Apply m_apply;
     QLabel* m_summary;
     QLabel* m_result;
-    QCheckBox *m_highlights, *m_words, *m_missing, *m_passages, *m_bookmarks, *m_move;
+    QCheckBox *m_highlights, *m_equivalents, *m_words, *m_missing, *m_passages, *m_bookmarks, *m_move;
     QPushButton* m_showMissing;
     QListWidget* m_missingList;
     QPushButton* m_import;

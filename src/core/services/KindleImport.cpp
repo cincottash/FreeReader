@@ -6,7 +6,9 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QHash>
 #include <QRegularExpression>
+#include <QSet>
 
 #include <algorithm>
 #include <cmath>
@@ -98,6 +100,7 @@ KindleExport parseClippings(const QString& all, const QString& titleHint)
 struct BookText {
     QString text;
     std::vector<int> spine, offset;
+    std::vector<char> upper;   // the character was upper case in the book (names)
 };
 
 QChar normChar(QChar c)
@@ -150,24 +153,86 @@ BookText bookText(const Book& book, const std::atomic<bool>* cancel)
             for (int i = 0; i < int(t.size()); ++i) {
                 const QChar c = t[i];
                 if (c == QChar(0x00AD) || c == QChar(0x200B)) continue;
+                if (c == QChar(0x2028)) {   // a line break inside a paragraph (an address): a break like a paragraph's end
+                    if (bt.text.isEmpty() || bt.text.back() == QLatin1Char('\n')) continue;
+                    if (bt.text.back() == QLatin1Char(' ')) {
+                        bt.text.back() = QLatin1Char('\n');
+                        continue;
+                    }
+                    bt.text += QLatin1Char('\n');
+                    bt.spine.push_back(spine);
+                    bt.offset.push_back(b.start + i);
+                    bt.upper.push_back(0);
+                    continue;
+                }
                 const QChar m = normChar(c);
                 if (m.isSpace()) {
-                    if (bt.text.isEmpty() || bt.text.back() == QLatin1Char(' ')) continue;
+                    if (bt.text.isEmpty() || bt.text.back() == QLatin1Char(' ') || bt.text.back() == QLatin1Char('\n')) continue;
                     bt.text += QLatin1Char(' ');
                 } else {
                     bt.text += m;
                 }
                 bt.spine.push_back(spine);
                 bt.offset.push_back(b.start + i);
+                bt.upper.push_back(c.isUpper() ? 1 : 0);
             }
-            if (!bt.text.isEmpty() && bt.text.back() != QLatin1Char(' ')) {
-                bt.text += QLatin1Char(' ');   // paragraphs are separate
+            if (!bt.text.isEmpty() && bt.text.back() == QLatin1Char(' ')) {
+                bt.text.back() = QLatin1Char('\n');   // the end of a paragraph (or a line of an address), kept
+            } else if (!bt.text.isEmpty() && bt.text.back() != QLatin1Char('\n')) {
+                bt.text += QLatin1Char('\n');   // paragraphs are separate
                 bt.spine.push_back(spine);
                 bt.offset.push_back(b.start + int(t.size()));
+                bt.upper.push_back(0);
             }
         }
     }
     return bt;
+}
+
+// Words that carry no meaning of their own: never chosen as an equivalent, never compared.
+bool isSpanishStopWord(const QString& w)
+{
+    static const QSet<QString> words = [] {
+        QSet<QString> s;
+        for (const char* x : {"de", "la", "que", "el", "en", "y", "a", "los", "se", "del", "las", "un", "por", "con", "no", "una", "su", "para",
+                              "es", "al", "lo", "como", "mas", "más", "pero", "sus", "le", "ya", "o", "u", "e", "fue", "este", "ha", "si", "sí",
+                              "porque", "esta", "son", "entre", "cuando", "muy", "sin", "sobre", "tambien", "también", "me", "hasta", "hay",
+                              "donde", "quien", "desde", "nos", "les", "ni", "ese", "eso", "esto", "mi", "mí", "yo", "tu", "tú", "te", "ti",
+                              "el", "él", "ella", "ellos", "ellas", "os", "mis", "tus", "esa", "esos", "esas", "estos", "estas", "aquel",
+                              "aquella", "era", "eran", "ser", "soy", "eres", "somos", "sido", "había", "habia", "habían", "haber", "he",
+                              "has", "hemos", "han", "habría", "estaba", "estaban", "está", "están", "estar", "qué", "que", "cual", "cuál",
+                              "algo", "nada", "todo", "toda", "todos", "todas", "otro", "otra", "otros", "otras", "tan", "tanto", "muy",
+                              "ya", "aún", "aun", "solo", "sólo", "así", "asi", "pues", "dijo", "the"})
+            s.insert(QString::fromUtf8(x));
+        return s;
+    }();
+    return words.contains(w);
+}
+
+bool isEnglishStopWord(const QString& w)
+{
+    static const QSet<QString> words = [] {
+        QSet<QString> s;
+        for (const char* x : {"the", "a", "an", "to", "of", "in", "on", "at", "for", "by", "with", "be", "is", "are", "was", "were", "it", "its",
+                              "or", "and", "as", "from", "that", "this", "into", "up", "out", "off", "one", "someone", "something", "oneself",
+                              "who", "which", "what", "not", "no", "do", "does", "make", "get", "go", "have", "has", "take", "give", "put",
+                              "thing", "person", "kind", "sort", "very", "more", "most", "some", "any", "all", "other", "way", "used",
+                              "plural", "feminine", "masculine", "form", "verb", "noun", "adjective", "adverb", "surname", "good", "well", "bad", "e", "g", "eg",
+                              "etc", "something", "anyone", "anything", "time", "place", "part", "state", "set", "back", "side", "end", "use",
+                              "able", "become", "come", "let", "keep", "same", "such", "much", "many", "own", "little", "great", "new", "old"})
+            s.insert(QString::fromLatin1(x));
+        return s;
+    }();
+    return words.contains(w) || w.size() < 3;
+}
+
+// Letters without their accents ("caminó" -> "camino"), for comparing word forms.
+QString foldAccents(const QString& s)
+{
+    QString out;
+    for (const QChar c : s.normalized(QString::NormalizationForm_D))
+        if (c.category() != QChar::Mark_NonSpacing) out += c;
+    return out;
 }
 
 std::vector<int> occurrences(const QString& hay, const QString& key)
@@ -201,12 +266,15 @@ KindleExport parseKindleExport(const QByteArray& data, const QString& titleHint)
     return ex;
 }
 
-KindlePlan planKindleImport(const Book& book, const KindleExport& ex, const std::atomic<bool>* cancel)
+KindlePlan planKindleImport(const Book& book, const KindleExport& ex, const std::atomic<bool>* cancel, bool equivalents, const MeaningsOf& meanings)
 {
     KindlePlan plan;
     const BookText bt = bookText(book, cancel);
     const int total = int(bt.text.size());
     if (total == 0) return plan;
+    // Highlights are looked for across paragraph breaks too (a long highlight can span two paragraphs).
+    QString searchText = bt.text;
+    searchText.replace(QLatin1Char('\n'), QLatin1Char(' '));
 
     struct Work {
         QString key;
@@ -218,7 +286,7 @@ KindlePlan planKindleImport(const Book& book, const KindleExport& ex, const std:
         const KindleItem& it = ex.items[i];
         if (it.text.isEmpty()) continue;
         work[size_t(i)].key = keyFor(it.text);
-        work[size_t(i)].occ = occurrences(bt.text, work[size_t(i)].key);
+        work[size_t(i)].occ = occurrences(searchText, work[size_t(i)].key);
     }
 
     // Anchors: texts of 4+ characters found exactly once, kept only where they agree with each other (the longest
@@ -275,6 +343,7 @@ KindlePlan planKindleImport(const Book& book, const KindleExport& ex, const std:
     // A highlight is accepted within about 12 locations of where it should be.
     const double window = qMax(1200.0, 12 * slope);
 
+    std::vector<int> gStart(size_t(ex.items.size()), -1), gEnd(size_t(ex.items.size()), -1);   // book positions of the found ones
     for (int i = 0; i < int(ex.items.size()); ++i) {
         const KindleItem& it = ex.items[i];
         KindlePlaced p;
@@ -288,10 +357,13 @@ KindlePlan planKindleImport(const Book& book, const KindleExport& ex, const std:
                 const Position s = posAt(best), e = posAt(best + int(w.key.size()) - 1);
                 p.found = s.spine == e.spine;
                 if (p.found) {
+                    p.match = KindlePlaced::Exact;
                     p.spine = s.spine;
                     p.start = s.offset;
                     p.end = e.offset + 1;
                     p.approx = s;
+                    gStart[size_t(i)] = best;
+                    gEnd[size_t(i)] = best + int(w.key.size());
                 }
             }
         }
@@ -305,6 +377,228 @@ KindlePlan planKindleImport(const Book& book, const KindleExport& ex, const std:
             plan.lastFraction = qBound(0.0, expected / total, 1.0);
         }
         plan.items << p;
+    }
+    if (!equivalents) return plan;
+
+    // ---- Equivalents for the highlights this edition words differently. Each lies between the highlights around
+    // it that were found (usually a line or two apart): there, the word with the same English meaning, else the same
+    // word in another form, else the word at the matching spot.
+    struct Found {
+        int loc, start, end;
+    };
+    std::vector<Found> found;
+    std::vector<char> taken(size_t(total), 0);
+    for (int i = 0; i < int(ex.items.size()); ++i)
+        if (gStart[size_t(i)] >= 0) {
+            found.push_back({ex.items[i].location, gStart[size_t(i)], gEnd[size_t(i)]});
+            std::fill(taken.begin() + gStart[size_t(i)], taken.begin() + qMin(total, gEnd[size_t(i)]), char(1));
+        }
+    std::sort(found.begin(), found.end(), [](const Found& a, const Found& b) { return a.loc != b.loc ? a.loc < b.loc : a.start < b.start; });
+    // Every word of the book: [start, end) in the normalized text.
+    std::vector<std::pair<int, int>> words;
+    for (int i = 0; i < total;) {
+        if (!bt.text[i].isLetterOrNumber()) {
+            ++i;
+            continue;
+        }
+        int j = i;
+        while (j < total && (bt.text[j].isLetterOrNumber())) ++j;
+        words.push_back({i, j});
+        i = j;
+    }
+    // A word's English meanings as words: its first meaning, and its other (side) meanings. Long explanations
+    // ("act of hatching a plan") are left out; "good-looking" stays one word.
+    struct Meanings {
+        QSet<QString> first, side;
+    };
+    QHash<QString, Meanings> meaningCache;
+    // Returned as a copy: adding to the cache can move its entries, so a reference could go stale.
+    auto meaningOf = [&](const QString& w) -> Meanings {
+        auto it = meaningCache.find(w);
+        if (it != meaningCache.end()) return *it;
+        Meanings m;
+        if (meanings) {
+            static const QRegularExpression split(QStringLiteral("[^a-z-]+"));
+            static const QRegularExpression parts(QStringLiteral("[,;/]"));
+            const QStringList glosses = meanings(w);
+            for (int g = 0; g < glosses.size(); ++g)
+                for (const QString& piece : glosses[g].toLower().split(parts, Qt::SkipEmptyParts)) {
+                    QStringList ws = piece.split(split, Qt::SkipEmptyParts);
+                    if (!ws.isEmpty() && ws.first() == QLatin1String("to")) ws.removeFirst();
+                    if (ws.size() > 3) continue;
+                    for (const QString& e : ws)
+                        if (!isEnglishStopWord(e)) (g == 0 ? m.first : m.side).insert(e);
+                }
+        }
+        return *meaningCache.insert(w, m);
+    };
+    // Two English words that mean the same: equal, or one inside the other ("glasses"/"eyeglasses").
+    auto sameWord = [](const QString& a, const QString& b) {
+        if (a == b) return true;
+        const QString& s = a.size() < b.size() ? a : b;
+        const QString& l = a.size() < b.size() ? b : a;
+        return s.size() >= 5 && (l.endsWith(s) || l.startsWith(s));
+    };
+    auto overlaps = [&](const QSet<QString>& x, const QSet<QString>& y) {
+        for (const QString& a : x)
+            for (const QString& b : y)
+                if (sameWord(a, b)) return true;
+        return false;
+    };
+    // A name in the middle of a sentence ("Dumbledore"): never a stand-in for another word.
+    auto isName = [&](int at) {
+        if (!bt.upper[size_t(at)]) return false;
+        int q = at - 1;
+        while (q >= 0 && bt.text[q] == QLatin1Char(' ')) --q;
+        if (q < 0 || bt.text[q] == QLatin1Char('\n')) return false;   // the start of a paragraph
+        const QChar c = bt.text[q];
+        return !(c == QLatin1Char('.') || c == QLatin1Char('!') || c == QLatin1Char('?') || c == QLatin1Char(':') || c == QLatin1Char('-') ||
+                 c == QChar(0x00BF) || c == QChar(0x00A1) || c == QLatin1Char(';'));
+    };
+    // A sentence ends between two words.
+    auto sentenceBreak = [&](int from, int to) {
+        for (int q = from; q < to; ++q) {
+            const QChar c = bt.text[q];
+            if (c == QLatin1Char('.') || c == QLatin1Char('!') || c == QLatin1Char('?') || c == QLatin1Char(';') || c == QLatin1Char(':') ||
+                c == QLatin1Char('\n'))
+                return true;
+        }
+        return false;
+    };
+    auto commonPrefix = [](const QString& a, const QString& b) {
+        int n = 0;
+        while (n < a.size() && n < b.size() && a[n] == b[n]) ++n;
+        return n;
+    };
+
+    for (int i = 0; i < int(plan.items.size()); ++i) {
+        if (cancel && cancel->load()) break;
+        KindlePlaced& p = plan.items[i];
+        if (p.found || p.item.bookmark || p.item.text.isEmpty()) continue;
+        const int loc = p.item.location;
+        // The stretch: after the last highlight found before this location, up to the first one found after it.
+        const auto after = std::upper_bound(found.begin(), found.end(), loc, [](int l, const Found& f) { return l < f.loc; });
+        const auto before = std::lower_bound(found.begin(), found.end(), loc, [](const Found& f, int l) { return f.loc < l; });
+        const double expected = predict(loc);
+        int lo = before != found.begin() ? (before - 1)->end : int(expected) - 300;
+        int hi = after != found.end() ? after->start : int(expected) + 300;
+        double at = expected;
+        if (before != found.begin() && after != found.end()) {
+            const Found& a = *(before - 1);
+            const Found& b = *after;
+            at = b.loc > a.loc ? a.end + double(b.start - a.end) * double(loc - a.loc) / double(b.loc - a.loc) : (a.end + b.start) / 2.0;
+        }
+        if (hi < lo) std::swap(lo, hi);
+        if (hi - lo < 80) {
+            lo = int(at) - 40;
+            hi = int(at) + 40;
+        }
+        lo = qBound(0, lo, total);
+        hi = qBound(0, hi, total);
+        // The Kindle words, and their content words.
+        const QString key = keyFor(p.item.text);
+        QStringList kWords;
+        static const QRegularExpression nonWord(QStringLiteral("[^\\p{L}\\p{N}]+"), QRegularExpression::UseUnicodePropertiesOption);
+        for (const QString& w : key.split(nonWord, Qt::SkipEmptyParts)) kWords << w;
+        if (kWords.isEmpty()) continue;
+        // Candidates: the stretch's free words that mean something.
+        const auto first = std::lower_bound(words.begin(), words.end(), std::make_pair(lo, 0));
+        const auto last = std::lower_bound(words.begin(), words.end(), std::make_pair(hi, 0));
+        int bestIdx = -1, bestK = 0;
+        double bestScore = 0;
+        KindlePlaced::Match bestMatch = KindlePlaced::None;
+        const double span = qMax(1, hi - lo);
+        for (auto w = first; w != last; ++w) {
+            if (taken[size_t(w->first)]) continue;
+            const QString cand = bt.text.mid(w->first, w->second - w->first);
+            if (isSpanishStopWord(cand) || cand.size() < 2 || isName(w->first)) continue;
+            const double near = 1.0 - qMin(1.0, std::abs(w->first - at) / span) * 0.5;
+            for (int k = 0; k < kWords.size(); ++k) {
+                const QString& kw = kWords[k];
+                if (isSpanishStopWord(kw)) continue;
+                double score = 0;
+                KindlePlaced::Match m = KindlePlaced::None;
+                // The same word in another form: a long shared beginning, accents aside ("taco"/"tacón", "comparados"/"comparadas").
+                const QString fa = foldAccents(cand), fb = foldAccents(kw);
+                const int pre = commonPrefix(fa, fb);
+                const int shorter = int(qMin(fa.size(), fb.size()));
+                if (shorter >= 4 && pre >= qMin(5, shorter - 1) && pre >= 3) {
+                    score = 2.0 + double(pre) / double(qMax(fa.size(), fb.size()));
+                    m = KindlePlaced::ByForm;
+                }
+                // The same English meaning ("anteojos"/"gafas": glasses): first meanings agreeing count most.
+                if (meanings) {
+                    const Meanings a = meaningOf(kw);
+                    const Meanings c = meaningOf(cand);
+                    double ms = 0;
+                    if (overlaps(a.first, c.first)) ms = 3.2;
+                    else if (overlaps(a.first, c.side) || overlaps(a.side, c.first)) ms = 2.6;
+                    else if (overlaps(a.side, c.side)) ms = 2.1;
+                    if (ms > score) {
+                        score = ms;
+                        m = KindlePlaced::ByMeaning;
+                    }
+                }
+                if (m != KindlePlaced::None && score * near > bestScore) {
+                    bestScore = score * near;
+                    bestIdx = int(w - words.begin());
+                    bestK = k;
+                    bestMatch = m;
+                }
+            }
+        }
+        if (bestIdx < 0) {
+            // The word at the matching spot.
+            double bestDist = 1e18;
+            // Passes: a word that means something; then any word but a name; then any word.
+            for (int pass = 0; pass < 3 && bestIdx < 0; ++pass)
+                for (auto w = first; w != last; ++w) {
+                    if (taken[size_t(w->first)]) continue;
+                    const QString cand = bt.text.mid(w->first, w->second - w->first);
+                    if (pass == 0 && (isSpanishStopWord(cand) || cand.size() < 3 || isName(w->first))) continue;
+                    if (pass == 1 && isName(w->first)) continue;
+                    const double d = std::abs(w->first - at);
+                    if (d < bestDist) {
+                        bestDist = d;
+                        bestIdx = int(w - words.begin());
+                    }
+                }
+            bestK = 0;
+            bestMatch = KindlePlaced::ByPosition;
+        }
+        if (bestIdx < 0) continue;
+        // As many words as the Kindle highlight had, lined up on the matched one, inside the stretch.
+        // Never across the end of a sentence.
+        const int lowest = int(first - words.begin()), highest = int(last - words.begin()) - 1;
+        int a = bestIdx, b = bestIdx;
+        while (a > lowest && bestIdx - a < bestK && !sentenceBreak(words[size_t(a - 1)].second, words[size_t(a)].first)) --a;
+        while (b < highest && b - a + 1 < int(kWords.size()) && !sentenceBreak(words[size_t(b)].second, words[size_t(b + 1)].first)) ++b;
+        auto spanFree = [&](int x, int y) {
+            for (int q = words[size_t(x)].first; q < words[size_t(y)].second; ++q)
+                if (taken[size_t(q)]) return false;
+            return true;
+        };
+        while ((a < bestIdx || b > bestIdx) && !spanFree(a, b)) {
+            if (a < bestIdx) ++a;
+            else --b;
+        }
+        const int gs = words[size_t(a)].first, ge = words[size_t(b)].second;
+        Position s = posAt(gs), e = posAt(ge - 1);
+        if (s.spine != e.spine) {
+            s = posAt(words[size_t(bestIdx)].first);
+            e = posAt(words[size_t(bestIdx)].second - 1);
+            if (s.spine != e.spine) continue;
+        }
+        std::fill(taken.begin() + gs, taken.begin() + ge, char(1));
+        p.match = bestMatch;
+        p.equivalent = bt.text.mid(gs, ge - gs);
+        p.spine = s.spine;
+        p.start = s.offset;
+        p.end = e.offset + 1;
+        p.approx = s;
+        if (bestMatch == KindlePlaced::ByMeaning) ++plan.byMeaning;
+        else if (bestMatch == KindlePlaced::ByForm) ++plan.byForm;
+        else ++plan.byPosition;
     }
     return plan;
 }
