@@ -34,11 +34,7 @@ KindleImportDialog::KindleImportDialog(const core::KindleExport& ex, const core:
     if (plan.notFound)
         s += QStringLiteral("<li>") + tr("%1 not in this book's text: your Kindle edition words them differently").arg(loc.toString(plan.notFound)) +
              QStringLiteral("</li>");
-    const int equivalents = plan.byMeaning + plan.byForm + plan.byPosition;
-    if (equivalents)
-        s += QStringLiteral("<li>") + tr("Equivalent words found for %1 of them: %2 with the same meaning, %3 the same word in another form, %4 at the matching spot")
-                                         .arg(loc.toString(equivalents), loc.toString(plan.byMeaning), loc.toString(plan.byForm), loc.toString(plan.byPosition)) +
-             QStringLiteral("</li>");
+    const int equivalents = plan.byForm + plan.byPosition;
     if (plan.bookmarks) s += QStringLiteral("<li>") + tr("%1 bookmarks").arg(loc.toString(plan.bookmarks)) + QStringLiteral("</li>");
     if (plan.lastLocation)
         s += QStringLiteral("<li>") + tr("Your Kindle place: location %1, about %2 % through the book")
@@ -49,6 +45,29 @@ KindleImportDialog::KindleImportDialog(const core::KindleExport& ex, const core:
     m_summary->setTextFormat(Qt::RichText);
     m_summary->setProperty("testId", "kindleSummary");
     lay->addWidget(m_summary);
+
+    // What didn't match exactly, and what that affects: said before anything is imported.
+    int notesAffected = 0;
+    for (const core::KindlePlaced& p : plan.items)
+        if (!p.found && !p.item.bookmark && !p.item.note.isEmpty()) ++notesAffected;
+    m_warning = new QLabel;
+    m_warning->setWordWrap(true);
+    m_warning->setProperty("testId", "kindleWarning");
+    m_warning->setObjectName(QStringLiteral("Warning"));
+    m_warning->setStyleSheet(QStringLiteral("QLabel#Warning { border: 1px solid #c98a2e; border-radius: 6px; padding: 8px 10px; }"));
+    if (plan.notFound) {
+        QString w = plan.notFound == 1 ? tr("⚠ 1 highlight didn't match this book's text exactly")
+                                       : tr("⚠ %1 highlights didn't match this book's text exactly").arg(loc.toString(plan.notFound));
+        if (notesAffected) w += notesAffected == 1 ? tr(" (1 with a note)") : tr(" (%1 with notes)").arg(loc.toString(notesAffected));
+        w += QStringLiteral(". ");
+        w += equivalents
+                 ? tr("They'll go on the closest equivalent in orange, with the Kindle words as a note: %1 the same word in another form, %2 at the matching spot. Check the list below before importing.")
+                       .arg(loc.toString(plan.byForm), loc.toString(plan.byPosition))
+                 : tr("Check the list below before importing.");
+        m_warning->setText(w);
+    }
+    m_warning->setVisible(plan.notFound > 0);
+    lay->addWidget(m_warning);
 
     auto check = [&](const QString& text, const char* id, bool on, bool enabled) {
         auto* c = new QCheckBox(text);
@@ -82,8 +101,7 @@ KindleImportDialog::KindleImportDialog(const core::KindleExport& ex, const core:
     m_missingList->setProperty("testId", "kindleMissingList");
     for (const core::KindlePlaced& p : plan.items)
         if (!p.found && !p.item.bookmark) {
-            const QString how = p.match == core::KindlePlaced::ByMeaning ? tr("same meaning")
-                              : p.match == core::KindlePlaced::ByForm  ? tr("another form")
+            const QString how = p.match == core::KindlePlaced::ByForm       ? tr("another form")
                               : p.match == core::KindlePlaced::ByPosition ? tr("matching spot")
                                                                           : QString();
             m_missingList->addItem(how.isEmpty() ? tr("Location %1: %2 (no equivalent)").arg(p.item.location).arg(p.item.text)
@@ -133,6 +151,7 @@ ReaderView::KindleOptions KindleImportDialog::options() const
 }
 
 QString KindleImportDialog::summary() const { return m_summary->text(); }
+QString KindleImportDialog::warning() const { return m_warning->isVisibleTo(this) ? m_warning->text() : QString(); }
 QString KindleImportDialog::resultText() const { return m_result->text(); }
 
 void KindleImportDialog::runImport()

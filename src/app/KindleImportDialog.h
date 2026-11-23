@@ -24,12 +24,14 @@ public:
     ReaderView::KindleOptions options() const;
     void runImport();                         // the Import button
     QString summary() const;                  // what was found
+    QString warning() const;                  // what didn't match exactly (empty when everything did)
     QString resultText() const;               // after Import
     bool imported() const { return m_done; }
 
 private:
     Apply m_apply;
     QLabel* m_summary;
+    QLabel* m_warning;
     QLabel* m_result;
     QCheckBox *m_highlights, *m_equivalents, *m_words, *m_missing, *m_passages, *m_bookmarks, *m_move;
     QPushButton* m_showMissing;
