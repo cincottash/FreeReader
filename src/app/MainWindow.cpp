@@ -338,6 +338,10 @@ void MainWindow::buildCommands()
     addCommand(QStringLiteral("search-library"), tr("Search All Books…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_F), [this] {
         showLibrarySearch(isReading() && m_reader->pages()->hasSelection() ? m_reader->pages()->selectedText() : QString());
     }, nullptr, tr("A word or phrase in the text of every book in the library."));
+    addCommand(QStringLiteral("read-aloud"), tr("Read Aloud"), QKeySequence(), [this] {
+        if (m_reader->isReadingAloud()) m_reader->stopReadingAloud();
+        else m_reader->readSelectionAloud();
+    }, reading, tr("Reads the selected words aloud in the book's language; again stops it."));
     addCommand(QStringLiteral("bookmark"), tr("Bookmark This Page"), QKeySequence(Qt::CTRL | Qt::Key_D), [this] { m_reader->toggleBookmark(); },
                reading, tr("Adds a bookmark, or removes the one on this page."));
     addCommand(QStringLiteral("notebook"), tr("Show or Hide Notebook"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_N),
@@ -660,7 +664,20 @@ void MainWindow::showSettings(int tab)
             changeDataFolder();
             m_settingsDialog->setDataFolder(appdata::folder(), appdata::isTemporary());
         });
+        connect(m_settingsDialog, &SettingsDialog::addLibraryFolderRequested, this, [this] {
+            if (m_interactive) m_start->chooseFolderToAdd();
+            m_settingsDialog->fillLibraryFolders();
+            saveSettingsSoon();
+        });
+        // Cancel put the settings back: apply them all again.
+        connect(m_settingsDialog, &SettingsDialog::cancelled, this, [this] {
+            applyTranslationSettings();
+            applyShortcuts();
+            if (isReading()) m_reader->applyReadingOptions();
+            saveSettingsSoon();
+        });
     }
+    if (!m_settingsDialog->isVisible()) m_settingsDialog->begin();
     m_settingsDialog->setDataFolder(appdata::folder(), appdata::isTemporary());
     m_settingsDialog->refreshTranslation();
     m_settingsDialog->fillLibraryFolders();

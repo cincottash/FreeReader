@@ -1041,6 +1041,14 @@ QMenu* ReaderView::buildSelectionMenu()
     QAction* dict = menu->addAction(tr("Dictionary"), this, [this] { showDictionary(); });
     dict->setProperty("testId", "menuDictionary");
     dict->setEnabled(words >= 1 && words <= 4);
+    // Text to speech: the selection read in the book's language (the owner's request, 2026-11-23).
+    QAction* aloud = menu->addAction(tr("Read Aloud"), this, [this] { readSelectionAloud(); });
+    aloud->setProperty("testId", "menuReadAloud");
+    aloud->setToolTip(tr("The selected words, read in the book's language by the system's voice."));
+    if (isReadingAloud()) {
+        QAction* stop = menu->addAction(tr("Stop Reading Aloud"), this, [this] { stopReadingAloud(); });
+        stop->setProperty("testId", "menuStopReadingAloud");
+    }
     QAction* copy = menu->addAction(tr("Copy"), this, [this] {
         const QString t = m_pages->selectedText();
         if (!t.isEmpty()) QApplication::clipboard()->setText(t);
@@ -1123,6 +1131,35 @@ QString ReaderView::speechProblem(const QString& language, bool* canOpenSettings
     return locales.isEmpty() ? tr("No speech engine was found. Install speech-dispatcher and espeak-ng (for example: sudo apt install "
                                   "speech-dispatcher espeak-ng), then start FreeReader again.")
                              : tr("No %1 voice is installed. Install one for speech-dispatcher, for example the espeak-ng package.").arg(name);
+#endif
+}
+
+void ReaderView::readSelectionAloud()
+{
+    const QString text = m_pages->selectedText().simplified();
+    if (text.isEmpty()) return;
+    const QString problem = speechProblem(languageCode());
+    if (!problem.isEmpty()) {
+        m_pages->showNotice(problem);
+        return;
+    }
+    m_lastReadAloud = text;
+    speak(text, languageCode());
+}
+
+void ReaderView::stopReadingAloud()
+{
+#ifdef HAVE_TEXT_TO_SPEECH
+    if (m_speech) m_speech->stop();
+#endif
+}
+
+bool ReaderView::isReadingAloud() const
+{
+#ifdef HAVE_TEXT_TO_SPEECH
+    return m_speech && m_speech->state() == QTextToSpeech::Speaking;
+#else
+    return false;
 #endif
 }
 

@@ -91,13 +91,23 @@ SettingsDialog::SettingsDialog(Settings& settings, const std::vector<Command*>& 
     m_message->setProperty("testId", "settingsMessage");
     m_message->hide();
     lay->addWidget(m_message);
+    // OK keeps the changes (they apply as they are made, so they can be seen); Cancel puts back the settings as
+    // they were when the window opened (the owner's request, 2026-11-23). A saved key, a download and a moved data
+    // folder are done at once by their own buttons and stay.
     auto* buttons = new QHBoxLayout;
-    auto* close = new QPushButton(tr("Close"));
-    close->setDefault(true);
+    auto* ok = new QPushButton(tr("OK"));
+    ok->setDefault(true);
+    ok->setProperty("testId", "settingsOk");
+    auto* cancel = new QPushButton(tr("Cancel"));
+    cancel->setProperty("testId", "settingsCancel");
+    cancel->setToolTip(tr("Puts back the settings as they were when this window opened. A saved key, a download and "
+                          "a moved data folder stay."));
     buttons->addStretch(1);
-    buttons->addWidget(close);
+    buttons->addWidget(ok);
+    buttons->addWidget(cancel);
     lay->addLayout(buttons);
-    connect(close, &QPushButton::clicked, this, &QDialog::accept);
+    connect(ok, &QPushButton::clicked, this, &QDialog::accept);
+    connect(cancel, &QPushButton::clicked, this, &QDialog::reject);
     connect(m_tabs, &QTabWidget::currentChanged, m_message, &QWidget::hide);
 
     resize(640, 660);
@@ -106,6 +116,48 @@ SettingsDialog::SettingsDialog(Settings& settings, const std::vector<Command*>& 
 }
 
 void SettingsDialog::showTab(Tab tab) { m_tabs->setCurrentIndex(int(tab)); }
+
+void SettingsDialog::begin()
+{
+    m_before = std::make_shared<Settings>(m_settings);
+    m_message->hide();
+}
+
+void SettingsDialog::reject()
+{
+    // Only what this window changes goes back; reading options changed meanwhile elsewhere stay.
+    if (m_before) {
+        const Settings& b = *m_before;
+        Settings& s = m_settings;
+        s.translateOnSelect = b.translateOnSelect;
+        s.offlineOnly = b.offlineOnly;
+        s.useGemini = b.useGemini;
+        s.geminiModel = b.geminiModel;
+        s.useLmStudio = b.useLmStudio;
+        s.lmStudioAddress = b.lmStudioAddress;
+        s.lmStudioModel = b.lmStudioModel;
+        s.useDictionary = b.useDictionary;
+        s.useOfflineTranslator = b.useOfflineTranslator;
+        s.shortcuts = b.shortcuts;
+        s.mouseShortcuts = b.mouseShortcuts;
+        s.libraryFolders = b.libraryFolders;
+        if (m_lookReset) s.look = b.look;
+        m_before.reset();
+        m_lookReset = false;
+        fill();
+        fillLibraryFolders();
+        refreshTranslation();
+        emit cancelled();
+    }
+    QDialog::reject();
+}
+
+void SettingsDialog::accept()
+{
+    m_before.reset();
+    m_lookReset = false;
+    QDialog::accept();
+}
 
 // ---------------------------------------------------------------- Translation
 
@@ -971,6 +1023,8 @@ QWidget* SettingsDialog::buildGeneralTab()
     lay->setContentsMargins(12, 4, 12, 8);
     lay->setSpacing(8);
     lay->addWidget(sectionTitle(tr("APP DATA FOLDER")));
+    lay->addWidget(muted(tr("Where the library, reading places, notes, words looked up and settings are kept. Books stay "
+                            "where they are.")));
     auto* folderRow = new QHBoxLayout;
     m_folder = new QLabel;
     m_folder->setWordWrap(true);
@@ -985,31 +1039,55 @@ QWidget* SettingsDialog::buildGeneralTab()
     connect(change, &QPushButton::clicked, this, &SettingsDialog::changeDataFolderRequested);
 
     lay->addWidget(sectionTitle(tr("LIBRARY FOLDERS")));
-    lay->addWidget(muted(tr("Folders added with Add Folder… in the library. Each time FreeReader starts, the EPUB books put "
-                            "in them (or their subfolders) since are added to the library. A book already in the "
-                            "library isn't added twice.")));
+    lay->addWidget(muted(tr("Each time FreeReader starts, the books put in these folders (or their subfolders) since are "
+                            "added to the library. A book already in the library isn't added twice.")));
+    // The list in a frame, its buttons beside it (not floating below).
+    auto* foldersRow = new QHBoxLayout;
+    foldersRow->setSpacing(10);
     m_libraryFolders = new QListWidget;
     m_libraryFolders->setProperty("testId", "libraryFolders");
-    m_libraryFolders->setMaximumHeight(110);
-    lay->addWidget(m_libraryFolders);
-    auto* removeFolder = new QPushButton(tr("Remove Folder"));
-    removeFolder->setToolTip(tr("FreeReader stops checking this folder. Its books stay in the library."));
-    removeFolder->setProperty("testId", "removeLibraryFolder");
-    lay->addWidget(removeFolder, 0, Qt::AlignLeft);
-    connect(removeFolder, &QPushButton::clicked, this, [this] {
+    m_libraryFolders->setFrameShape(QFrame::StyledPanel);
+    m_libraryFolders->setObjectName(QStringLiteral("FramedList"));   // a border in every theme (Theme.cpp)
+    m_libraryFolders->setFixedHeight(104);
+    foldersRow->addWidget(m_libraryFolders, 1);
+    auto* folderButtons = new QVBoxLayout;
+    folderButtons->setSpacing(6);
+    auto* addFolder = new QPushButton(tr("Add Folder…"));
+    addFolder->setToolTip(tr("A folder of books: its books are added now and its new books at every start."));
+    addFolder->setProperty("testId", "addLibraryFolder");
+    m_removeFolder = new QPushButton(tr("Remove Folder"));
+    m_removeFolder->setToolTip(tr("FreeReader stops checking this folder. Its books stay in the library."));
+    m_removeFolder->setProperty("testId", "removeLibraryFolder");
+    m_removeFolder->setEnabled(false);
+    folderButtons->addWidget(addFolder);
+    folderButtons->addWidget(m_removeFolder);
+    folderButtons->addStretch(1);
+    foldersRow->addLayout(folderButtons);
+    lay->addLayout(foldersRow);
+    connect(addFolder, &QPushButton::clicked, this, &SettingsDialog::addLibraryFolderRequested);
+    connect(m_removeFolder, &QPushButton::clicked, this, [this] {
         if (QListWidgetItem* it = m_libraryFolders->currentItem()) removeLibraryFolder(it->data(Qt::UserRole).toString());
     });
+    connect(m_libraryFolders, &QListWidget::currentItemChanged, this, [this](QListWidgetItem* it) {
+        m_removeFolder->setEnabled(it && !it->data(Qt::UserRole).toString().isEmpty());
+    });
 
-    lay->addWidget(sectionTitle(tr("RESET")));
-    auto* resetLook = new QPushButton(tr("Reset Text and Layout"));
-    resetLook->setToolTip(tr("Font, size, spacing, margins, page width and columns for all books go back to the defaults. "
-                             "Settings made for a language or a single book stay."));
+    // Text and layout: what the button resets, said beside it.
+    lay->addWidget(sectionTitle(tr("TEXT AND LAYOUT")));
+    auto* lookRow = new QHBoxLayout;
+    lookRow->setSpacing(10);
+    lookRow->addWidget(muted(tr("Font, size, spacing, margins, page width and columns for all books. Settings made for one "
+                                "language or one book stay as they are.")), 1);
+    auto* resetLook = new QPushButton(tr("Reset to Defaults"));
+    resetLook->setToolTip(tr("Font, size, spacing, margins, page width and columns for all books go back to the defaults."));
     resetLook->setProperty("testId", "resetLook");
-    lay->addWidget(resetLook, 0, Qt::AlignLeft);
+    lookRow->addWidget(resetLook, 0, Qt::AlignTop);
+    lay->addLayout(lookRow);
     lay->addStretch(1);
     connect(resetLook, &QPushButton::clicked, this, [this] {
+        m_lookReset = true;
         emit resetTextAndLayoutRequested();
-        m_message->setText(tr("Text and layout for all books are back to the defaults."));
+        m_message->setText(tr("Text and layout for all books are back to the defaults (Cancel puts them back)."));
         m_message->show();
     });
     return page;
@@ -1024,9 +1102,10 @@ void SettingsDialog::fillLibraryFolders()
         if (!QFileInfo(f).isDir()) it->setText(it->text() + tr("  (not found now)"));
     }
     if (m_settings.libraryFolders.isEmpty()) {
-        auto* it = new QListWidgetItem(tr("None yet."), m_libraryFolders);
+        auto* it = new QListWidgetItem(tr("No folders yet: Add Folder… picks one."), m_libraryFolders);
         it->setFlags(Qt::NoItemFlags);
     }
+    if (m_removeFolder) m_removeFolder->setEnabled(false);
 }
 
 void SettingsDialog::removeLibraryFolder(const QString& folder)

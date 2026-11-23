@@ -55,6 +55,7 @@ QPushButton#Link:hover { text-decoration: underline; }
 QLineEdit { background: @input; border: 1px solid @line; border-radius: 8px; padding: 8px 10px; selection-background-color: @accent; selection-color: @accentFg; }
 QLineEdit:focus { border-color: @accent; }
 QTreeView, QListView { background: transparent; border: 0; outline: 0; }
+QListView#FramedList { background: @input; border: 1px solid @line; border-radius: 8px; padding: 4px; }
 QTreeView::item, QListView::item { padding: 6px 4px; border-radius: 6px; }
 QTreeView::item:hover, QListView::item:hover { background: @hover; }
 QTreeView::item:selected, QListView::item:selected { background: @hl; color: @fg; }

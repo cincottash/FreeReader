@@ -193,6 +193,12 @@ private:
 
 public:
     void speak(const QString& text, const QString& language);
+    // Read Aloud (the selection's right-click menu and a command): the selected words in the book's language. A
+    // missing voice is said in a notice on the page instead.
+    void readSelectionAloud();
+    void stopReadingAloud();
+    bool isReadingAloud() const;
+    QString lastReadAloud() const { return m_lastReadAloud; }   // tests: what was handed to the speech engine
     // Why the word can't be read aloud in `language` (no voice for it, no speech engine), empty when it can.
     QString speechProblem(const QString& language, bool* canOpenSettings = nullptr);
     void setSpeechLocalesForTests(const QList<QLocale>& locales) { m_speechLocalesForTests = locales; }
@@ -260,6 +266,7 @@ private:
     core::TranslationRequest::Kind m_lookupKind = core::TranslationRequest::Kind::Lookup;
     QString m_lastUrl;
     QTextToSpeech* m_speech = nullptr;
+    QString m_lastReadAloud;
     core::Annotations* m_notes = nullptr;
     NotebookPanel* m_notebook;
     SearchPanel* m_search;

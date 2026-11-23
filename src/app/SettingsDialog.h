@@ -2,8 +2,9 @@
 // - Translation: the Gemini key (kept in the system's credential store, never in a file) and model, LM Studio's
 //   address, offline only, and whether selecting text opens the pop-up. Test and Check try them out.
 // - Keyboard Shortcuts: every command, editable; a key can't be used twice.
-// - General: the app data folder and the resets.
-// Changes apply at once; there is no OK or Cancel.
+// - General: the app data folder, the library's folders, and resetting text and layout.
+// Changes apply at once so they can be seen; OK keeps them, Cancel (also Escape and the window's close button)
+// puts back what the window changed since it opened (begin()).
 #pragma once
 
 #include "Commands.h"
@@ -13,6 +14,7 @@
 #include <QDialog>
 
 #include <functional>
+#include <memory>
 #include <vector>
 
 class QCheckBox;
@@ -40,6 +42,9 @@ public:
     SettingsDialog(Settings& settings, const std::vector<Command*>& commands, core::GeminiProvider* gemini,
                    core::LmStudioProvider* lmStudio, bool interactive, QWidget* parent);
     void showTab(Tab tab);
+    void begin();   // remembers the settings as they are: Cancel goes back to them
+    void accept() override;
+    void reject() override;
 
     // Sets a command's shortcut; returns a message when the keys are taken (then nothing changes).
     QString setShortcut(const QString& id, const QKeySequence& keys);
@@ -93,6 +98,8 @@ signals:
     void resetTextAndLayoutRequested();
     void translationChanged();   // a translation option changed: apply it and save the settings
     void libraryFoldersChanged();
+    void addLibraryFolderRequested();
+    void cancelled();   // the settings were put back: apply them again
 
 private:
     QWidget* buildTranslationTab();
@@ -112,6 +119,9 @@ private:
     QLabel* m_message;
     QLabel* m_folder;
     class QListWidget* m_libraryFolders;
+    QPushButton* m_removeFolder = nullptr;
+    std::shared_ptr<Settings> m_before;   // as they were when the window opened
+    bool m_lookReset = false;
 
     QLabel* m_keyStatus;
     QLineEdit* m_keyEdit;
