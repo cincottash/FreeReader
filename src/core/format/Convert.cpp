@@ -257,6 +257,8 @@ QString bookSuffixFromBytes(const QByteArray& head)
     if (head.startsWith("PK\x03\x04")) {
         if (head.contains("application/epub+zip")) return QStringLiteral("epub");
         if (head.contains("application/vnd.oasis.opendocument.text")) return QStringLiteral("odt");
+        // XPS starts with [Content_Types].xml like Word, then its fixed document sequence.
+        if (head.contains(".fdseq") || head.contains("FixedDocumentSequence") || head.contains("Documents/1/")) return QStringLiteral("xps");
         if (head.contains("[Content_Types].xml") || head.contains("word/")) return QStringLiteral("docx");
         if (head.contains(".fb2")) return QStringLiteral("fb2.zip");
         // The first entry's name: pictures make a comic.

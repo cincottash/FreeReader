@@ -64,7 +64,11 @@ set(MUPDF_DIR "" CACHE PATH "MuPDF source folder, built with 'make libs' (PDF an
 set(MUPDF_BUILD "build/freereader" CACHE STRING "MuPDF's build folder, inside MUPDF_DIR")
 # MuPDF built with the system's FreeType, libjpeg and zlib (USE_SYSTEM_...=yes; the desktops), or with its own
 # copies of everything (Android). Its HTML part is left out (html=no), so it needs no HarfBuzz.
-option(MUPDF_SYSTEM_LIBS "MuPDF was built with the system's FreeType, libjpeg and zlib" ON)
+if(ANDROID)
+    option(MUPDF_SYSTEM_LIBS "MuPDF was built with the system's FreeType, libjpeg and zlib" OFF)
+else()
+    option(MUPDF_SYSTEM_LIBS "MuPDF was built with the system's FreeType, libjpeg and zlib" ON)
+endif()
 set(HAVE_MUPDF OFF)
 if(MUPDF_DIR AND EXISTS "${MUPDF_DIR}/${MUPDF_BUILD}/libmupdf.a" AND EXISTS "${MUPDF_DIR}/${MUPDF_BUILD}/libmupdf-third.a")
     set(HAVE_MUPDF ON)
@@ -176,6 +180,20 @@ if(DJVU_FOUND)
         target_link_libraries(freereader_core PUBLIC ${DJVU_LIBRARIES})
     endif()
     message(STATUS "DjVuLibre ${DJVU_VERSION}: DjVu books")
+endif()
+# Without a system chmlib (Android): its source (chm_lib.c, lzx.c; LGPL-2.1), built here.
+set(CHMLIB_SOURCE_DIR "" CACHE PATH "chmlib's source folder (chm_lib.c, lzx.c), for builds without a system chmlib")
+if(CHMLIB_SOURCE_DIR AND EXISTS "${CHMLIB_SOURCE_DIR}/chm_lib.c")
+    enable_language(C)
+    add_library(chmlib_local STATIC "${CHMLIB_SOURCE_DIR}/chm_lib.c" "${CHMLIB_SOURCE_DIR}/lzx.c")
+    set_target_properties(chmlib_local PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    target_compile_definitions(chmlib_local PRIVATE CHM_MT CHM_USE_PREAD CHM_USE_IO64)
+    target_compile_options(chmlib_local PRIVATE -w)   # old C: its warnings aren't ours
+    if(NOT WIN32)
+        target_compile_options(chmlib_local PRIVATE -include strings.h)   # ffs(), which it uses undeclared
+    endif()
+    set(CHMLIB_INCLUDE_DIR "${CHMLIB_SOURCE_DIR}")
+    set(CHMLIB_LIBRARY chmlib_local)
 endif()
 if(CHMLIB_INCLUDE_DIR AND CHMLIB_LIBRARY)
     target_compile_definitions(freereader_core PRIVATE HAVE_CHMLIB)
