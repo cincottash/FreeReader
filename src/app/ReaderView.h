@@ -35,6 +35,7 @@ class NotebookPanel;
 class BilingualPanel;
 class SearchPanel;
 class TranslationPopup;
+class DictionaryPopup;
 class QMenu;
 class QTextToSpeech;
 struct Settings;
@@ -42,6 +43,7 @@ struct Settings;
 namespace core {
 struct KindlePlan;
 class OfflineTranslator;
+class OfflineDictionary;
 class BookEngine;
 class Library;
 class TranslationService;
@@ -99,6 +101,8 @@ public:
     void setTranslator(core::TranslationService* service);
     void setWordLog(core::WordLog* log) { m_words = log; }
     void setOfflineTranslator(core::OfflineTranslator* t) { m_offlineTranslator = t; }
+    // The offline dictionaries the Dictionary card reads (definitions first, then translating ones).
+    void setDictionaries(const QList<core::OfflineDictionary*>& d) { m_dictionaries = d; }
     int bookId() const { return m_bookId; }
 
     // Highlights, notes, bookmarks (phase 4).
@@ -142,6 +146,9 @@ public:
     void closeSearch();
     void goToSearchHit(int index);
     TranslationPopup* translationPopup() const { return m_translate; }
+    DictionaryPopup* dictionaryPopup() const { return m_dictCard; }
+    // Dictionary (right-click): the selected word's whole entry, as a dictionary card.
+    void showDictionary();
     void translateSelection(bool dictionaryFirst = false);
     // Explain This Sentence: the selection's sentence in English with notes on its grammar and idioms.
     void explainSelection();
@@ -233,6 +240,8 @@ private:
     QPushButton* m_backChip;
     NotePopup* m_note;
     TranslationPopup* m_translate;
+    DictionaryPopup* m_dictCard;
+    QList<core::OfflineDictionary*> m_dictionaries;
     core::TranslationService* m_translator = nullptr;
     core::WordLog* m_words = nullptr;
     int m_lookupSpine = -1, m_lookupStart = 0, m_lookupEnd = 0;

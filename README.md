@@ -40,6 +40,13 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
   Ctrl+E): a pop-up shows what it means in that sentence, other meanings, its dictionary form ("tenía" → tener),
   a definition in Spanish and the whole sentence in English. **Copy** and **Hear Pronunciation** are in the pop-up.
   The same menu has Dictionary, Copy, Search the Web and Search Wikipedia.
+- **Dictionary** (right-click a word) opens the word's whole entry, laid out like a printed dictionary: its forms
+  and origin, each part of speech, numbered senses with their labels (colloquial, Mexico…) and examples. A verb
+  form opens its verb ("dijo" → decir). **Full Definition** opens the entry on Wiktionary; **Translate** switches to
+  the translation pop-up. Spanish books use the Spanish definitions download below; English books, the English
+  one.
+
+  ![The Dictionary card for "ingenioso"](.github/readme/dictionary.png)
 - **Explain This Sentence** (right-click, or Ctrl+Shift+E): the sentence in English with short notes on how it
   works (verb forms, pronouns, idioms, old words).
 - **Show English Alongside** (View menu, Ctrl+Shift+B): the English of every paragraph on the page in a panel
@@ -60,6 +67,8 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
   - **English definitions** (11 MB), for English books: 160,000 words and names from
     [Open English WordNet](https://github.com/globalwordnet/english-wordnet) (CC BY 4.0), with their forms
     ("ran" → run, "studies" → study). [Release](https://github.com/cincottash/FreeReader/releases/tag/dictionary-en-1).
+  - **Spanish definitions** (46 MB), for the Dictionary card: 148,000 Spanish words defined in Spanish, from the
+    [Spanish Wiktionary](https://es.wiktionary.org) (CC BY-SA 4.0). [Release](https://github.com/cincottash/FreeReader/releases/tag/dictionary-es-es-1).
 - **Offline translator** (30 MB, optional download in the same place): translates Spanish sentences and pages
   with no internet, in a fraction of a second, when Gemini and LM Studio can't. It's
   [Bergamot](https://github.com/browsermt/bergamot-translator), the engine Firefox translates with, and Mozilla's
@@ -134,8 +143,8 @@ how it moves.
 ![The theme list](.github/readme/themes.png)
 
 43 themes restyle the whole app: FreeReader's reading themes (Midnight, Paper, Sepia, Slate and more) and
-popular dark and light editor schemes. Point at a theme to preview it; your last few themes sit as dots in the
-header. **Match Operating System** follows Windows' light or dark mode.
+popular dark and light editor schemes. Point at a theme to preview it; the Themes button in the header (or
+Ctrl+Shift+T) opens the list. **Match Operating System** follows Windows' light or dark mode.
 
 FreeReader only opens books without DRM. It never removes or works around DRM.
 

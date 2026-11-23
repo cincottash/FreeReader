@@ -3,6 +3,7 @@
 #include "Commands.h"
 #include "LibraryView.h"
 #include "MainWindow.h"
+#include "ThemePicker.h"
 #include "ReaderView.h"
 #include "Settings.h"
 #include "Theme.h"
@@ -214,6 +215,11 @@ static int screenshot(QCommandLineParser& cli, const QString& out)
     QElapsedTimer settle;
     settle.start();
     while (settle.elapsed() < 300) QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+    if (cli.isSet(QStringLiteral("theme-list")) && w.themePicker()) {
+        w.themePicker()->stopPreview();
+        settle.restart();
+        while (settle.elapsed() < 400) QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+    }
     if (!w.grab().save(out)) {
         fprintf(stderr, "Can't write %s.\n", qPrintable(out));
         return 1;

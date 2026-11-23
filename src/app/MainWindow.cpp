@@ -64,6 +64,9 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     m_dictionary->open(dictionaryFile(QStringLiteral("es")));
     m_dictionaryEn = new core::OfflineDictionary(this);
     m_dictionaryEn->open(dictionaryFile(QStringLiteral("en")));
+    // Spanish definitions (Spanish -> Spanish), for the Dictionary card only: never a translation.
+    m_definitionsEs = new core::OfflineDictionary(this);
+    m_definitionsEs->open(dictionaryFile(QStringLiteral("es-es")));
     // When Gemini and LM Studio can't answer: the meaning saved in the Word List from an earlier lookup, the
     // offline dictionaries (words), then the offline translator (sentences and passages).
     m_savedWords = new core::SavedWords(this);
@@ -81,6 +84,7 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     m_words = std::make_unique<core::WordLog>(m_library);
     m_reader->setWordLog(m_words.get());
     m_reader->setOfflineTranslator(m_offline);
+    m_reader->setDictionaries({m_definitionsEs, m_dictionaryEn, m_dictionary});
     m_savedWords->setWordLog(m_words.get());
     m_annotations = std::make_unique<core::Annotations>(m_library);
     m_reader->setAnnotations(m_annotations.get());
@@ -553,9 +557,11 @@ void MainWindow::importKindle(const QString& fileArg)
     if (m_interactive) m_kindleDialog->open();
 }
 
-QString MainWindow::dictionaryFile(const QString& language)
+QString MainWindow::dictionaryFile(const QString& key)
 {
-    return QDir(appdata::folder()).filePath(QStringLiteral("dictionaries/%1-en.sqlite").arg(language));
+    // "es": Spanish -> English (es-en.sqlite), "en": English definitions (en-en.sqlite), "es-es": Spanish definitions.
+    const QString name = key.contains(QLatin1Char('-')) ? key : key + QStringLiteral("-en");
+    return QDir(appdata::folder()).filePath(QStringLiteral("dictionaries/%1.sqlite").arg(name));
 }
 
 void MainWindow::applyTranslationSettings()
@@ -564,6 +570,8 @@ void MainWindow::applyTranslationSettings()
     if (!m_dictionary->info().ok) m_dictionary->open(dictionaryFile(QStringLiteral("es")));
     m_dictionaryEn->setEnabled(m_settings.useDictionary);
     if (!m_dictionaryEn->info().ok) m_dictionaryEn->open(dictionaryFile(QStringLiteral("en")));
+    m_definitionsEs->setEnabled(m_settings.useDictionary);
+    if (!m_definitionsEs->info().ok) m_definitionsEs->open(dictionaryFile(QStringLiteral("es-es")));
     m_offline->setEnabled(m_settings.useOfflineTranslator);
     m_offline->setFolder(translatorFolder());
     m_gemini->setEnabled(m_settings.useGemini);
@@ -605,6 +613,7 @@ void MainWindow::showSettings(int tab)
         m_settingsDialog = new SettingsDialog(m_settings, list, m_gemini, m_lmStudio, m_interactive, this);
         m_settingsDialog->setDictionary(m_dictionary, dictionaryFile(QStringLiteral("es")));
         m_settingsDialog->setEnglishDictionary(m_dictionaryEn, dictionaryFile(QStringLiteral("en")));
+        m_settingsDialog->setDictionaryFor(QStringLiteral("es-es"), m_definitionsEs, dictionaryFile(QStringLiteral("es-es")));
         m_settingsDialog->setOfflineTranslator(m_offline);
         connect(m_settingsDialog, &SettingsDialog::translationChanged, this, [this] {
             applyTranslationSettings();

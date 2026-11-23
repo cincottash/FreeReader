@@ -26,6 +26,7 @@ const QHash<QString, QString>& shapes()
         {"close", "<path d='M6 6l12 12M18 6L6 18'/>"},
         {"open", "<path d='M4 7.5A1.5 1.5 0 015.5 6H10l2 2h6.5A1.5 1.5 0 0120 9.5v8a1.5 1.5 0 01-1.5 1.5h-13A1.5 1.5 0 014 17.5z'/>"},
         {"more", "<circle cx='6' cy='12' r='1.2'/><circle cx='12' cy='12' r='1.2'/><circle cx='18' cy='12' r='1.2'/>"},
+        {"theme", "<circle cx='12' cy='12' r='7.5'/><path d='M12 4.5a7.5 7.5 0 010 15z' fill='COLOR'/>"},
         {"grid", "<rect x='4' y='4' width='6.5' height='6.5' rx='1.2'/><rect x='13.5' y='4' width='6.5' height='6.5' rx='1.2'/><rect x='4' y='13.5' width='6.5' height='6.5' rx='1.2'/><rect x='13.5' y='13.5' width='6.5' height='6.5' rx='1.2'/>"},
         {"list", "<path d='M8 6h12M8 12h12M8 18h12'/><circle cx='4.5' cy='6' r='0.8'/><circle cx='4.5' cy='12' r='0.8'/><circle cx='4.5' cy='18' r='0.8'/>"},
         {"speaker", "<path d='M4 9.5v5h3.5L12 18V6L7.5 9.5z'/><path d='M15.5 9a4 4 0 010 6M18 6.5a7.5 7.5 0 010 11'/>"},
@@ -41,7 +42,7 @@ QIcon icon(const char* name, const QColor& color, int size)
     const QString body = shapes().value(QString::fromLatin1(name));
     const QString svg = QStringLiteral("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%1' "
                                        "stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'>%2</svg>")
-                            .arg(color.name(), body);
+                            .arg(color.name(), QString(body).replace(QLatin1String("COLOR"), color.name()));
     QSvgRenderer r(svg.toUtf8());
     QIcon ic;
     for (qreal dpr : {1.0, 1.5, 2.0}) {

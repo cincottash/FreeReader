@@ -112,7 +112,9 @@ public:
     core::LmStudioProvider* lmStudio() const { return m_lmStudio; }
     core::OfflineDictionary* dictionary() const { return m_dictionary; }
     core::OfflineDictionary* englishDictionary() const { return m_dictionaryEn; }
-    static QString dictionaryFile(const QString& language);   // <data folder>/dictionaries/<language>-en.sqlite
+    core::OfflineDictionary* spanishDefinitions() const { return m_definitionsEs; }
+    // <data folder>/dictionaries/: "es" es-en.sqlite, "en" en-en.sqlite, "es-es" es-es.sqlite
+    static QString dictionaryFile(const QString& key);
     static QString translatorFolder();   // <data folder>/translator: the program and one folder per language
     core::OfflineTranslator* offlineTranslator() const { return m_offline; }
     core::SavedWords* savedWords() const { return m_savedWords; }
@@ -154,6 +156,7 @@ private:
     core::TranslationService* m_translator;
     core::OfflineDictionary* m_dictionary;
     core::OfflineDictionary* m_dictionaryEn;
+    core::OfflineDictionary* m_definitionsEs;
     core::SavedWords* m_savedWords = nullptr;
     core::OfflineTranslator* m_offline = nullptr;
     std::vector<std::unique_ptr<Command>> m_commands;

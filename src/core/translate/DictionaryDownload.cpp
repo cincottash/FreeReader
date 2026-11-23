@@ -36,6 +36,17 @@ DictionaryDownload::Source DictionaryDownload::englishDefinitions()
     return s;
 }
 
+DictionaryDownload::Source DictionaryDownload::spanishDefinitions()
+{
+    Source s;
+    s.url = QUrl(QStringLiteral("https://github.com/cincottash/FreeReader/releases/download/dictionary-es-es-1/FreeReader-dictionary-es-es.zip"));
+    s.sha256 = "c8febf1187b58e2f46280ec21a4a10a74553758795c461ddbe79f397404e82a1";
+    s.size = 46427561;
+    s.entry = QStringLiteral("es-es.sqlite");
+    s.unpackedSize = 215396352;
+    return s;
+}
+
 DictionaryDownload::Source DictionaryDownload::offlineTranslator()
 {
     Source s;   // entry empty: the whole pack is unpacked into a folder

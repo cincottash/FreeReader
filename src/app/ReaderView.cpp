@@ -12,6 +12,7 @@
 #include <QCryptographicHash>
 #include "SearchPanel.h"
 #include "TranslationPopup.h"
+#include "DictionaryPopup.h"
 
 #include "core/services/BookEngine.h"
 #include "core/services/Library.h"
@@ -22,6 +23,7 @@
 #include "core/layout/Flow.h"
 #include "core/services/KindleImport.h"
 #include "core/translate/OfflineTranslator.h"
+#include "core/translate/OfflineDictionary.h"
 #include "core/services/BookIndex.h"
 #include "core/services/WordLog.h"
 #include "core/services/Statistics.h"
@@ -199,6 +201,13 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
         emit translationSettingsRequested();
     });
     connect(m_translate, &TranslationPopup::speakRequested, this, &ReaderView::speak);
+    m_dictCard = new DictionaryPopup(m_pages);
+    connect(m_dictCard, &DictionaryPopup::translateRequested, this, [this] { translateSelection(false); });
+    connect(m_dictCard, &DictionaryPopup::settingsRequested, this, &ReaderView::translationSettingsRequested);
+    connect(m_dictCard, &DictionaryPopup::fullDefinitionRequested, this, [this](const QUrl& url) {
+        m_lastUrl = url.toString(QUrl::FullyEncoded);
+        if (m_interactive) QDesktopServices::openUrl(url);
+    });
     connect(m_translate, &TranslationPopup::speechSettingsRequested, this, [this] {
         // Windows' own page for adding voices.
         m_lastUrl = QStringLiteral("ms-settings:speech");
@@ -308,9 +317,12 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
         m_pages->setFocus();
     });
     connect(m_pages, &PageView::selectionCleared, this, [this] {
-        if (!m_keepPopup) m_translate->hide();
+        if (m_keepPopup) return;
+        m_translate->hide();
+        m_dictCard->hide();
     });
     connect(m_pages, &PageView::resized, m_translate, &QWidget::hide);
+    connect(m_pages, &PageView::resized, m_dictCard, &QWidget::hide);
     connect(m_pages, &PageView::resized, m_note, &QWidget::hide);
     connect(m_pages, &PageView::selectionMade, this, [this] {
         // A slip of the mouse that selects a letter or two, or only punctuation, isn't worth a lookup.
@@ -347,6 +359,7 @@ void ReaderView::setTheme(const Theme& t)
     setFullScreenIcon(window() && window()->isFullScreen());
     m_pages->setTheme(t);
     m_translate->setTheme(t);
+    m_dictCard->setTheme(t);
     m_footer->setTheme(t);
     m_toc->setTheme(t);
     updateThemeDots();
@@ -359,39 +372,15 @@ void ReaderView::updateThemeDots()
         delete it->widget();
         delete it;
     }
-    QStringList keys = m_settings.recentThemes;
-    if (!keys.contains(m_settings.theme)) keys.prepend(m_settings.theme);
-    while (keys.size() > 4) keys.removeLast();
-    for (const QString& key : keys) {
-        const Theme t = Theme::forChoice(key);
-        auto* b = new QToolButton;
-        b->setObjectName(QStringLiteral("Icon"));
-        b->setFixedSize(32, 40);
-        b->setCursor(Qt::PointingHandCursor);
-        b->setFocusPolicy(Qt::NoFocus);
-        b->setToolTip(key == QLatin1String("system") ? tr("Match Operating System") : t.name);
-        b->setProperty("testId", QStringLiteral("themeDot-") + key);
-        QPixmap pm(QSize(22, 22) * 2);
-        pm.setDevicePixelRatio(2);
-        pm.fill(Qt::transparent);
-        QPainter p(&pm);
-        p.setRenderHint(QPainter::Antialiasing);
-        p.setPen(QPen(key == m_settings.theme ? m_theme.accent : m_theme.muted, 2));
-        p.setBrush(t.bg);
-        p.drawEllipse(QRectF(2, 2, 18, 18));
-        p.end();
-        b->setIcon(QIcon(pm));
-        b->setIconSize(QSize(22, 22));
-        connect(b, &QToolButton::clicked, this, [this, key] { emit themeChosen(key); });
-        lay->addWidget(b);
-    }
+    // One Themes button (the recent themes as dots here confused more than they helped: the owner's request,
+    // 2026-11-22).
     auto* more = new QToolButton;
     more->setObjectName(QStringLiteral("Icon"));
     more->setFixedSize(32, 40);
     more->setCursor(Qt::PointingHandCursor);
     more->setFocusPolicy(Qt::NoFocus);
-    more->setIcon(icons::icon("more", m_theme.fg));
-    more->setToolTip(tr("All themes (Ctrl+Shift+T)"));
+    more->setIcon(icons::icon("theme", m_theme.fg));
+    more->setToolTip(tr("Themes (Ctrl+Shift+T)"));
     more->setProperty("testId", "moreThemes");
     connect(more, &QToolButton::clicked, this, [this, more] {
         emit moreThemesRequested(more->mapTo(window(), QPoint(more->width(), more->height())));
@@ -510,6 +499,7 @@ void ReaderView::closeBook()
     m_bookId = 0;
     m_note->hide();
     m_translate->hide();
+    m_dictCard->hide();
     m_lookupId = 0;
     m_engine->cancelSearch();
     m_search->setResults({}, {}, false);
@@ -843,6 +833,7 @@ void ReaderView::translateSelection(bool dictionaryFirst)
     const QString text = m_pages->selectedText().trimmed();
     if (text.isEmpty()) return;
     m_note->hide();
+    m_dictCard->hide();
     const QRect anchor = m_pages->rangeRect(m_pages->selectionSpine(), m_pages->selectionStart(), m_pages->selectionEnd());
     m_translate->setTheme(m_theme);
     m_translate->showLoading(text, languageCode(), anchor);
@@ -866,6 +857,59 @@ void ReaderView::translateSelection(bool dictionaryFirst)
     m_lookupId = m_translator->translate(r);
 }
 
+void ReaderView::showDictionary()
+{
+    const QString text = m_pages->selectedText().trimmed();
+    if (text.isEmpty()) return;
+    const QString lang = languageCode();
+    // A dictionary of definitions in the book's language first (Spanish for a Spanish book), else a translating one
+    // (Spanish -> English). None, or none knows the word: the translation pop-up with its definition first.
+    core::OfflineDictionary* from = nullptr;
+    core::DictionaryCard card;
+    if (m_settings.useDictionary)
+        for (const bool monolingual : {true, false}) {
+            for (core::OfflineDictionary* d : m_dictionaries)
+                if (d && d->info().ok && d->info().language == lang && d->isMonolingual() == monolingual) {
+                    card = d->card(text);
+                    if (!card.isEmpty()) {
+                        from = d;
+                        break;
+                    }
+                }
+            if (from) break;
+        }
+    if (!from) {
+        translateSelection(true);
+        return;
+    }
+    m_note->hide();
+    m_translate->hide();
+    const core::DictionaryInfo& info = from->info();
+    QString title = info.title;
+    if (title.isEmpty()) {
+        const QString language = QLocale::languageToString(QLocale(info.language).language());
+        title = from->isMonolingual() ? tr("%1 Dictionary").arg(language)
+                                      : tr("%1–%2 Dictionary").arg(language, QLocale::languageToString(QLocale(info.target).language()));
+    }
+    // "Wiktionary (Spanish edition) via wiktextract / kaikki.org": the source itself, not how it was extracted.
+    QString origin = info.source;
+    if (const int via = int(origin.indexOf(QStringLiteral(" via "))); via > 0) origin = origin.left(via);
+    const QString source = info.license.isEmpty() ? origin : tr("%1 (%2)").arg(origin, info.license);
+    // The entry on Wiktionary, in the dictionary's own language edition (the Spanish section of the English one
+    // for a Spanish -> English dictionary).
+    QUrl full;
+    if (!card.headwords.isEmpty()) {
+        const QString edition = info.target.isEmpty() ? info.language : info.target;
+        full = QUrl(QStringLiteral("https://%1.wiktionary.org/wiki/").arg(edition) + QString(card.headwords.first().word).replace(QLatin1Char(' '), QLatin1Char('_')));
+        if (edition != info.language) full.setFragment(QLocale::languageToString(QLocale(info.language).language()));
+    }
+    // A Spanish book answered by Spanish -> English: Spanish definitions can be downloaded.
+    const bool offer = !from->isMonolingual() && lang == QLatin1String("es");
+    const QRect anchor = m_pages->rangeRect(m_pages->selectionSpine(), m_pages->selectionStart(), m_pages->selectionEnd());
+    m_dictCard->setTheme(m_theme);
+    m_dictCard->showCard(card, title, tr("Source: %1").arg(source), full, anchor, offer);
+}
+
 void ReaderView::explainSelection()
 {
     if (!m_pages->hasSelection()) return;
@@ -876,6 +920,7 @@ void ReaderView::explainSelection()
     if (text.isEmpty()) return;
     if (text.size() > 1500) text = text.left(1500);
     m_note->hide();
+    m_dictCard->hide();
     const QRect anchor = m_pages->rangeRect(m_pages->selectionSpine(), m_pages->selectionStart(), m_pages->selectionEnd());
     m_translate->setTheme(m_theme);
     m_translate->showLoading(text, languageCode(), anchor);
@@ -1036,7 +1081,7 @@ QMenu* ReaderView::buildSelectionMenu()
     QAction* explain = menu->addAction(tr("Explain This Sentence"), this, [this] { explainSelection(); });
     explain->setProperty("testId", "menuExplain");
     explain->setToolTip(tr("The sentence in English, with notes on its grammar and idioms (Gemini or LM Studio)."));
-    QAction* dict = menu->addAction(tr("Dictionary"), this, [this] { translateSelection(true); });
+    QAction* dict = menu->addAction(tr("Dictionary"), this, [this] { showDictionary(); });
     dict->setProperty("testId", "menuDictionary");
     dict->setEnabled(words >= 1 && words <= 4);
     QAction* copy = menu->addAction(tr("Copy"), this, [this] {

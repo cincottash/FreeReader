@@ -14,6 +14,8 @@ public:
     explicit ThemePicker(QWidget* parent);
     void showFor(const QString& currentKey, const QPoint& topRight);
     QListWidget* list() const { return m_list; }
+    // Screenshot mode: the saved theme, whatever the (real, unseen) mouse pointer is over.
+    void stopPreview();
 
 signals:
     void previewRequested(const QString& key);   // empty: show the saved theme again
