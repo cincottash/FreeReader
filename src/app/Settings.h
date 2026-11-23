@@ -39,6 +39,7 @@ struct Settings {
     bool translateOnSelect = false;
     bool offlineOnly = false;         // never send text over the internet
     QStringList offlineBooks;         // book ids kept offline
+    QStringList pageDirections;       // "bookId=rtl" / "bookId=ltr": a book's page direction chosen by hand
     bool useGemini = true;
     QString geminiModel;              // empty: the default (latest Flash-Lite)
     bool useLmStudio = true;

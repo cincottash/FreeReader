@@ -47,10 +47,16 @@ QString guessLanguage(const QString& text);
 // "image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp", "image/svg+xml" or empty, from the bytes.
 QString imageType(const QByteArray& data);
 QString imageSuffix(const QString& mimeType);   // "jpg", "png"…
+// The usual file name suffix of a book from its first bytes ("epub", "mobi", "pdf", "cbz"…), or empty: for files
+// that come without a name (Android's content:// addresses).
+QString bookSuffixFromBytes(const QByteArray& head);
 // Natural order for page files: "page2.jpg" before "page10.jpg".
 bool naturalLess(const QString& a, const QString& b);
 // An image page: the picture alone on its page, as large as fits (comics, scanned pages).
 QByteArray imagePage(const QString& title, const QString& imageHref, const QString& lang = {});
+// A picture from its bytes, turned as its EXIF says; `maxHeight` > 0 reads it smaller. WebP pages (common in
+// manga) open even where Qt has no WebP plug-in, through libwebp (HAVE_WEBP).
+QImage decodeImage(const QByteArray& data, QSize* natural = nullptr, int maxHeight = 0);
 // A PNG of an image, made smaller to at most `maxSide` pixels on its longer side (covers).
 QByteArray coverPng(const QImage& image, int maxSide = 600);
 

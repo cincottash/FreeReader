@@ -39,6 +39,7 @@ void fields(Settings& s, F&& f)
     f("translate_on_select", s.translateOnSelect);
     f("offline_only", s.offlineOnly);
     f("offline_books", s.offlineBooks);
+    f("page_directions", s.pageDirections);
     f("use_gemini", s.useGemini);
     f("gemini_model", s.geminiModel);
     f("use_lm_studio", s.useLmStudio);

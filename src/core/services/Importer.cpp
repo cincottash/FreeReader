@@ -3,6 +3,7 @@
 #include <QFile>
 #include <QCryptographicHash>
 
+#include "core/format/Convert.h"
 #include "core/format/FormatPlugin.h"
 
 #include <QBuffer>
@@ -30,14 +31,7 @@ QByteArray Importer::thumbnail(const Book& book, int height)
     bool ok = false;
     const QByteArray data = book.resource(book.metadata.coverPath, &ok);
     if (!ok) return {};
-    QBuffer in;
-    in.setData(data);
-    in.open(QIODevice::ReadOnly);
-    QImageReader r(&in);
-    r.setAutoTransform(true);
-    const QSize s = r.size();
-    if (s.isValid() && s.height() > height) r.setScaledSize(s.scaled(QSize(height * 4, height), Qt::KeepAspectRatio));
-    const QImage img = r.read();
+    const QImage img = convert::decodeImage(data, nullptr, height);
     if (img.isNull()) return {};
     QByteArray png;
     QBuffer out(&png);

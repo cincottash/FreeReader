@@ -1,4 +1,4 @@
-// The library: the books on this phone, most recently read first. Add Book picks an EPUB file; tap a book to read
+// The library: the books on this phone, most recently read first. Add Book picks a book (EPUB, Kindle, FB2, comics and more); tap a book to read
 // it; press and hold for Remove.
 import QtQuick
 import QtQuick.Controls
@@ -133,7 +133,7 @@ Page {
         visible: page.app.bookCount === 0
         horizontalAlignment: Text.AlignHCenter
         wrapMode: Text.Wrap
-        text: qsTr("No books yet.\nTap Add Book to choose an EPUB file on this phone. Books with DRM can't be opened.")
+        text: qsTr("No books yet.\nTap Add Book to choose a book on this phone (EPUB, MOBI, AZW3, FB2, comics, text and more). Books with DRM can't be opened.")
         font.pixelSize: page.theme.body
         color: page.theme.muted
     }
@@ -160,7 +160,7 @@ Page {
     FileDialog {
         id: picker
         title: qsTr("Add Book")
-        nameFilters: [qsTr("EPUB books (*.epub)")]
+        nameFilters: page.app ? page.app.bookFilters : [qsTr("All files (*)")]
         onAccepted: page.app.importBook(selectedFile)
     }
 

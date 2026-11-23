@@ -114,6 +114,11 @@ class MobileApp : public QObject {
     // The order the cards come in: random, alphabetical, newest, oldest, book (every card is practised).
     Q_PROPERTY(QString practiceOrder READ practiceOrder WRITE setPracticeOrder NOTIFY practiceChanged)
     Q_PROPERTY(QString version READ version CONSTANT)
+    // The file picker's filters: every format FreeReader opens, then all files (a picked file without a name
+    // ending is recognised from its bytes).
+    Q_PROPERTY(QStringList bookFilters READ bookFilters CONSTANT)
+    // The open book's pages turn right to left (manga): taps and swipes are mirrored.
+    Q_PROPERTY(bool rightToLeft READ rightToLeft WRITE setRightToLeft NOTIFY directionChanged)
     // The room the phone's status and navigation bars take (Android 15 draws apps under them).
     Q_PROPERTY(int safeTop READ safeTop NOTIFY insetsChanged)
     Q_PROPERTY(int safeBottom READ safeBottom NOTIFY insetsChanged)
@@ -222,6 +227,9 @@ public:
     void setPracticeOrder(const QString& order);
     Q_INVOKABLE void openLink(const QString& url);
     QString version() const;
+    QStringList bookFilters() const;
+    bool rightToLeft() const;
+    void setRightToLeft(bool on);
     int safeTop() const { return m_insets.top(); }
     int safeBottom() const { return m_insets.bottom(); }
     int safeLeft() const { return m_insets.left(); }
@@ -244,6 +252,7 @@ public:
 
 signals:
     void booksChanged();
+    void directionChanged();
     void messageChanged();
     void busyChanged();
     void readingChanged();

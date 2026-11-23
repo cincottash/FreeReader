@@ -3,6 +3,8 @@
 #include "AndroidSystem.h"
 #include "BookPage.h"
 
+#include "core/format/Convert.h"
+#include "core/format/FormatPlugin.h"
 #include "core/services/Annotations.h"
 #include "core/services/BookEngine.h"
 #include "core/services/BookIndex.h"
@@ -84,10 +86,16 @@ QString keyOf(const core::DictionaryInfo& info)
 QString safeFileName(QString name)
 {
     name.replace(QRegularExpression(QStringLiteral("[\\\\/:*?\"<>|]")), QStringLiteral("_"));
-    name = name.trimmed();
-    if (name.isEmpty()) name = QStringLiteral("book.epub");
-    if (!name.endsWith(QLatin1String(".epub"), Qt::CaseInsensitive)) name += QStringLiteral(".epub");
-    return name;
+    return name.trimmed();
+}
+
+// Whether a file name ends in a suffix some format opens ("x.epub", "x.fb2.zip").
+bool knownSuffix(const QString& name)
+{
+    const QString lower = name.toLower();
+    for (const QString& s : core::FormatRegistry::instance().fileSuffixes())
+        if (lower.endsWith(QLatin1Char('.') + s)) return true;
+    return false;
 }
 
 }  // namespace
@@ -280,13 +288,41 @@ void MobileApp::importBook(const QUrl& url)
     if (!m_library || !url.isValid()) return;
     // A content:// address (Android's file picker) is read through Qt's Android file support; a file:// one directly.
     const QString source = url.isLocalFile() ? url.toLocalFile() : url.toString();
-    const QString name = safeFileName(QFileInfo(source).fileName());
+    QString name = safeFileName(QFileInfo(source).fileName());
     QDir dir(QDir(m_folder).filePath(QStringLiteral("books")));
     dir.mkpath(QStringLiteral("."));
+    // Copied in first under a temporary name: a picked file often has no name ending (content://…), so the
+    // format is read from its first bytes before it gets its name.
+    const QString incoming = dir.filePath(QStringLiteral(".incoming"));
+    QFile::remove(incoming);
+    if (!QFile::copy(source, incoming)) {
+        setMessage(tr("The book couldn't be copied into the app."));
+        return;
+    }
+    if (!knownSuffix(name)) {
+        QFile f(incoming);
+        const QByteArray head = f.open(QIODevice::ReadOnly) ? f.read(4096) : QByteArray();
+        f.close();
+        const QString suffix = core::convert::bookSuffixFromBytes(head);
+        if (suffix.isEmpty() || !core::FormatRegistry::instance().fileSuffixes().contains(suffix)) {
+            QFile::remove(incoming);
+            setMessage(tr("This file isn't a book FreeReader can open."));
+            return;
+        }
+        if (name.isEmpty() || name.startsWith(QLatin1Char('.'))) name = QStringLiteral("book");
+        name += QLatin1Char('.') + suffix;
+    }
+    // "Book.fb2.zip" keeps both parts of its ending when a number is added.
+    QString base = name, ending;
+    for (const QString& s : core::FormatRegistry::instance().fileSuffixes())
+        if (name.toLower().endsWith(QLatin1Char('.') + s) && s.size() + 1 > ending.size()) {
+            ending = name.right(s.size() + 1);
+            base = name.left(name.size() - ending.size());
+        }
     QString target = dir.filePath(name);
-    for (int i = 2; QFileInfo::exists(target); ++i)
-        target = dir.filePath(QStringLiteral("%1 (%2).epub").arg(QFileInfo(name).completeBaseName()).arg(i));
-    if (!QFile::copy(source, target)) {
+    for (int i = 2; QFileInfo::exists(target); ++i) target = dir.filePath(QStringLiteral("%1 (%2)%3").arg(base).arg(i).arg(ending));
+    if (!QFile::rename(incoming, target)) {
+        QFile::remove(incoming);
         setMessage(tr("The book couldn't be copied into the app."));
         return;
     }
@@ -294,6 +330,34 @@ void MobileApp::importBook(const QUrl& url)
     emit busyChanged();
     setMessage(tr("Adding %1…").arg(QFileInfo(name).completeBaseName()));
     m_importer->add({target});
+}
+
+QStringList MobileApp::bookFilters() const
+{
+    QStringList patterns;
+    for (const QString& s : core::FormatRegistry::instance().fileSuffixes()) patterns << QStringLiteral("*.") + s;
+    return {tr("Books (%1)").arg(patterns.join(QLatin1Char(' '))), tr("All files (*)")};
+}
+
+bool MobileApp::rightToLeft() const
+{
+    const QString key = QString::number(m_bookId) + QLatin1Char('=');
+    for (const QString& d : m_settings.pageDirections)
+        if (d.startsWith(key)) return d.mid(key.size()) == QLatin1String("rtl");
+    const core::Book* book = m_engine ? m_engine->book() : nullptr;
+    return book && book->metadata.rightToLeft;
+}
+
+void MobileApp::setRightToLeft(bool on)
+{
+    if (!m_bookId || on == rightToLeft()) return;
+    const QString key = QString::number(m_bookId) + QLatin1Char('=');
+    for (int i = int(m_settings.pageDirections.size()) - 1; i >= 0; --i)
+        if (m_settings.pageDirections[i].startsWith(key)) m_settings.pageDirections.removeAt(i);
+    const core::Book* book = m_engine->book();
+    if (!book || book->metadata.rightToLeft != on) m_settings.pageDirections << key + (on ? QStringLiteral("rtl") : QStringLiteral("ltr"));
+    saveSettings();
+    emit directionChanged();
 }
 
 void MobileApp::openBook(int id)
@@ -320,6 +384,7 @@ void MobileApp::onOpened()
     if (!m_bookId) m_bookId = m_openingId;
     m_openingPath.clear();
     m_title = book->metadata.title;
+    emit directionChanged();
     m_start = {};
     core::SavedPosition saved;
     if (m_library && m_library->loadPosition(m_bookId, &saved)) {

@@ -48,9 +48,11 @@ Page {
                 if (sheet.opened) { sheet.close(); return }
                 if (card.opened) { card.close(); return }
                 if (book.hasSelection) { book.clearSelection(); return }
+                // Right to left (manga): the left third goes forward.
                 const x = point.position.x
-                if (x < book.width / 3) book.previousPage()
-                else if (x > book.width * 2 / 3) book.nextPage()
+                const rtl = reader.app.rightToLeft
+                if (x < book.width / 3) rtl ? book.nextPage() : book.previousPage()
+                else if (x > book.width * 2 / 3) rtl ? book.previousPage() : book.nextPage()
                 else reader.chrome = !reader.chrome
             }
             onLongPressed: {
@@ -76,8 +78,11 @@ Page {
             onActiveChanged: {
                 if (active) { swipeX = 0; return }
                 if (reader.selecting) return
-                if (swipeX < -40) book.nextPage()
-                else if (swipeX > 40) book.previousPage()
+                // Right to left, a swipe to the right goes forward.
+                const forward = reader.app.rightToLeft ? swipeX > 40 : swipeX < -40
+                const back = reader.app.rightToLeft ? swipeX < -40 : swipeX > 40
+                if (forward) book.nextPage()
+                else if (back) book.previousPage()
             }
         }
         // Lifting the finger after a long press shows what to do with the words.

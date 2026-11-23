@@ -127,7 +127,7 @@ Page {
             }
 
             Section { text: qsTr("ABOUT") }
-            Note { text: qsTr("FreeReader %1 · © cincottash · for DRM-free EPUB books.").arg(settings.app.version) }
+            Note { text: qsTr("FreeReader %1 · © cincottash · for DRM-free books.").arg(settings.app.version) }
         }
     }
 }

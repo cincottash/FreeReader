@@ -243,6 +243,7 @@ std::shared_ptr<Book> EpubFormat::open(const QString& path, QString* error) cons
     // Spine
     if (const dom::Node* spine = package->firstElement("spine")) {
         if (ncxPath.isEmpty() && manifest.contains(spine->attr("toc"))) ncxPath = manifest.value(spine->attr("toc")).path;
+        book->metadata.rightToLeft = spine->attr("page-progression-direction") == QLatin1String("rtl");
         for (const dom::Node* ref : spine->elements("itemref")) {
             const auto it = manifest.constFind(ref->attr("idref"));
             if (it == manifest.cend() || !book->zip.contains(it->path)) continue;

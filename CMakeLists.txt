@@ -41,6 +41,18 @@ endif()
 # Spoken pronunciation in the translation pop-up, when this Qt has the module.
 find_package(Qt6 QUIET COMPONENTS TextToSpeech)
 find_package(ZLIB REQUIRED)
+# 7-Zip and RAR comics (CB7, CBR) through libarchive, when it is there (desktop builds); without it they get a
+# plain message.
+if(NOT ANDROID)
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(LIBARCHIVE QUIET libarchive)
+        # WebP pictures (manga) where Qt has no WebP plug-in; the static build uses Qt's plug-in instead.
+        if(NOT STATIC_BUILD)
+            pkg_check_modules(WEBP QUIET libwebp)
+        endif()
+    endif()
+endif()
 if(STATIC_BUILD AND MINGW AND TARGET harfbuzz::harfbuzz)
     # harfbuzz's CMake package always points at its DLL; use the static library instead.
     find_library(HARFBUZZ_STATIC NAMES libharfbuzz.a REQUIRED)
@@ -107,6 +119,26 @@ target_link_libraries(freereader_core PUBLIC Qt6::Gui Qt6::Sql Qt6::Concurrent Q
 if(WIN32)
     target_link_libraries(freereader_core PUBLIC advapi32)   # Credential Manager
 endif()
+if(LIBARCHIVE_FOUND)
+    target_compile_definitions(freereader_core PRIVATE HAVE_LIBARCHIVE)
+    target_include_directories(freereader_core PRIVATE ${LIBARCHIVE_INCLUDE_DIRS})
+    if(STATIC_BUILD)
+        target_compile_definitions(freereader_core PRIVATE LIBARCHIVE_STATIC)
+        target_link_directories(freereader_core PUBLIC ${LIBARCHIVE_STATIC_LIBRARY_DIRS})
+        target_link_libraries(freereader_core PUBLIC ${LIBARCHIVE_STATIC_LIBRARIES})
+    else()
+        target_link_directories(freereader_core PUBLIC ${LIBARCHIVE_LIBRARY_DIRS})
+        target_link_libraries(freereader_core PUBLIC ${LIBARCHIVE_LIBRARIES})
+    endif()
+    message(STATUS "libarchive ${LIBARCHIVE_VERSION}: 7-Zip and RAR comics")
+endif()
+if(WEBP_FOUND)
+    target_compile_definitions(freereader_core PRIVATE HAVE_WEBP)
+    target_include_directories(freereader_core PRIVATE ${WEBP_INCLUDE_DIRS})
+    target_link_directories(freereader_core PUBLIC ${WEBP_LIBRARY_DIRS})
+    target_link_libraries(freereader_core PUBLIC ${WEBP_LIBRARIES})
+    message(STATUS "libwebp ${WEBP_VERSION}: WebP pictures")
+endif()
 # Hyphenation patterns (hyph-utf8: MIT, BSD, LPPL; each file's license header sits next to it).
 file(GLOB HYPH_FILES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/resources/hyphenation/*.txt)
 qt_add_resources(freereader_core hyphenation PREFIX "/" BASE resources FILES ${HYPH_FILES})
@@ -149,6 +181,16 @@ if(STATIC_BUILD)
         INCLUDE_BY_TYPE imageformats Qt6::QSvgPlugin Qt6::QJpegPlugin Qt6::QGifPlugin
         INCLUDE_BY_TYPE iconengines Qt6::QSvgIconPlugin
         INCLUDE_BY_TYPE sqldrivers Qt6::QSQLiteDriverPlugin)
+    # WebP and TIFF pages (manga, scans), when this Qt has the plug-ins.
+    set(EXTRA_IMAGE_PLUGINS "")
+    foreach(plugin IN ITEMS QWebpPlugin QTiffPlugin)
+        if(TARGET Qt6::${plugin})
+            list(APPEND EXTRA_IMAGE_PLUGINS Qt6::${plugin})
+        endif()
+    endforeach()
+    if(EXTRA_IMAGE_PLUGINS)
+        qt_import_plugins(app INCLUDE_BY_TYPE imageformats Qt6::QSvgPlugin Qt6::QJpegPlugin Qt6::QGifPlugin ${EXTRA_IMAGE_PLUGINS})
+    endif()
     if(WIN32)
         # HTTPS through Windows' own TLS (Schannel); speech through Windows' voices (SAPI).
         qt_import_plugins(app INCLUDE_BY_TYPE platforms Qt6::QWindowsIntegrationPlugin Qt6::QOffscreenIntegrationPlugin

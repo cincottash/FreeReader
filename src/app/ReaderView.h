@@ -162,6 +162,9 @@ public:
     QString lastOpenedUrl() const { return m_lastUrl; }   // tests: the browser is never opened when not interactive
     bool bookIsOffline() const;
     void setBookOffline(bool on);
+    // Pages right to left (manga): as the book says, unless chosen by hand for this book (kept in the settings).
+    bool pagesRightToLeft() const;
+    void setPagesRightToLeft(bool on);
 
 signals:
     void libraryRequested();

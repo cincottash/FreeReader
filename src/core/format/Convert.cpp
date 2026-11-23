@@ -3,13 +3,17 @@
 #include "core/css/Css.h"
 
 #include <QBuffer>
-#include <QCollator>
+#include <QImageReader>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QRegularExpression>
 #include <QSet>
 #include <QStringDecoder>
+
+#ifdef HAVE_WEBP
+#include <webp/decode.h>
+#endif
 
 namespace core {
 
@@ -22,6 +26,12 @@ QString insideRoot(const QString& root, const QString& path)
     const QString clean = QDir::cleanPath(path);
     if (clean.startsWith(QLatin1String(".."))) return {};
     return QDir(root).filePath(clean);
+}
+
+int be16le(const QByteArray& d, int at)
+{
+    if (at + 2 > d.size()) return 0;
+    return uchar(d[at]) | (uchar(d[at + 1]) << 8);
 }
 
 }  // namespace
@@ -242,6 +252,37 @@ QString imageSuffix(const QString& mimeType)
     return QStringLiteral("bin");
 }
 
+QString bookSuffixFromBytes(const QByteArray& head)
+{
+    if (head.startsWith("PK\x03\x04")) {
+        if (head.contains("application/epub+zip")) return QStringLiteral("epub");
+        if (head.contains("application/vnd.oasis.opendocument.text")) return QStringLiteral("odt");
+        if (head.contains("[Content_Types].xml") || head.contains("word/")) return QStringLiteral("docx");
+        if (head.contains(".fb2")) return QStringLiteral("fb2.zip");
+        // The first entry's name: pictures make a comic.
+        const QByteArray name = head.mid(30, qMin<int>(be16le(head, 26), 200)).toLower();
+        for (const char* ext : {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"})
+            if (name.endsWith(ext)) return QStringLiteral("cbz");
+        if (name.endsWith("comicinfo.xml")) return QStringLiteral("cbz");
+        return QStringLiteral("zip");
+    }
+    if (head.mid(60, 8) == "BOOKMOBI") return QStringLiteral("mobi");
+    if (head.mid(60, 8) == "TEXtREAd") return QStringLiteral("pdb");
+    if (head.startsWith("%PDF")) return QStringLiteral("pdf");
+    if (head.startsWith("AT&TFORM")) return QStringLiteral("djvu");
+    if (head.startsWith("Rar!\x1A\x07")) return QStringLiteral("cbr");
+    if (head.startsWith("7z\xBC\xAF\x27\x1C")) return QStringLiteral("cb7");
+    if (head.startsWith("{\\rtf")) return QStringLiteral("rtf");
+    if (head.startsWith("\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1")) return QStringLiteral("doc");
+    if (head.startsWith("ITSF")) return QStringLiteral("chm");
+    if (head.size() >= 262 && head.mid(257, 5) == "ustar") return QStringLiteral("cbt");
+    const QByteArray lower = head.left(2048).toLower();
+    if (lower.contains("<fictionbook")) return QStringLiteral("fb2");
+    if (lower.contains("<html") || lower.contains("<!doctype html")) return QStringLiteral("html");
+    if (!head.contains('\0') && !head.isEmpty()) return QStringLiteral("txt");
+    return {};
+}
+
 bool naturalLess(const QString& a, const QString& b)
 {
     // Runs of digits compare as numbers, the rest without case (QCollator's numeric mode isn't on every platform).
@@ -272,6 +313,33 @@ bool naturalLess(const QString& a, const QString& b)
 QByteArray imagePage(const QString& title, const QString& imageHref, const QString& lang)
 {
     return page(title, QStringLiteral("<div><img src=\"%1\" alt=\"%2\"/></div>").arg(escape(imageHref), escape(title)), lang);
+}
+
+QImage decodeImage(const QByteArray& data, QSize* natural, int maxHeight)
+{
+    QBuffer buf;
+    buf.setData(data);
+    buf.open(QIODevice::ReadOnly);
+    QImageReader r(&buf);
+    r.setAutoTransform(true);
+    const QSize s = r.size();
+    if (natural) *natural = s;
+    if (maxHeight > 0 && s.isValid() && s.height() > maxHeight) r.setScaledSize(s.scaled(QSize(maxHeight * 4, maxHeight), Qt::KeepAspectRatio));
+    QImage img = r.read();
+#ifdef HAVE_WEBP
+    if (img.isNull() && imageType(data) == QLatin1String("image/webp")) {
+        int w = 0, h = 0;
+        if (WebPGetInfo(reinterpret_cast<const uint8_t*>(data.constData()), size_t(data.size()), &w, &h) && w > 0 && h > 0) {
+            QImage out(w, h, QImage::Format_RGBA8888);
+            if (WebPDecodeRGBAInto(reinterpret_cast<const uint8_t*>(data.constData()), size_t(data.size()), out.bits(), size_t(out.sizeInBytes()),
+                                   int(out.bytesPerLine()))) {
+                if (natural) *natural = QSize(w, h);
+                img = maxHeight > 0 && h > maxHeight ? out.scaledToHeight(maxHeight, Qt::SmoothTransformation) : out;
+            }
+        }
+    }
+#endif
+    return img;
 }
 
 QByteArray coverPng(const QImage& image, int maxSide)

@@ -3,6 +3,7 @@
 #include "Hyphenator.h"
 
 #include "core/format/Book.h"
+#include "core/format/Convert.h"
 
 #include <QBuffer>
 #include <QImageReader>
@@ -37,13 +38,7 @@ QImage loadImage(const core::Book& book, const QString& path, QSize* natural)
     bool ok = false;
     const QByteArray data = book.resource(path, &ok);
     if (!ok) return {};
-    QBuffer buf;
-    buf.setData(data);
-    buf.open(QIODevice::ReadOnly);
-    QImageReader r(&buf);
-    r.setAutoTransform(true);
-    if (natural) *natural = r.size();
-    return r.read();
+    return core::convert::decodeImage(data, natural);
 }
 
 // The display size of an image block inside a column.

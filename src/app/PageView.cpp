@@ -126,13 +126,16 @@ void PageView::paintTurn(QPainter& p)
         g.setColorAt(1, QColor(0, 0, 0, 0));
         p.fillRect(QRectF(toRight ? x : x - width, 0, width, h), g);
     };
+    // Right to left, the next page comes in from the left.
+    const qreal dir = m_rtl ? -1.0 : 1.0;
     if (m_turnStyle == QLatin1String("slide")) {
-        p.drawPixmap(QPointF(-s * w, 0), a);
-        p.drawPixmap(QPointF((1 - s) * w, 0), b);
+        p.drawPixmap(QPointF(-s * w * dir, 0), a);
+        p.drawPixmap(QPointF((1 - s) * w * dir, 0), b);
     } else if (m_turnStyle == QLatin1String("cover")) {
         p.drawPixmap(QPointF(0, 0), a);
-        const qreal x = (1 - s) * w;
-        shadow(x, 24, false, 1.0 - s * 0.5);
+        const qreal x = (1 - s) * w * dir;
+        if (m_rtl) shadow(x + w, 24, true, 1.0 - s * 0.5);
+        else shadow(x, 24, false, 1.0 - s * 0.5);
         p.drawPixmap(QPointF(x, 0), b);
     } else if (m_turnStyle == QLatin1String("fade")) {
         p.drawPixmap(QPointF(0, 0), a);
@@ -365,9 +368,15 @@ float PageView::turnZone() const
 int PageView::hoverSide(const QPointF& pos) const
 {
     const float zone = turnZone();
-    if (pos.x() < zone && canGoPrevious()) return -1;
-    if (pos.x() > width() - zone && canGoNext()) return 1;
+    if (pos.x() < zone && (m_rtl ? canGoNext() : canGoPrevious())) return -1;
+    if (pos.x() > width() - zone && (m_rtl ? canGoPrevious() : canGoNext())) return 1;
     return 0;
+}
+
+void PageView::turnFromSide(int side)
+{
+    if ((m_rtl ? -side : side) < 0) previousScreen();
+    else nextScreen();
 }
 
 void PageView::paintEvent(QPaintEvent*)
@@ -571,7 +580,7 @@ void PageView::mouseReleaseEvent(QMouseEvent* e)
     }
     emit pageClicked();
     if (m_pressSide) {
-        if (hoverSide(e->position()) == m_pressSide) m_pressSide < 0 ? previousScreen() : nextScreen();
+        if (hoverSide(e->position()) == m_pressSide) turnFromSide(m_pressSide);
         return;
     }
     clearSelection();
@@ -589,7 +598,7 @@ void PageView::mouseDoubleClickEvent(QMouseEvent* e)
     m_pressed = false;
     // Clicking an arrow quickly twice turns two pages; it never selects a word under the arrow.
     if (const int side = hoverSide(e->position())) {
-        side < 0 ? previousScreen() : nextScreen();
+        turnFromSide(side);
         return;
     }
     if (selectWordAt(e->position()) && !selectedText().trimmed().isEmpty()) {
@@ -743,6 +752,11 @@ void PageView::keyPressEvent(QKeyEvent* e)
 {
     switch (e->key()) {
     case Qt::Key_Right:
+        m_rtl ? previousScreen() : nextScreen();
+        return;
+    case Qt::Key_Left:
+        m_rtl ? nextScreen() : previousScreen();
+        return;
     case Qt::Key_Down:
     case Qt::Key_PageDown:
         nextScreen();
@@ -750,7 +764,6 @@ void PageView::keyPressEvent(QKeyEvent* e)
     case Qt::Key_Space:
         (e->modifiers() & Qt::ShiftModifier) ? previousScreen() : nextScreen();
         return;
-    case Qt::Key_Left:
     case Qt::Key_Up:
     case Qt::Key_PageUp:
         previousScreen();

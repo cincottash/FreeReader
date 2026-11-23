@@ -330,6 +330,12 @@ void MainWindow::buildCommands()
         m_reader->setBookOffline(!m_reader->bookIsOffline());
     }, [this] { return isReading() && !m_settings.offlineOnly; }, tr("Text from this book is never sent to Gemini."));
     if (Command* c = command(QStringLiteral("book-offline"))) c->action->setCheckable(true);
+    addCommand(QStringLiteral("pages-right-to-left"), tr("Pages Right to Left"), QKeySequence(), [this] {
+        m_reader->setPagesRightToLeft(!m_reader->pagesRightToLeft());
+        syncChecks();
+        saveSettingsSoon();
+    }, reading, tr("For manga: the left edge and the Left key turn to the next page."));
+    if (Command* c = command(QStringLiteral("pages-right-to-left"))) c->action->setCheckable(true);
     addCommand(QStringLiteral("import-kindle"), tr("Import Kindle Highlights…"), QKeySequence(), [this] { importKindle(); }, reading,
                tr("Highlights, notes and bookmarks from a Kindle export (Bookcision's JSON or My Clippings.txt) into this book."));
     addCommand(QStringLiteral("search-book"), tr("Search This Book…"), QKeySequence(Qt::CTRL | Qt::Key_F), [this] {
@@ -421,6 +427,7 @@ void MainWindow::buildMenus()
     add(view, "notebook");
     add(view, "bilingual");
     add(view, "book-offline");
+    add(view, "pages-right-to-left");
     view->addSeparator();
     add(view, "larger");
     add(view, "smaller");
@@ -634,6 +641,7 @@ void MainWindow::syncChecks()
     set("offline-only", m_settings.offlineOnly);
     set("book-offline", m_reader && m_reader->bookIsOffline());
     set("bilingual", m_reader && m_reader->bilingualVisible());
+    set("pages-right-to-left", m_reader && isReading() && m_reader->pagesRightToLeft());
 }
 
 void MainWindow::showSettings(int tab)

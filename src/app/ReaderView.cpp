@@ -411,6 +411,16 @@ QString ReaderView::languageName() const
 Appearance ReaderView::effectiveAppearance() const
 {
     Appearance a = m_settings.look;
+    const core::Book* book = m_engine->book();
+    if (book && book->metadata.pictures) {
+        // Comics and scanned pages: the picture as large as the window allows (thin margins, no line length). Two
+        // pages side by side when the window is wide, except right to left, where they would be in the wrong order.
+        a.marginPx = 12;
+        a.pageWidthEm = 80;
+        a.columns = pagesRightToLeft() ? QStringLiteral("one") : QStringLiteral("auto");
+        if (m_library && m_bookId) a.merge(m_library->appearanceLayer(QStringLiteral("book:%1").arg(m_bookId)));
+        return a;
+    }
     if (m_library) {
         if (!languageCode().isEmpty()) a.merge(m_library->appearanceLayer(QStringLiteral("lang:") + languageCode()));
         if (m_bookId) a.merge(m_library->appearanceLayer(QStringLiteral("book:%1").arg(m_bookId)));
@@ -485,6 +495,7 @@ void ReaderView::showBook(int bookId, const core::Position& start)
     setBilingualVisible(m_settings.showBilingual);
     closeSearch();
     applyReadingOptions();
+    m_pages->setRightToLeft(pagesRightToLeft());
     m_lastShown = start;
     m_sinceTurn.start();
     m_pages->setPosition(start);
@@ -817,6 +828,29 @@ void ReaderView::setTranslator(core::TranslationService* service)
         connect(service, &core::TranslationService::asking, this, [this](int id, const QString& provider) {
             if (id == m_lookupId) m_translate->showAsking(provider);
         });
+}
+
+bool ReaderView::pagesRightToLeft() const
+{
+    const QString key = QString::number(m_bookId) + QLatin1Char('=');
+    for (const QString& d : m_settings.pageDirections)
+        if (d.startsWith(key)) return d.mid(key.size()) == QLatin1String("rtl");
+    const core::Book* book = m_engine->book();
+    return book && book->metadata.rightToLeft;
+}
+
+void ReaderView::setPagesRightToLeft(bool on)
+{
+    if (!m_bookId) return;
+    const QString key = QString::number(m_bookId) + QLatin1Char('=');
+    for (int i = int(m_settings.pageDirections.size()) - 1; i >= 0; --i)
+        if (m_settings.pageDirections[i].startsWith(key)) m_settings.pageDirections.removeAt(i);
+    const core::Book* book = m_engine->book();
+    // Only a choice that differs from the book's own is kept.
+    if (!book || book->metadata.rightToLeft != on) m_settings.pageDirections << key + (on ? QStringLiteral("rtl") : QStringLiteral("ltr"));
+    m_pages->setRightToLeft(on);
+    applyReadingOptions();   // a comic shows one page at a time right to left
+    m_pages->showNotice(on ? tr("Pages turn right to left: the left edge and the Left key go forward.") : tr("Pages turn left to right."));
 }
 
 bool ReaderView::bookIsOffline() const
