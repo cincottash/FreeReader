@@ -40,6 +40,7 @@ class QTextToSpeech;
 struct Settings;
 
 namespace core {
+class OfflineTranslator;
 class BookEngine;
 class Library;
 class TranslationService;
@@ -93,6 +94,7 @@ public:
     // Translation of the selection (the pop-up), and the right-click menu on the page.
     void setTranslator(core::TranslationService* service);
     void setWordLog(core::WordLog* log) { m_words = log; }
+    void setOfflineTranslator(core::OfflineTranslator* t) { m_offlineTranslator = t; }
     int bookId() const { return m_bookId; }
 
     // Highlights, notes, bookmarks (phase 4).
@@ -219,6 +221,8 @@ private:
     core::WordLog* m_words = nullptr;
     int m_lookupSpine = -1, m_lookupStart = 0, m_lookupEnd = 0;
     QString m_lookupSentence;
+    bool m_lookupIsWord = false;
+    core::OfflineTranslator* m_offlineTranslator = nullptr;
     int m_lookupId = 0;
     bool m_dictionaryFirst = false;
     core::TranslationRequest::Kind m_lookupKind = core::TranslationRequest::Kind::Lookup;

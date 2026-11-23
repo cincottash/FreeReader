@@ -39,6 +39,7 @@ struct TranslationResult {
     QStringList paragraphs;    // Paragraphs: one translation per paragraph asked, in order
     QString provider;          // shown in the pop-up: "Gemini", "LM Studio", "Offline dictionary"
     bool fromCache = false;
+    bool keep = true;          // may be saved as the lasting answer (false for the offline engines' answers)
 
     bool isEmpty() const { return translation.isEmpty() && definition.isEmpty() && paragraphs.isEmpty(); }
     QJsonObject toJson() const;
@@ -71,6 +72,11 @@ public:
     virtual bool sendsTextOnline() const { return false; }
     // False when this provider can't take the request at all (another language's dictionary): skipped quietly.
     virtual bool handles(const TranslationRequest&) const { return true; }
+    // Whether its answers are kept as the lasting answer for that text (Gemini's and LM Studio's are; the local
+    // ones are instant to ask again, and keeping them would block a better answer once online again).
+    virtual bool cacheable() const { return true; }
+    // False: a miss (nothing found) isn't listed among the reasons when nothing answers (the Word List).
+    virtual bool reportsMisses() const { return true; }
     // Calls `done` exactly once, later (never from inside this call).
     virtual void translate(const TranslationRequest& request, Done done) = 0;
 };

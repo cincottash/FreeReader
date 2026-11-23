@@ -309,6 +309,25 @@ WordEntry WordLog::word(int id) const
     return q.exec() && q.next() ? readWord(q) : WordEntry();
 }
 
+WordEntry WordLog::find(const QString& language, const QString& text, const QString& lemma) const
+{
+    if (!isOpen() || text.trimmed().isEmpty()) return {};
+    const QString lang = language.isEmpty() ? QStringLiteral("und") : language;
+    // Its key with or without the dictionary form, or the same word saved under another dictionary form (one
+    // answer said "tener", another none). Several saved meanings: the one seen last.
+    const QString key = keyFor(text.simplified(), QString(), false);
+    const QString lemmaKey = lemma.trimmed().isEmpty() ? key : keyFor(text.simplified(), lemma.simplified(), false);
+    QSqlQuery q(QSqlDatabase::database(m_connection));
+    q.prepare(QString::fromLatin1(kWordColumns) +
+              QStringLiteral("WHERE w.language=? AND w.translation<>'' AND (w.word_key=? OR w.word_key=? OR (w.passage=0 AND w.text=? COLLATE NOCASE)) "
+                             "ORDER BY w.last_seen DESC, w.id DESC LIMIT 1"));
+    q.addBindValue(bindable(lang));
+    q.addBindValue(bindable(key));
+    q.addBindValue(bindable(lemmaKey));
+    q.addBindValue(bindable(text.simplified()));
+    return q.exec() && q.next() ? readWord(q) : WordEntry();
+}
+
 bool WordLog::update(const WordEntry& e)
 {
     if (!isOpen() || e.id <= 0) return false;

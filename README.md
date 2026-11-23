@@ -45,8 +45,9 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
   beside it, a page at a time; pages you've seen stay translated.
 - Prefer the pop-up as soon as you select? Turn on **Settings ▸ Translation ▸ Translate When Text Is Selected**.
 - Answers come from **Google's Gemini** (free tier, no card needed), then **LM Studio** on your own computer when
-  Gemini can't answer (optional), then an **offline dictionary**. Every answer is kept, so looking up the same
-  word again costs nothing. Each one can be switched off in **Settings ▸ Translation**.
+  Gemini can't answer (optional), then what your **Word List** already says, then the **offline dictionaries** and
+  the **offline translator**. Every Gemini and LM Studio answer is kept, so looking up the same words again costs
+  nothing and works offline. Each one can be switched off in **Settings ▸ Translation**.
 - **Set it up once:** get a free key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey), then
   paste it in **Settings ▸ Translation ▸ Translation Settings…**. The key is kept in Windows Credential Manager
   (or the system's key store on Linux), never in a file. **Test** looks up one word to check it works.
@@ -58,6 +59,11 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
   - **English definitions** (11 MB), for English books: 160,000 words and names from
     [Open English WordNet](https://github.com/globalwordnet/english-wordnet) (CC BY 4.0), with their forms
     ("ran" → run, "studies" → study). [Release](https://github.com/cincottash/FreeReader/releases/tag/dictionary-en-1).
+- **Offline translator** (30 MB, optional download in the same place): translates Spanish sentences and pages
+  with no internet, in a fraction of a second, when Gemini and LM Studio can't. It's
+  [Bergamot](https://github.com/browsermt/bergamot-translator), the engine Firefox translates with, and Mozilla's
+  Spanish → English model (both MPL 2.0). Its English is plainer than Gemini's and weaker on old Spanish, so it isn't
+  kept: Gemini's answer replaces it once online. [Release](https://github.com/cincottash/FreeReader/releases/tag/offline-translator-1).
 - **Hear Pronunciation** uses the computer's own voices. Windows: add a voice for the book's language (free) in
   Settings ▸ Time & Language ▸ Speech; the pop-up says when one is missing. Linux: speech-dispatcher with
   espeak-ng.
@@ -210,7 +216,8 @@ cmake --build build
 - `src/core/position`: positions as EPUB CFI, which keep working when the text size or window changes.
 - `src/core/services`: the book engine (opening, layout cache), the library database (SQLite), adding books, the
   word log, highlights and notes, book search and the system key store.
-- `src/core/translate`: translation providers (Gemini, LM Studio, the offline dictionary) and the service that
+- `src/core/translate`: translation providers (Gemini, LM Studio, the Word List, the offline dictionaries, the
+  offline translator, which runs Bergamot as a separate program) and the service that
   tries them in order and caches answers.
 - `src/core/practice`: the FSRS scheduler and typed-answer checking for flashcards.
 - `src/app`: the windows.

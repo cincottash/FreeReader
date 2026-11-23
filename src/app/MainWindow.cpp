@@ -22,6 +22,8 @@
 #include "core/translate/AiProviders.h"
 #include "core/translate/TranslationService.h"
 #include "core/translate/OfflineDictionary.h"
+#include "core/translate/OfflineTranslator.h"
+#include "core/translate/SavedWords.h"
 
 #include <QAction>
 #include <QApplication>
@@ -58,7 +60,13 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     m_dictionary->open(dictionaryFile(QStringLiteral("es")));
     m_dictionaryEn = new core::OfflineDictionary(this);
     m_dictionaryEn->open(dictionaryFile(QStringLiteral("en")));
-    m_translator->setProviders({m_gemini, m_lmStudio, m_dictionary, m_dictionaryEn});
+    // When Gemini and LM Studio can't answer: the meaning saved in the Word List from an earlier lookup, the
+    // offline dictionaries (words), then the offline translator (sentences and passages).
+    m_savedWords = new core::SavedWords(this);
+    m_savedWords->setDictionaries({m_dictionary, m_dictionaryEn});
+    m_offline = new core::OfflineTranslator(this);
+    m_offline->setFolder(translatorFolder());
+    m_translator->setProviders({m_gemini, m_lmStudio, m_savedWords, m_dictionary, m_dictionaryEn, m_offline});
     m_translator->setInstant({m_dictionary, m_dictionaryEn});
     m_gemini->setKey(core::secrets::read(QStringLiteral("gemini-api-key")));
     m_stack = new QStackedWidget;
@@ -68,6 +76,8 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     m_reader->setTranslator(m_translator);
     m_words = std::make_unique<core::WordLog>(m_library);
     m_reader->setWordLog(m_words.get());
+    m_reader->setOfflineTranslator(m_offline);
+    m_savedWords->setWordLog(m_words.get());
     m_annotations = std::make_unique<core::Annotations>(m_library);
     m_reader->setAnnotations(m_annotations.get());
     m_practice = new PracticeView(m_words.get(), m_settings);
@@ -318,6 +328,8 @@ void MainWindow::buildCommands()
     toggle("use-gemini", tr("Use Gemini (Online)"), &Settings::useGemini, tr("Google's Gemini, asked first."));
     toggle("use-lm-studio", tr("Use LM Studio (This Computer)"), &Settings::useLmStudio, tr("Asked when Gemini can't answer."));
     toggle("use-dictionary", tr("Use the Offline Dictionary"), &Settings::useDictionary, tr("Single words at once, and when nothing else answers."));
+    toggle("use-offline-translator", tr("Use the Offline Translator"), &Settings::useOfflineTranslator,
+           tr("Sentences and pages with no internet, when Gemini and LM Studio can't answer (a download in Settings)."));
     toggle("offline-only", tr("Offline Only"), &Settings::offlineOnly, tr("No text is sent over the internet: Gemini is never asked."));
     addCommand(QStringLiteral("keyboard-shortcuts"), tr("Keyboard Shortcuts"), QKeySequence(), [this] { showSettings(SettingsDialog::ShortcutsTab); },
                nullptr, tr("Every shortcut, and changing them."));
@@ -404,6 +416,7 @@ void MainWindow::buildMenus()
     add(translation, "use-gemini");
     add(translation, "use-lm-studio");
     add(translation, "use-dictionary");
+    add(translation, "use-offline-translator");
     translation->addSeparator();
     add(translation, "offline-only");
     add(translation, "book-offline");
@@ -482,6 +495,8 @@ void MainWindow::applyShortcuts()
     }
 }
 
+QString MainWindow::translatorFolder() { return QDir(appdata::folder()).filePath(QStringLiteral("translator")); }
+
 QString MainWindow::dictionaryFile(const QString& language)
 {
     return QDir(appdata::folder()).filePath(QStringLiteral("dictionaries/%1-en.sqlite").arg(language));
@@ -493,6 +508,8 @@ void MainWindow::applyTranslationSettings()
     if (!m_dictionary->info().ok) m_dictionary->open(dictionaryFile(QStringLiteral("es")));
     m_dictionaryEn->setEnabled(m_settings.useDictionary);
     if (!m_dictionaryEn->info().ok) m_dictionaryEn->open(dictionaryFile(QStringLiteral("en")));
+    m_offline->setEnabled(m_settings.useOfflineTranslator);
+    m_offline->setFolder(translatorFolder());
     m_gemini->setEnabled(m_settings.useGemini);
     m_gemini->setModel(m_settings.geminiModel);
     m_lmStudio->setEnabled(m_settings.useLmStudio);
@@ -518,6 +535,7 @@ void MainWindow::syncChecks()
     set("use-gemini", m_settings.useGemini);
     set("use-lm-studio", m_settings.useLmStudio);
     set("use-dictionary", m_settings.useDictionary);
+    set("use-offline-translator", m_settings.useOfflineTranslator);
     set("offline-only", m_settings.offlineOnly);
     set("book-offline", m_reader && m_reader->bookIsOffline());
     set("bilingual", m_reader && m_reader->bilingualVisible());
@@ -531,6 +549,7 @@ void MainWindow::showSettings(int tab)
         m_settingsDialog = new SettingsDialog(m_settings, list, m_gemini, m_lmStudio, m_interactive, this);
         m_settingsDialog->setDictionary(m_dictionary, dictionaryFile(QStringLiteral("es")));
         m_settingsDialog->setEnglishDictionary(m_dictionaryEn, dictionaryFile(QStringLiteral("en")));
+        m_settingsDialog->setOfflineTranslator(m_offline);
         connect(m_settingsDialog, &SettingsDialog::translationChanged, this, [this] {
             applyTranslationSettings();
             saveSettingsSoon();

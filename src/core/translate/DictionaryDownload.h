@@ -23,13 +23,16 @@ public:
         QUrl url;
         QByteArray sha256;      // hex, of the zip
         qint64 size = 0;        // bytes, of the zip
-        QString entry;          // the dictionary file inside the zip
+        QString entry;          // the dictionary file inside the zip; empty: the whole zip into the folder given
         qint64 unpackedSize = 0;
     };
     // The Spanish -> English dictionary (release "dictionary-es-en-1", built 2026-11-22 from kaikki.org data).
     static Source spanishEnglish();
     // English definitions for English books (release "dictionary-en-1", from Open English WordNet 2025 plus).
     static Source englishDefinitions();
+    // The offline sentence translator for this system (release "offline-translator-1": Bergamot and Mozilla's
+    // Spanish -> English model). Size 0 where no pack is built (then it isn't offered).
+    static Source offlineTranslator();
 
     explicit DictionaryDownload(QObject* parent = nullptr);
     ~DictionaryDownload() override;

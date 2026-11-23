@@ -78,6 +78,9 @@ public:
     bool fillMeaning(int wordId, const TranslationResult& r);
     QList<WordEntry> words(int bookId = 0) const;   // newest first; 0: all books
     WordEntry word(int id) const;
+    // A saved word with a meaning, found by how it was read ("tenía") or by its dictionary form ("tener"), in any
+    // capitals; id 0 when there is none. For answering offline from what was looked up before.
+    WordEntry find(const QString& language, const QString& text, const QString& lemma = QString()) const;
     bool update(const WordEntry& e);                 // meaning, note, star; marks the meaning as edited
     void remove(int id);                             // with its cards and their history
     int count() const;

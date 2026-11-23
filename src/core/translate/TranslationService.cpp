@@ -84,12 +84,20 @@ void TranslationService::next(int id, const TranslationRequest& request, size_t 
         emit asking(id, p->name());
         QPointer<TranslationService> self(this);
         const QString name = p->name();
-        p->translate(request, [self, id, request, i, why, name](const TranslationResult& r, TranslationFailure f, const QString& detail) mutable {
+        const bool keep = p->cacheable();
+        const bool reportsMisses = p->reportsMisses();
+        p->translate(request, [self, id, request, i, why, name, keep, reportsMisses](const TranslationResult& r, TranslationFailure f, const QString& detail) mutable {
             if (!self) return;
             if (f == TranslationFailure::None && !r.isEmpty()) {
                 self->m_status.remove(name);
-                if (self->m_cache) self->m_cache->cacheTranslation(request.cacheKey(), name, r.toJson());
-                self->finish(request, r, {});
+                if (self->m_cache && keep) self->m_cache->cacheTranslation(request.cacheKey(), name, r.toJson());
+                TranslationResult out = r;
+                out.keep = keep;
+                self->finish(request, out, {});
+                return;
+            }
+            if (f == TranslationFailure::NotFound && !reportsMisses) {
+                self->next(id, request, i + 1, why);
                 return;
             }
             const QString text = failureText(f == TranslationFailure::None ? TranslationFailure::Failed : f);

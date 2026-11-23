@@ -5,6 +5,7 @@
 #include "core/services/Secrets.h"
 #include "core/translate/AiProviders.h"
 #include "core/translate/OfflineDictionary.h"
+#include "core/translate/OfflineTranslator.h"
 
 #include <QFile>
 #include <QFileDialog>
@@ -259,6 +260,46 @@ QWidget* SettingsDialog::buildTranslationTab()
         connect(d.remove, &QPushButton::clicked, this, [this, language] { removeDictionary(language); });
     }
 
+    lay->addWidget(sectionTitle(tr("OFFLINE TRANSLATOR (SENTENCES)")));
+    lay->addWidget(muted(tr("Translates whole sentences and pages from Spanish with no internet, when Gemini and LM Studio "
+                            "can't answer. It's Bergamot, the engine Firefox translates with, and Mozilla's Spanish → English "
+                            "model: plainer English than Gemini's, and weaker on old Spanish. An optional download.")));
+    m_useTranslator = new QCheckBox(tr("Use the Offline Translator"));
+    m_useTranslator->setProperty("testId", "useOfflineTranslator");
+    lay->addWidget(m_useTranslator);
+    connect(m_useTranslator, &QCheckBox::toggled, this, [this](bool on) {
+        m_settings.useOfflineTranslator = on;
+        emit translationChanged();
+    });
+    m_translatorSource = core::DictionaryDownload::offlineTranslator();
+    {
+        auto* rowLay = new QHBoxLayout;
+        m_translatorStatus = new QLabel;
+        m_translatorStatus->setWordWrap(true);
+        m_translatorStatus->setProperty("testId", "translatorStatus");
+        rowLay->addWidget(m_translatorStatus, 1);
+        m_translatorGet = new QPushButton;
+        m_translatorGet->setProperty("testId", "downloadTranslator");
+        m_translatorGet->setObjectName(QStringLiteral("Suggested"));
+        m_translatorGet->setToolTip(tr("Downloads the translator (Bergamot, MPL 2.0) and Mozilla's Spanish → English model "
+                                       "(MPL 2.0) from FreeReader's page on GitHub, once. Nothing else is sent."));
+        m_translatorRemove = new QPushButton(tr("Remove"));
+        m_translatorRemove->setProperty("testId", "removeTranslator");
+        rowLay->addWidget(m_translatorGet);
+        rowLay->addWidget(m_translatorRemove);
+        lay->addLayout(rowLay);
+        m_translatorProgress = new QProgressBar;
+        m_translatorProgress->setProperty("testId", "translatorProgress");
+        m_translatorProgress->setTextVisible(true);
+        m_translatorProgress->hide();
+        lay->addWidget(m_translatorProgress);
+        connect(m_translatorGet, &QPushButton::clicked, this, [this] {
+            if (isDownloadingTranslator()) cancelTranslatorDownload();
+            else downloadTranslator();
+        });
+        connect(m_translatorRemove, &QPushButton::clicked, this, &SettingsDialog::removeTranslator);
+    }
+
     lay->addWidget(sectionTitle(tr("WHILE READING")));
     m_auto = new QCheckBox(tr("Translate When Text Is Selected"));
     m_auto->setToolTip(tr("Off: selecting only selects. Right-click the selection and choose Translate, or press Ctrl+E."));
@@ -343,6 +384,21 @@ void SettingsDialog::refreshTranslation()
         d.download->setText(downloading ? tr("Cancel Download") : tr("Download (%1 MB)").arg((d.source.size + 500000) / 1000000));
         d.add->setEnabled(d.dict && !downloading);
         d.progress->setVisible(downloading);
+    }
+    {
+        const QSignalBlocker b7(m_useTranslator);
+        m_useTranslator->setChecked(m_settings.useOfflineTranslator);
+        const bool installed = m_translatorEngine && m_translatorEngine->isInstalled();
+        const bool downloading = isDownloadingTranslator();
+        const bool offered = m_translatorSource.size > 0;   // a pack is built for this system
+        m_translatorStatus->setText(installed  ? tr("Spanish → English: installed.")
+                                    : offered ? tr("Spanish → English: not installed.")
+                                              : tr("Not available for this system yet."));
+        m_translatorGet->setVisible(m_translatorEngine && offered && (downloading || !installed));
+        m_translatorGet->setText(downloading ? tr("Cancel Download")
+                                             : tr("Download (%1 MB)").arg((m_translatorSource.size + 500000) / 1000000));
+        m_translatorRemove->setEnabled(installed && !downloading);
+        m_translatorProgress->setVisible(downloading);
     }
     const bool has = m_gemini && m_gemini->hasKey();
     m_keyStatus->setText(has ? tr("A key is saved in %1.").arg(storeName()) : tr("No key yet."));
@@ -503,6 +559,104 @@ void SettingsDialog::removeDictionary(const QString& language)
     if (!d || !d->dict) return;
     d->dict->close();
     QFile::remove(d->path);   // the app's own copy in its data folder
+    refreshTranslation();
+    emit translationChanged();
+}
+
+// ---------------------------------------------------------------- Offline translator
+
+void SettingsDialog::setOfflineTranslator(core::OfflineTranslator* translator)
+{
+    m_translatorEngine = translator;
+    refreshTranslation();
+}
+
+void SettingsDialog::setTranslatorSource(const core::DictionaryDownload::Source& s)
+{
+    m_translatorSource = s;
+    refreshTranslation();
+}
+
+bool SettingsDialog::isDownloadingTranslator() const { return m_translatorDownload && m_translatorDownload->isRunning(); }
+
+namespace {
+// The translator's own folder in the app data folder, and nothing else: the only folder the app ever replaces or
+// removes as a whole. Empty when the path isn't one (then nothing is removed).
+QString ownTranslatorFolder(const core::OfflineTranslator* t)
+{
+    if (!t) return {};
+    const QString f = QDir::cleanPath(t->folder());
+    return QFileInfo(f).fileName() == QLatin1String("translator") && QFileInfo(f).isAbsolute() ? f : QString();
+}
+}  // namespace
+
+void SettingsDialog::downloadTranslator()
+{
+    const QString folder = ownTranslatorFolder(m_translatorEngine);
+    if (folder.isEmpty() || isDownloadingTranslator() || m_translatorSource.size <= 0) return;
+    if (!m_translatorDownload) {
+        m_translatorDownload = new core::DictionaryDownload(this);
+        QProgressBar* bar = m_translatorProgress;
+        connect(m_translatorDownload, &core::DictionaryDownload::progress, this, [bar](qint64 got, qint64 total) {
+            bar->setRange(0, 1000);
+            bar->setValue(total > 0 ? int(qMin<qint64>(1000, got * 1000 / total)) : 0);
+            bar->setFormat(tr("%1 of %2 MB").arg(QLocale().toString(double(got) / 1e6, 'f', 1), QLocale().toString(double(total) / 1e6, 'f', 1)));
+        });
+        connect(m_translatorDownload, &core::DictionaryDownload::finished, this, &SettingsDialog::installTranslator);
+    }
+    // Unpacked next to the folder in use, then swapped in, so a failed download leaves the installed one working.
+    QDir(folder + QStringLiteral(".download")).removeRecursively();
+    m_translatorProgress->setRange(0, 0);
+    m_translatorProgress->setFormat(tr("Connecting…"));
+    m_message->setText(tr("Downloading the offline translator…"));
+    m_message->show();
+    m_translatorDownload->start(m_translatorSource, folder + QStringLiteral(".download"));
+    refreshTranslation();
+}
+
+void SettingsDialog::cancelTranslatorDownload()
+{
+    if (m_translatorDownload) m_translatorDownload->cancel();
+}
+
+void SettingsDialog::installTranslator(const QString& unpacked, const QString& error)
+{
+    const QString folder = ownTranslatorFolder(m_translatorEngine);
+    auto done = [this](const QString& message) {
+        m_message->setText(message);
+        m_message->show();
+        refreshTranslation();
+        emit translationChanged();
+    };
+    if (folder.isEmpty() || unpacked != folder + QStringLiteral(".download")) return done(tr("The offline translator wasn't installed."));
+    if (!error.isEmpty()) {
+        QDir(unpacked).removeRecursively();
+        return done(error);
+    }
+    core::OfflineTranslator check;
+    check.setFolder(unpacked);
+#ifndef Q_OS_WIN
+    // Zip files don't keep the "can be run" mark.
+    QFile::setPermissions(check.program(), QFile::permissions(check.program()) | QFileDevice::ExeOwner | QFileDevice::ExeUser);
+#endif
+    if (!check.isInstalled()) {
+        QDir(unpacked).removeRecursively();
+        return done(tr("The download doesn't contain the translator and its model, so it wasn't installed."));
+    }
+    QDir(folder).removeRecursively();
+    if (!QDir().rename(unpacked, folder)) {
+        QDir(unpacked).removeRecursively();
+        return done(tr("The translator couldn't be put in the app data folder."));
+    }
+    m_translatorEngine->setFolder(folder);
+    done(tr("The offline translator is installed."));
+}
+
+void SettingsDialog::removeTranslator()
+{
+    const QString folder = ownTranslatorFolder(m_translatorEngine);
+    if (folder.isEmpty() || isDownloadingTranslator()) return;
+    QDir(folder).removeRecursively();   // the app's own copy in its data folder
     refreshTranslation();
     emit translationChanged();
 }
