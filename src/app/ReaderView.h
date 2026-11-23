@@ -241,6 +241,8 @@ private:
     core::OfflineTranslator* m_offlineTranslator = nullptr;
     int m_lookupId = 0;
     bool m_dictionaryFirst = false;
+    bool m_keepPopup = false;   // clearing the selection for a highlight leaves the translation open
+    void clearSelectionKeepingPopup();
     core::TranslationRequest::Kind m_lookupKind = core::TranslationRequest::Kind::Lookup;
     QString m_lastUrl;
     QTextToSpeech* m_speech = nullptr;

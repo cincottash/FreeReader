@@ -421,6 +421,7 @@ void PageView::mousePressEvent(QMouseEvent* e)
     if (e->button() != Qt::LeftButton) return;
     m_pressed = true;
     m_dragging = false;
+    m_wordDrag = false;
     m_pressPos = e->position();
     m_pressSide = hoverSide(e->position());
     m_pressHit = m_pressSide ? layout::Hit{} : hitAt(e->position());
@@ -435,6 +436,14 @@ void PageView::mousePressEvent(QMouseEvent* e)
 
 void PageView::mouseMoveEvent(QMouseEvent* e)
 {
+    if (m_pressed && m_wordDrag) {
+        if (!m_dragging && (e->position() - m_pressPos).manhattanLength() > 4) {
+            m_dragging = true;
+            emit selectionCleared();   // the pop-up for the first word closes; it opens again on release
+        }
+        if (m_dragging) extendWordSelection(e->position());
+        return;
+    }
     if (m_pressed && !m_pressSide) {
         if (!m_dragging && (e->position() - m_pressPos).manhattanLength() > 4) {
             m_dragging = true;
@@ -464,6 +473,15 @@ void PageView::mouseReleaseEvent(QMouseEvent* e)
 {
     if (e->button() != Qt::LeftButton || !m_pressed) return;
     m_pressed = false;
+    if (m_wordDrag) {
+        // The release of a double-click: the word stays selected; after a drag, the words selected.
+        m_wordDrag = false;
+        if (!m_dragging) return;
+        m_dragging = false;
+        update();
+        if (hasSelection() && !selectedText().trimmed().isEmpty()) emit selectionMade();
+        return;
+    }
     if (m_dragging) {
         m_dragging = false;
         if (m_selStart > m_selEnd) std::swap(m_selStart, m_selEnd);
@@ -493,10 +511,46 @@ void PageView::mouseDoubleClickEvent(QMouseEvent* e)
         side < 0 ? previousScreen() : nextScreen();
         return;
     }
-    if (selectWordAt(e->position()) && !selectedText().trimmed().isEmpty()) emit selectionMade();
+    if (selectWordAt(e->position()) && !selectedText().trimmed().isEmpty()) {
+        // Holding the button after a double-click and dragging selects whole words up to the pointer.
+        m_pressed = true;
+        m_wordDrag = true;
+        m_dragging = false;
+        m_pressPos = e->position();
+        m_wordStart = m_selStart;
+        m_wordEnd = m_selEnd;
+        emit selectionMade();
+    }
+}
+
+void PageView::extendWordSelection(const QPointF& pos)
+{
+    const layout::Hit h = hitAt(pos);
+    if (h.offset < 0) return;
+    int s = h.offset, en = h.offset;
+    wordRangeAt(pos, &s, &en);   // between words: the pointer's own place
+    if (s >= m_wordStart) {
+        m_selStart = m_wordStart;
+        m_selEnd = qMax(m_wordEnd, en);
+    } else {
+        m_selStart = s;
+        m_selEnd = m_wordEnd;
+    }
+    update();
 }
 
 bool PageView::selectWordAt(const QPointF& pos)
+{
+    int s = 0, en = 0;
+    if (!wordRangeAt(pos, &s, &en)) return false;
+    m_selSpine = m_anchor.spine;
+    m_selStart = s;
+    m_selEnd = en;
+    update();
+    return true;
+}
+
+bool PageView::wordRangeAt(const QPointF& pos, int* start, int* end)
 {
     const auto cl = current();
     const layout::Hit h = hitAt(pos);
@@ -521,10 +575,8 @@ bool PageView::selectWordAt(const QPointF& pos)
         while (en > s && !isWordChar(en - 1)) --en;
         while (s < en && !isWordChar(s)) ++s;
         if (s >= en) return false;
-        m_selSpine = m_anchor.spine;
-        m_selStart = b.start + s;
-        m_selEnd = b.start + en;
-        update();
+        *start = b.start + s;
+        *end = b.start + en;
         return true;
     }
     return false;

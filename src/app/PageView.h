@@ -56,6 +56,8 @@ public:
     int offsetAt(const QPointF& pos) const;   // the character under a point, -1 when none
     // Selects the word under a point (widget coordinates); false when there is no text there.
     bool selectWordAt(const QPointF& pos);
+    // The word under a point, as chapter offsets [start, end); false when there is no word there.
+    bool wordRangeAt(const QPointF& pos, int* start, int* end);
     int selectionSpine() const { return m_selSpine; }
     int selectionStart() const { return qMin(m_selStart, m_selEnd); }
     int selectionEnd() const { return qMax(m_selStart, m_selEnd); }
@@ -96,6 +98,7 @@ protected:
     void mouseMoveEvent(QMouseEvent*) override;
     void mouseReleaseEvent(QMouseEvent*) override;
     void mouseDoubleClickEvent(QMouseEvent*) override;
+    void extendWordSelection(const QPointF& pos);
     void contextMenuEvent(QContextMenuEvent*) override;
     void wheelEvent(QWheelEvent*) override;
     void keyPressEvent(QKeyEvent*) override;
@@ -133,6 +136,8 @@ private:
     // Selection (one chapter at a time)
     int m_selSpine = -1, m_selStart = 0, m_selEnd = 0, m_selAnchor = 0;
     bool m_pressed = false, m_dragging = false;
+    bool m_wordDrag = false;            // the button is held after a double-click: drag selects whole words
+    int m_wordStart = 0, m_wordEnd = 0; // the double-clicked word
     QPointF m_pressPos;
     layout::Hit m_pressHit;
     int m_pressSide = 0;

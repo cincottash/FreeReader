@@ -307,7 +307,9 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
         closeSearch();
         m_pages->setFocus();
     });
-    connect(m_pages, &PageView::selectionCleared, m_translate, &QWidget::hide);
+    connect(m_pages, &PageView::selectionCleared, this, [this] {
+        if (!m_keepPopup) m_translate->hide();
+    });
     connect(m_pages, &PageView::resized, m_translate, &QWidget::hide);
     connect(m_pages, &PageView::resized, m_note, &QWidget::hide);
     connect(m_pages, &PageView::selectionMade, this, [this] {
@@ -1160,14 +1162,13 @@ int ReaderView::highlightSelection(const QString& color)
         if (a.start <= start && a.end >= end) {
             if (a.color == color && a.note.trimmed().isEmpty()) {
                 m_notes->remove(a.id);
-                m_translate->hide();
-                m_pages->clearSelection();
+                clearSelectionKeepingPopup();
                 refreshAnnotations();
                 return 0;
             }
             a.color = color;
             m_notes->update(a);
-            m_pages->clearSelection();
+            clearSelectionKeepingPopup();
             refreshAnnotations();
             return a.id;
         }
@@ -1213,10 +1214,17 @@ int ReaderView::highlightSelection(const QString& color)
     a.chapter = chapterTitleAt({spine, from});
     const int id = m_notes->add(a);
     if (id) markHighlightedWord(a.text, spine, from, to, sentence);
-    m_translate->hide();
-    m_pages->clearSelection();
+    clearSelectionKeepingPopup();
     refreshAnnotations();
     return id;
+}
+
+void ReaderView::clearSelectionKeepingPopup()
+{
+    // A translation open for these words stays open while they're highlighted (the owner's request, 2026-11-22).
+    m_keepPopup = true;
+    m_pages->clearSelection();
+    m_keepPopup = false;
 }
 
 ReaderView::KindleResult ReaderView::importKindle(const core::KindlePlan& plan, const KindleOptions& options)
