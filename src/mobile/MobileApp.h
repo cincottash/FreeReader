@@ -15,6 +15,7 @@
 #include <QColor>
 #include <QObject>
 #include <QQmlEngine>
+#include <QElapsedTimer>
 #include <QTimer>
 #include <QUrl>
 #include <QMargins>
@@ -74,6 +75,8 @@ class MobileApp : public QObject {
     Q_PROPERTY(QString bookTitle READ bookTitle NOTIFY readingChanged)
     Q_PROPERTY(QString chapterTitle READ chapterTitle NOTIFY locationChanged)
     Q_PROPERTY(QString pageText READ pageText NOTIFY locationChanged)
+    // The time or the pages left in the chapter (tap to switch, as on the desktop).
+    Q_PROPERTY(QString chapterLeft READ chapterLeft NOTIFY locationChanged)
     Q_PROPERTY(double progress READ progress NOTIFY locationChanged)
     Q_PROPERTY(QVariantMap lookup READ lookup NOTIFY lookupChanged)
     Q_PROPERTY(int textSize READ textSize WRITE setTextSize NOTIFY lookChanged)
@@ -127,6 +130,8 @@ public:
     QString bookTitle() const { return m_title; }
     QString chapterTitle() const { return m_chapter; }
     QString pageText() const { return m_pageText; }
+    QString chapterLeft() const { return m_chapterLeft; }
+    Q_INVOKABLE void toggleChapterLeft();
     double progress() const { return m_progress; }
     QVariantMap lookup() const { return m_lookup; }
 
@@ -299,7 +304,8 @@ private:
     QString m_openingPath;
     int m_openingId = 0;
     int m_bookId = 0;
-    QString m_title, m_chapter, m_pageText;
+    QString m_title, m_chapter, m_pageText, m_chapterLeft;
+    QElapsedTimer m_sinceTurn;
     double m_progress = 0;
     core::Position m_start, m_position;
     QTimer m_saveTimer;

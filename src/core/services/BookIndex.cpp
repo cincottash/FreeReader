@@ -4,8 +4,10 @@
 #include "core/layout/Flow.h"
 
 #include <QLocale>
+#include <QObject>
 
 #include <algorithm>
+#include <cmath>
 
 namespace core {
 
@@ -91,6 +93,18 @@ QString BookIndex::pageLabel(const Position& p) const
     return QLocale().toString(qMin<qint64>(g / kCharsPerPage + 1, pageCount()));
 }
 
+int BookIndex::pageNumber(const Position& p) const { return pageNumberAt(global(p)); }
+
+int BookIndex::pageNumberAt(qint64 g) const
+{
+    if (!printedPages.empty()) {
+        auto it = std::upper_bound(printedPages.begin(), printedPages.end(), g,
+                                   [](qint64 v, const PrintedPage& pp) { return v < pp.global; });
+        return qMax(1, int(it - printedPages.begin()));
+    }
+    return int(qMin<qint64>(g / kCharsPerPage + 1, pageCount()));
+}
+
 QString BookIndex::lastPageLabel() const
 {
     if (!printedPages.empty()) return printedPages.back().label;
@@ -117,6 +131,25 @@ int BookIndex::tocEntryAt(const Position& p) const
         }
     }
     return best;
+}
+
+QString chapterLeftText(const BookIndex& ix, const Position& p, int readingSpeed, bool pages)
+{
+    const qint64 g = ix.global(p);
+    qint64 next = ix.total;
+    for (const auto& t : ix.toc)
+        if (t.spine >= 0 && t.global > g && t.global < next) next = t.global;
+    if (pages) {
+        const int left = qMax(0, ix.pageNumberAt(qMax(g, next - 1)) - ix.pageNumber(p));
+        if (left == 0) return QObject::tr("Last page of the chapter");
+        if (left == 1) return QObject::tr("1 page left in chapter");
+        return QObject::tr("%1 pages left in chapter").arg(QLocale().toString(left));
+    }
+    const double minutes = double(next - g) / double(qMax(1, readingSpeed));
+    if (minutes < 1) return QObject::tr("Less than 1 min left in chapter");
+    const int m = int(std::lround(minutes));
+    if (m < 60) return QObject::tr("%1 min left in chapter").arg(QLocale().toString(m));
+    return QObject::tr("%1 h %2 min left in chapter").arg(QLocale().toString(m / 60)).arg(m % 60);
 }
 
 }  // namespace core

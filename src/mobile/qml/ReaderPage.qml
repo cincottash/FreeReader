@@ -96,11 +96,18 @@ Page {
         width: parent.width
         height: 28
         color: reader.theme.bg
+        // "Page 7 of 1,180 · 6 min left in chapter": a tap on it switches to the pages left (and back).
         Label {
+            objectName: "footerText"
             anchors.centerIn: parent
-            text: reader.app.pageText
+            text: reader.app.pageText + (reader.app.chapterLeft.length > 0 ? "   ·   " + reader.app.chapterLeft : "")
             font.pixelSize: 12
             color: reader.theme.muted
+            MouseArea {
+                anchors.fill: parent
+                anchors.margins: -10
+                onClicked: reader.app.toggleChapterLeft()
+            }
         }
     }
 

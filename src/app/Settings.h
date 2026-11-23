@@ -20,6 +20,7 @@ struct Settings {
     QString theme = QStringLiteral("midnight");     // a theme key or "system"
     QStringList recentThemes;                        // most recent first; shown as dots in the reader's header
     int readingSpeed = 1100;          // characters per minute, learned from page turns
+    bool footerPagesLeft = false;     // the footer shows the pages left in the chapter instead of the time (click it)
     // Page turn animation: none / slide / cover / fade / curl; how long it takes; how it moves (smooth: fast then
     // slowing down, even: the same speed throughout, gentle: slow start and end).
     QString pageTurn = QStringLiteral("none");

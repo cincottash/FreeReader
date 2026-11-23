@@ -386,6 +386,17 @@ void MobileApp::pageMoved(QObject* object)
 {
     auto* page = qobject_cast<BookPage*>(object);
     if (!page || !m_bookId) return;
+    // Learn the reading speed from forward page turns at a plausible pace (as the desktop does).
+    const core::Position before = m_position;
+    if (const auto ix = m_engine->index(); ix && before < page->position() && m_sinceTurn.isValid()) {
+        const qint64 chars = ix->global(page->position()) - ix->global(before);
+        const double seconds = m_sinceTurn.elapsed() / 1000.0;
+        if (chars > 200 && chars < 6000 && seconds > 3 && seconds < 600) {
+            const double cpm = chars / (seconds / 60.0);
+            m_settings.readingSpeed = qBound(200, int(0.85 * m_settings.readingSpeed + 0.15 * cpm), 6000);
+        }
+    }
+    m_sinceTurn.restart();
     m_position = page->position();
     updateLocation();
     m_saveTimer.start();
@@ -399,8 +410,16 @@ void MobileApp::updateLocation()
     if (const auto ix = m_engine->index()) {
         m_progress = ix->fraction(m_position);
         m_pageText = tr("Page %1 of %2").arg(ix->pageLabel(m_position), ix->lastPageLabel());
+        m_chapterLeft = core::chapterLeftText(*ix, m_position, m_settings.readingSpeed, m_settings.footerPagesLeft);
     }
     emit locationChanged();
+}
+
+void MobileApp::toggleChapterLeft()
+{
+    m_settings.footerPagesLeft = !m_settings.footerPagesLeft;
+    saveSettings();
+    updateLocation();
 }
 
 void MobileApp::savePosition()

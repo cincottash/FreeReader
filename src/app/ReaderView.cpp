@@ -77,14 +77,6 @@ QToolButton* iconButton(const char* icon, const QString& tip, const Theme& t)
     return b;
 }
 
-QString minutesText(qint64 chars, int speed)
-{
-    const double minutes = double(chars) / double(qMax(1, speed));
-    if (minutes < 1) return QObject::tr("Less than 1 min left in chapter");
-    const int m = int(std::lround(minutes));
-    if (m < 60) return QObject::tr("%1 min left in chapter").arg(QLocale().toString(m));
-    return QObject::tr("%1 h %2 min left in chapter").arg(QLocale().toString(m / 60)).arg(m % 60);
-}
 
 }  // namespace
 
@@ -346,6 +338,11 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
         delete menu;
     });
     connect(m_engine, &core::BookEngine::indexReady, this, &ReaderView::onIndexReady);
+    connect(m_footer, &FooterBar::statClicked, this, [this] {
+        m_settings.footerPagesLeft = !m_settings.footerPagesLeft;
+        updateHeaderAndFooter();
+        emit appearanceChanged();   // the settings file needs saving
+    });
     connect(m_footer, &FooterBar::jumpRequested, this, [this](double f) {
         const auto ix = m_engine->index();
         if (ix) jumpTo(ix->fromGlobal(qint64(f * double(ix->total))));
@@ -589,13 +586,12 @@ void ReaderView::updateHeaderAndFooter()
     QStringList stats;
     stats << tr("Page %1 of %2").arg(ix->pageLabel(pos), ix->lastPageLabel());
     stats << QLocale().toString(int(std::floor(fraction * 100 + 1e-6))) + QStringLiteral("%");
-    // Time left in the chapter, from the reading speed learned from page turns.
-    const qint64 g = ix->global(pos);
-    qint64 next = ix->total;
-    for (const auto& t : ix->toc)
-        if (t.spine >= 0 && t.global > g && t.global < next) next = t.global;
-    stats << minutesText(next - g, m_settings.readingSpeed);
+    // What is left of the chapter: the time (from the reading speed learned from page turns) or the pages (in the
+    // numbering "Page X of Y" uses); a click on it switches between the two.
+    stats << core::chapterLeftText(*ix, pos, m_settings.readingSpeed, m_settings.footerPagesLeft);
     m_footer->setProgress(fraction, stats);
+    m_footer->setClickableStat(int(stats.size()) - 1, m_settings.footerPagesLeft ? tr("Click to show the time left in the chapter")
+                                                                                  : tr("Click to show the pages left in the chapter"));
 }
 
 void ReaderView::onPositionChanged(const core::Position& p, bool byTurn)

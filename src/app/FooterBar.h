@@ -18,9 +18,13 @@ public:
     void setMarks(const std::vector<double>& fractions);
     QSize sizeHint() const override;
     QStringList stats() const { return m_stats; }
+    // One of the stats can be clicked (the time or the pages left in the chapter); -1: none.
+    void setClickableStat(int index, const QString& tooltip);
+    QRect statRect(int index) const;   // tests
 
 signals:
     void jumpRequested(double fraction);
+    void statClicked(int index);
 
 protected:
     void paintEvent(QPaintEvent*) override;
@@ -34,4 +38,7 @@ private:
     double m_hover = -1;
     QStringList m_stats;
     std::vector<double> m_marks;
+    int m_clickable = -1;
+    QString m_clickableTip;
+    int statAt(const QPointF& pos) const;
 };

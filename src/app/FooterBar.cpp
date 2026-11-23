@@ -30,6 +30,32 @@ void FooterBar::setProgress(double fraction, const QStringList& stats)
     update();
 }
 
+void FooterBar::setClickableStat(int index, const QString& tooltip)
+{
+    m_clickable = index;
+    m_clickableTip = tooltip;
+}
+
+QRect FooterBar::statRect(int index) const
+{
+    if (index < 0 || index >= m_stats.size()) return {};
+    const QFontMetrics fm(font());
+    const int gap = 20;
+    int total = 0;
+    for (const QString& s : m_stats) total += fm.horizontalAdvance(s);
+    total += gap * qMax(0, int(m_stats.size()) - 1);
+    int x = (width() - total) / 2;
+    for (int i = 0; i < index; ++i) x += fm.horizontalAdvance(m_stats[i]) + gap;
+    return QRect(x - 6, kTrackHit, fm.horizontalAdvance(m_stats[index]) + 12, height() - kTrackHit);
+}
+
+int FooterBar::statAt(const QPointF& pos) const
+{
+    for (int i = 0; i < m_stats.size(); ++i)
+        if (statRect(i).contains(pos.toPoint())) return i;
+    return -1;
+}
+
 void FooterBar::setMarks(const std::vector<double>& fractions)
 {
     m_marks = fractions;
@@ -67,16 +93,24 @@ void FooterBar::paintEvent(QPaintEvent*)
 
 void FooterBar::mousePressEvent(QMouseEvent* e)
 {
-    if (e->button() == Qt::LeftButton && e->position().y() <= kTrackHit && width() > 0)
+    if (e->button() != Qt::LeftButton || width() <= 0) return;
+    if (e->position().y() <= kTrackHit) {
         emit jumpRequested(qBound(0.0, e->position().x() / width(), 1.0));
+        return;
+    }
+    const int i = statAt(e->position());
+    if (i >= 0 && i == m_clickable) emit statClicked(i);
 }
 
 void FooterBar::mouseMoveEvent(QMouseEvent* e)
 {
     const double h = e->position().y() <= kTrackHit && width() > 0 ? qBound(0.0, e->position().x() / width(), 1.0) : -1;
+    const bool onStat = h < 0 && m_clickable >= 0 && statAt(e->position()) == m_clickable;
+    setToolTip(onStat ? m_clickableTip : tr("Click the bar to go to that point of the book."));
+    if (h < 0) setCursor(onStat ? Qt::PointingHandCursor : Qt::ArrowCursor);
     if (h != m_hover) {
         m_hover = h;
-        setCursor(h >= 0 ? Qt::PointingHandCursor : Qt::ArrowCursor);
+        setCursor(h >= 0 || onStat ? Qt::PointingHandCursor : Qt::ArrowCursor);
         if (h >= 0) QToolTip::showText(e->globalPosition().toPoint(), QLocale().toString(qRound(h * 100)) + QStringLiteral("%"), this);
         update();
     }
