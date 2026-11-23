@@ -7,6 +7,7 @@
 #include "core/format/fb2/Fb2Format.h"
 #include "core/format/html/HtmlFormat.h"
 #include "core/format/mobi/MobiFormat.h"
+#include "core/format/office/OfficeFormats.h"
 #include "core/format/text/TextFormats.h"
 
 #include <QFile>
@@ -56,6 +57,10 @@ void registerBuiltInFormats()
     FormatRegistry::instance().add(std::make_unique<ComicFormat>());
     FormatRegistry::instance().add(std::make_unique<HtmlzFormat>());
     FormatRegistry::instance().add(std::make_unique<TxtzFormat>());
+    FormatRegistry::instance().add(std::make_unique<DocxFormat>());
+    FormatRegistry::instance().add(std::make_unique<OdtFormat>());
+    FormatRegistry::instance().add(std::make_unique<RtfFormat>());
+    FormatRegistry::instance().add(std::make_unique<DocFormat>());
     FormatRegistry::instance().add(std::make_unique<ZipBookFormat>());
     FormatRegistry::instance().add(std::make_unique<HtmlFormat>());
     FormatRegistry::instance().add(std::make_unique<MarkdownFormat>());

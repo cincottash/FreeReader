@@ -70,6 +70,7 @@ add_library(freereader_core STATIC
     src/core/format/fb2/Fb2Format.cpp
     src/core/format/comic/ComicFormat.cpp
     src/core/format/mobi/MobiFormat.cpp
+    src/core/format/office/OfficeFormats.cpp
     src/core/layout/Fonts.cpp
     src/core/layout/Hyphenator.cpp
     src/core/layout/Flow.cpp

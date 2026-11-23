@@ -286,5 +286,98 @@ QByteArray coverPng(const QImage& image, int maxSide)
     return out;
 }
 
+void Chapters::heading(int level, const QString& html, const QString& plain, const QString& id)
+{
+    m_items.push_back({qBound(1, level, 6), html, plain.simplified(), id, int(plain.size())});
+}
+
+void Chapters::block(const QString& html, int textLength)
+{
+    m_items.push_back({0, html, {}, {}, textLength >= 0 ? textLength : int(html.size())});
+}
+
+void Chapters::pageBreak()
+{
+    if (!m_items.empty() && m_items.back().level != -1) m_items.push_back({-1, {}, {}, {}, 0});
+}
+
+void Chapters::finish(MemoryBook& book, const QString& dir) const
+{
+    int count[7] = {};
+    for (const Item& it : m_items)
+        if (it.level > 0) ++count[it.level];
+    int split = 0;
+    for (int l = 1; l <= 6 && !split; ++l)
+        if (count[l] >= 2) split = l;
+    if (!split)
+        for (int l = 1; l <= 6 && !split; ++l)
+            if (count[l] == 1) split = l;
+    const bool chunk = split == 0 || [&] {
+        // Headings far apart are fine; one heading in a long book isn't enough to split it.
+        int total = 0;
+        for (const Item& it : m_items) total += it.length;
+        return count[split] == 1 && total > 120000;
+    }();
+    int minLevel = split ? split : 1;
+    struct Part {
+        QString html, title;
+        int depth = 0;
+        QStringList ids;
+    };
+    std::vector<Part> parts(1);
+    int size = 0;
+    std::vector<std::pair<int, QPair<QString, QString>>> subEntries;   // part, (title, id) of headings one level down
+    for (const Item& it : m_items) {
+        const bool startsPart = (it.level > 0 && it.level <= split && !chunk) || (chunk && size > 60000 && (it.level != 0 || it.level == -1))
+                                || (chunk && size > 90000);
+        if (startsPart && (!parts.back().html.trimmed().isEmpty())) {
+            parts.push_back({});
+            size = 0;
+        }
+        if (it.level == -1) continue;
+        if (it.level > 0 && parts.back().title.isEmpty() && (it.level <= split || chunk)) {
+            parts.back().title = it.plain;
+            parts.back().depth = qMax(0, it.level - minLevel);
+        }
+        QString html = it.html;
+        if (it.level > 0) {
+            const QString id = it.id.isEmpty() ? QStringLiteral("h%1").arg(&it - m_items.data()) : it.id;
+            html = QStringLiteral("<h%1 id=\"%2\">%3</h%1>\n").arg(it.level).arg(escape(id), it.html);
+            if (!chunk && it.level == split + 1) subEntries.push_back({int(parts.size()) - 1, {it.plain, id}});
+            parts.back().ids << id;
+        }
+        parts.back().html += html;
+        size += it.length;
+    }
+    const QString lang = book.metadata.language;
+    auto file = [&](size_t i) { return dir + QStringLiteral("part%1.html").arg(int(i + 1), 4, 10, QLatin1Char('0')); };
+    // Which part holds each id (headings, and ids written into blocks).
+    QHash<QString, size_t> idPart;
+    static const QRegularExpression idRe(QStringLiteral("\\bid=\"([^\"]+)\""));
+    for (size_t i = 0; i < parts.size(); ++i) {
+        auto m = idRe.globalMatch(parts[i].html);
+        while (m.hasNext()) idPart.insert(m.next().captured(1), i);
+    }
+    static const QRegularExpression hrefRe(QStringLiteral("href=\"#([^\"]+)\""));
+    for (size_t i = 0; i < parts.size(); ++i) {
+        QString html = parts[i].html;
+        QString out;
+        qsizetype last = 0;
+        auto m = hrefRe.globalMatch(html);
+        while (m.hasNext()) {
+            const auto x = m.next();
+            const auto at = idPart.constFind(x.captured(1));
+            out += html.mid(last, x.capturedStart() - last);
+            out += at == idPart.cend() || *at == i ? x.captured() : QStringLiteral("href=\"%1#%2\"").arg(QFileInfo(file(*at)).fileName(), x.captured(1));
+            last = x.capturedEnd();
+        }
+        html = out + html.mid(last);
+        const QString title = parts[i].title;
+        book.addChapter(file(i), page(title.isEmpty() ? book.metadata.title : title, html, lang), parts.size() > 1 || !title.isEmpty() ? title : QString(), parts[i].depth);
+        for (const auto& [p, entry] : subEntries)
+            if (p == int(i)) book.addTocEntry(entry.first, file(i) + QLatin1Char('#') + entry.second, parts[i].depth + 1);
+    }
+}
+
 }  // namespace convert
 }  // namespace core

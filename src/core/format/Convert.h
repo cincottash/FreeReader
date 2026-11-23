@@ -54,5 +54,25 @@ QByteArray imagePage(const QString& title, const QString& imageHref, const QStri
 // A PNG of an image, made smaller to at most `maxSide` pixels on its longer side (covers).
 QByteArray coverPng(const QImage& image, int maxSide = 600);
 
+// Paragraphs and headings of a document (Word, OpenDocument, RTF) gathered in order, then split into chapters:
+// at the highest heading level used more than once, else into parts of about 60,000 characters.
+class Chapters {
+public:
+    void heading(int level, const QString& html, const QString& plain, const QString& id = {});
+    void block(const QString& html, int textLength = -1);
+    void pageBreak();   // a hard page break in the document: a possible chapter start
+    bool isEmpty() const { return m_items.empty(); }
+    // Adds the chapters to the book ("partNNNN.html", or under `dir`), fixing "#id" links between them.
+    void finish(MemoryBook& book, const QString& dir = {}) const;
+
+private:
+    struct Item {
+        int level = 0;   // 0: a paragraph or other block; -1: a page break
+        QString html, plain, id;
+        int length = 0;
+    };
+    std::vector<Item> m_items;
+};
+
 }  // namespace convert
 }  // namespace core
