@@ -2,7 +2,12 @@
 #include "FormatPlugin.h"
 
 #include "core/css/Css.h"
+#include "core/format/comic/ComicFormat.h"
 #include "core/format/epub/EpubFormat.h"
+#include "core/format/fb2/Fb2Format.h"
+#include "core/format/html/HtmlFormat.h"
+#include "core/format/mobi/MobiFormat.h"
+#include "core/format/text/TextFormats.h"
 
 #include <QFile>
 #include <QFileInfo>
@@ -44,7 +49,17 @@ void registerBuiltInFormats()
     static bool done = false;
     if (done) return;
     done = true;
+    // Most specific first: a plug-in that checks the file's bytes before one that goes by its name alone.
     FormatRegistry::instance().add(std::make_unique<EpubFormat>());
+    FormatRegistry::instance().add(std::make_unique<MobiFormat>());
+    FormatRegistry::instance().add(std::make_unique<Fb2Format>());
+    FormatRegistry::instance().add(std::make_unique<ComicFormat>());
+    FormatRegistry::instance().add(std::make_unique<HtmlzFormat>());
+    FormatRegistry::instance().add(std::make_unique<TxtzFormat>());
+    FormatRegistry::instance().add(std::make_unique<ZipBookFormat>());
+    FormatRegistry::instance().add(std::make_unique<HtmlFormat>());
+    FormatRegistry::instance().add(std::make_unique<MarkdownFormat>());
+    FormatRegistry::instance().add(std::make_unique<TextFormat>());
 }
 
 FormatRegistry& FormatRegistry::instance()

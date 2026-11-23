@@ -64,6 +64,12 @@ add_library(freereader_core STATIC
     src/core/css/Style.cpp
     src/core/format/Book.cpp
     src/core/format/epub/EpubFormat.cpp
+    src/core/format/Convert.cpp
+    src/core/format/text/TextFormats.cpp
+    src/core/format/html/HtmlFormat.cpp
+    src/core/format/fb2/Fb2Format.cpp
+    src/core/format/comic/ComicFormat.cpp
+    src/core/format/mobi/MobiFormat.cpp
     src/core/layout/Fonts.cpp
     src/core/layout/Hyphenator.cpp
     src/core/layout/Flow.cpp

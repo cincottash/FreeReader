@@ -114,7 +114,8 @@ const dom::Node* findNav(const dom::Node* n, const QString& type)
 bool EpubFormat::canOpen(const QString& path, const QByteArray& head) const
 {
     // A zip holding application/epub+zip, or any file named .epub (a damaged one then gets a precise message).
-    if (QFileInfo(path).suffix().compare(QLatin1String("epub"), Qt::CaseInsensitive) == 0) return true;
+    const QString suffix = QFileInfo(path).suffix();
+    if (suffix.compare(QLatin1String("epub"), Qt::CaseInsensitive) == 0 || suffix.compare(QLatin1String("kepub"), Qt::CaseInsensitive) == 0) return true;
     return head.startsWith("PK\x03\x04") && head.contains("application/epub+zip");
 }
 
