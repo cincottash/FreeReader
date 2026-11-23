@@ -38,6 +38,7 @@ Page {
         anchors.fill: parent
         anchors.bottomMargin: footer.height
         app: reader.app
+        steady: reader.selecting
         onPositionChanged: reader.app.pageMoved(book)
         onReadyChanged: reader.app.pageMoved(book)
 

@@ -26,9 +26,14 @@ QJniObject decorView()
 
 }  // namespace
 
+// WindowInsets.Type and the insets controller are Android 11 (API 30) and later; before that apps aren't drawn
+// under the system bars anyway, and the bars keep Android's own colors.
+static bool hasInsetsApi() { return QNativeInterface::QAndroidApplication::sdkVersion() >= 30; }
+
 QMargins systemBarInsets()
 {
     QMargins m;
+    if (!hasInsetsApi()) return m;
     // Android's views are read on its own main thread.
     QNativeInterface::QAndroidApplication::runOnAndroidMainThread([&m] {
         const QJniObject decor = decorView();
@@ -49,6 +54,7 @@ QMargins systemBarInsets()
 
 void setLightSystemBars(bool light)
 {
+    if (!hasInsetsApi()) return;
     QNativeInterface::QAndroidApplication::runOnAndroidMainThread([light] {
         const QJniObject activity = QNativeInterface::QAndroidApplication::context();
         if (!activity.isValid()) return;

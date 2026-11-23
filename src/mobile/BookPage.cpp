@@ -11,6 +11,7 @@
 
 #include <climits>
 #include <cmath>
+#include <numbers>
 
 namespace {
 constexpr int kEndOfChapter = INT_MAX;   // "the last page of the chapter", resolved when its layout is ready
@@ -18,6 +19,11 @@ constexpr int kEndOfChapter = INT_MAX;   // "the last page of the chapter", reso
 
 BookPage::BookPage(QQuickItem* parent) : QQuickPaintedItem(parent)
 {
+    m_blink.setInterval(60);
+    connect(&m_blink, &QTimer::timeout, this, [this] {
+        if (!hasSelection() || !isVisible()) m_blink.stop();
+        update();
+    });
     setOpaquePainting(true);
     setAntialiasing(false);
 }
@@ -188,7 +194,7 @@ bool BookPage::selectWordAt(qreal x, qreal y)
     m_selSpine = m_anchor.spine;
     m_selStart = m_selAnchorStart = s;
     m_selEnd = m_selAnchorEnd = e;
-    render();
+    selectionMoved();
     emit selectionChanged();
     return true;
 }
@@ -202,7 +208,7 @@ void BookPage::extendSelectionTo(qreal x, qreal y)
     if (!wordAt(ch, &s, &e)) return;
     m_selStart = qMin(s, m_selAnchorStart);
     m_selEnd = qMax(e, m_selAnchorEnd);
-    render();
+    selectionMoved();
     emit selectionChanged();
 }
 
@@ -222,7 +228,7 @@ void BookPage::selectSentence()
         while (e > s && b.text[e - 1].isSpace()) --e;
         m_selStart = b.start + s;
         m_selEnd = b.start + e;
-        render();
+        selectionMoved();
         emit selectionChanged();
         return;
     }
@@ -233,7 +239,7 @@ void BookPage::clearSelection()
     if (m_selSpine < 0 && m_selStart == m_selEnd) return;
     m_selSpine = -1;
     m_selStart = m_selEnd = 0;
-    render();
+    selectionMoved();
     emit selectionChanged();
 }
 
@@ -275,8 +281,7 @@ void BookPage::render()
     if (cl && !cl->pages.empty()) {
         QPainter p(&img);
         const layout::RenderColors colors{c.fg, c.muted, c.accent, c.line, c.surface};
-        std::vector<layout::Overlay> overlays = m_app ? m_app->highlightsIn(m_anchor.spine) : std::vector<layout::Overlay>();
-        if (m_selSpine == m_anchor.spine && hasSelection()) overlays.push_back({m_selStart, m_selEnd, c.sel});
+        const std::vector<layout::Overlay> overlays = m_app ? m_app->highlightsIn(m_anchor.spine) : std::vector<layout::Overlay>();
         layout::paintPage(p, *cl, cl->pageForOffset(m_anchor.offset), pageRect().topLeft(), colors, overlays);
     }
     m_image = img;
@@ -287,4 +292,44 @@ void BookPage::paint(QPainter* painter)
 {
     if (m_image.isNull()) return;
     painter->drawImage(QRectF(0, 0, width(), height()), m_image);
+    // The selection over the page: multiplied on a light page and screened on a dark one, so the text stays as
+    // it is (as if it were under the words). It blinks gently: it's temporary, unlike a highlight.
+    const auto cl = current();
+    if (!cl || cl->pages.empty() || m_selSpine != m_anchor.spine || !hasSelection()) return;
+    const MobileApp::Colors c = m_app ? m_app->pageColors() : MobileApp::Colors{};
+    QColor sel = c.sel;
+    sel.setAlphaF(float(qMin(1.0, sel.alphaF() * 1.6) * selectionStrength()));
+    painter->setCompositionMode(c.dark ? QPainter::CompositionMode_Screen : QPainter::CompositionMode_Multiply);
+    const QPointF origin = pageRect().topLeft();
+    for (const QRectF& r : layout::rangeRects(*cl, cl->pageForOffset(m_anchor.offset), m_selStart, m_selEnd))
+        painter->fillRect(r.translated(origin), sel);
+    painter->setCompositionMode(QPainter::CompositionMode_SourceOver);
+}
+
+void BookPage::setSteady(bool on)
+{
+    if (m_steady == on) return;
+    m_steady = on;
+    selectionMoved();
+    emit steadyChanged();
+}
+
+double BookPage::selectionStrength() const
+{
+    if (m_steady || !m_blink.isActive()) return 1.0;
+    // Full, fading to a fifth, and back, once a second.
+    const double phase = 0.5 + 0.5 * std::cos(2.0 * std::numbers::pi * double(m_blinkClock.elapsed() % 1000) / 1000.0);
+    return 0.2 + 0.8 * phase;
+}
+
+void BookPage::selectionMoved()
+{
+    // Blinking starts again from full each time the selection changes; it stops while a finger holds it.
+    if (hasSelection() && !m_steady) {
+        m_blinkClock.start();
+        if (!m_blink.isActive()) m_blink.start();
+    } else {
+        m_blink.stop();
+    }
+    update();
 }
