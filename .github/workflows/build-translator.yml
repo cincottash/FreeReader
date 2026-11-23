@@ -45,7 +45,7 @@ jobs:
         shell: cmd
         run: |
           cmake -S bergamot -B bergamot\build -G Ninja -DCMAKE_BUILD_TYPE=Release -DUSE_WASM_COMPATIBLE_SOURCE=on ^
-            -DCOMPILE_TESTS=off -DUSE_STATIC_LIBS=on -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+            -DCOMPILE_TESTS=off -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DUSE_STATIC_LIBS=on -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
           cmake --build bergamot\build --target bergamot
 
       - name: Test with the Spanish model
@@ -97,7 +97,7 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build
           cmake -S bergamot -B bergamot/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DUSE_WASM_COMPATIBLE_SOURCE=on \
-            -DCOMPILE_TESTS=off -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc"
+            -DCOMPILE_TESTS=off -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc"
           cmake --build bergamot/build --target bergamot
 
       - name: Test with the Spanish model
