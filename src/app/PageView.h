@@ -162,4 +162,5 @@ private:
     QRect m_blinkRect;   // where the selection was last painted
     bool selectionBlinks() const;
     void blinkStep();
+    float turnZone() const;   // the width of the strip at each side that turns pages
 };

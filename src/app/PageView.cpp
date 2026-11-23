@@ -355,9 +355,16 @@ layout::Hit PageView::hitAt(const QPointF& pos, int* column) const
     return layout::hitTest(*cl, page, pos - columnRect(col).topLeft());
 }
 
+float PageView::turnZone() const
+{
+    // Only a strip at the window's edge turns pages (the owner's request, 2026-11-23: clicks in the white margin
+    // beside the text turned pages by mistake): 56 px, less when the margin is narrower, at least 24.
+    return qBound(24.f, m_geo.left - 8.f, 56.f);
+}
+
 int PageView::hoverSide(const QPointF& pos) const
 {
-    const float zone = qMax(64.f, m_geo.left - 8.f);
+    const float zone = turnZone();
     if (pos.x() < zone && canGoPrevious()) return -1;
     if (pos.x() > width() - zone && canGoNext()) return 1;
     return 0;
@@ -371,8 +378,9 @@ void PageView::paintEvent(QPaintEvent*)
     else paintScreen(p);
 
     if (m_hover != 0 && m_toPix.isNull()) {
-        const float zone = qMax(64.f, m_geo.left - 8.f);
-        const QPointF c(m_hover < 0 ? zone / 2 : width() - zone / 2, height() / 2.0);
+        const float zone = turnZone();
+        const float cx = qMax(zone / 2, 24.f);   // the whole arrow shows, even beside a narrow strip
+        const QPointF c(m_hover < 0 ? cx : width() - cx, height() / 2.0);
         p.setRenderHint(QPainter::Antialiasing);
         p.setPen(QPen(m_theme.line, 1));
         p.setBrush(m_theme.surface);
