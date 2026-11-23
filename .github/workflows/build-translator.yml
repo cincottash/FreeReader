@@ -49,7 +49,25 @@ jobs:
         run: |
           cmake -S bergamot -B bergamot\build -G Ninja -DCMAKE_BUILD_TYPE=Release -DUSE_WASM_COMPATIBLE_SOURCE=on ^
             -DCOMPILE_TESTS=off -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DUSE_STATIC_LIBS=on -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
-          cmake --build bergamot\build --target bergamot
+          cmake --build bergamot\build --target pcre2
+
+      # With Microsoft's compiler pcre2 names its static library differently from what ssplit links to
+      # (lib\pcre2-8.lib): copy it to that name.
+      - name: Put pcre2's library where ssplit looks
+        shell: pwsh
+        run: |
+          $libs = Get-ChildItem bergamot\build -Recurse -Filter "pcre2-8*.lib"
+          $libs | ForEach-Object { "found: $($_.FullName) ($($_.Length) bytes)" }
+          New-Item -ItemType Directory -Force bergamot\build\lib | Out-Null
+          if (-not (Test-Path bergamot\build\lib\pcre2-8.lib)) {
+            $pick = $libs | Where-Object { $_.Name -notmatch 'd\.lib$' } | Select-Object -First 1
+            if (-not $pick) { throw "pcre2's library wasn't built" }
+            Copy-Item $pick.FullName bergamot\build\lib\pcre2-8.lib
+          }
+
+      - name: Build the translator
+        shell: cmd
+        run: cmake --build bergamot\build --target bergamot
 
       - name: Test with the Spanish model
         shell: bash
