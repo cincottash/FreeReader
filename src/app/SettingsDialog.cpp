@@ -201,7 +201,7 @@ QWidget* SettingsDialog::buildTranslationTab()
     lay->addWidget(m_lmResult);
 
     lay->addWidget(sectionTitle(tr("OFFLINE DICTIONARIES")));
-    lay->addWidget(muted(tr("Answers single words at once, before Gemini's answer arrives, and on its own when nothing else can, "
+    lay->addWidget(muted(tr("Answers single words with no internet, when Gemini and LM Studio can't (or are off), "
                             "with no internet. Spanish → English finds verb forms and plurals (“tenía” → “tener”); English "
                             "definitions are for English books. Spanish definitions fill the Dictionary card (right-click a word > "
                             "Dictionary) for Spanish books. Each is an optional download.")));

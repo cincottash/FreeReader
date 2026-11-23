@@ -60,8 +60,8 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
   paste it in **Settings ▸ Translation ▸ Translation Settings…**. The key is kept in Windows Credential Manager
   (or the system's key store on Linux), never in a file. **Test** looks up one word to check it works.
 - **Offline Only** (for all books, or just the open one) never sends text over the internet.
-- **Offline dictionaries** (optional downloads in the translation settings) answer single words at once, with no
-  internet:
+- **Offline dictionaries** (optional downloads in the translation settings) answer single words with no internet,
+  when the engines before them can't:
   - **Spanish → English** (31 MB): 120,000 words from [Wiktionary](https://en.wiktionary.org) (CC BY-SA 4.0),
     with verb forms ("tenía" → tener). [Release](https://github.com/cincottash/FreeReader/releases/tag/dictionary-es-en-1).
   - **English definitions** (11 MB), for English books: 160,000 words and names from

@@ -45,7 +45,6 @@ public:
 
 signals:
     void asking(int id, const QString& provider);
-    void interim(int id, const core::TranslationResult& result);   // the offline dictionary's answer, before the final one
     // `result.isEmpty()` when nobody could answer; `why` then says what each provider reported.
     void finished(int id, const core::TranslationResult& result, const QString& why);
 

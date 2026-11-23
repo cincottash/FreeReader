@@ -42,10 +42,8 @@ int TranslationService::translate(const TranslationRequest& request)
         return id;
     }
     m_inFlight.insert(key, {id});
-    if (request.kind == TranslationRequest::Kind::Lookup && request.isWord()) {
-        const TranslationResult quick = offlineMeaning(request.text, request.from);
-        if (!quick.translation.isEmpty()) QTimer::singleShot(0, this, [this, id, quick] { emit interim(id, quick); });
-    }
+    // One answer only: the first provider that can answer gives it; the next is asked only when one fails (no quick
+    // offline answer that Gemini's then replaces: the owner's request, 2026-11-23).
     QTimer::singleShot(0, this, [this, id, request] { next(id, request, 0, {}); });
     return id;
 }
