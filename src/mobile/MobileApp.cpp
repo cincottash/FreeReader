@@ -602,10 +602,9 @@ QVariantMap MobileApp::practice() const
     QVariantMap m;
     if (!m_words) return m;
     const QDateTime now = QDateTime::currentDateTimeUtc();
-    const core::PracticeCounts c = m_words->counts(practiceFilter(m_settings), now);
-    m[QStringLiteral("dueNow")] = c.dueNow;
-    m[QStringLiteral("newAvailable")] = c.newAvailable;
-    m[QStringLiteral("words")] = c.words;
+    // Every card is practised, in the order chosen (no "due" or "new today", as on the desktop).
+    m[QStringLiteral("cards")] = m_words->practisableCount(practiceFilter(m_settings));
+    m[QStringLiteral("words")] = m_words->count();
     m[QStringLiteral("summary")] = m_practiceSummary;
     const bool active = m_session && m_session->isActive();
     m[QStringLiteral("active")] = active;
@@ -625,15 +624,19 @@ QVariantMap MobileApp::practice() const
     m[QStringLiteral("needsMeaning")] = f.needsMeaning;
     m[QStringLiteral("revealed")] = m_revealed;
     m[QStringLiteral("progress")] = tr("%1 of %2").arg(m_session->done() + 1).arg(m_session->done() + m_session->remaining() + 1);
-    QVariantList intervals;
-    for (int r = 1; r <= 4; ++r)
-        intervals << core::practice::Scheduler::describeInterval(
-            now, m_session->scheduler().preview(m_session->card().memory, core::practice::Rating(r), now));
-    m[QStringLiteral("intervals")] = intervals;
+    Q_UNUSED(now);
     return m;
 }
 
 void MobileApp::refreshPractice() { emit practiceChanged(); }
+
+void MobileApp::setPracticeOrder(const QString& order)
+{
+    if (order == m_settings.practiceOrder || !core::WordLog::orders().contains(order)) return;
+    m_settings.practiceOrder = order;
+    saveSettings();
+    emit practiceChanged();
+}
 
 bool MobileApp::startPractice()
 {
@@ -641,7 +644,7 @@ bool MobileApp::startPractice()
     if (!m_session) m_session = std::make_unique<core::practice::Session>(m_words.get());
     m_practiceSummary.clear();
     m_revealed = false;
-    const bool ok = m_session->start(practiceFilter(m_settings), m_settings.practiceNewPerDay, QDateTime::currentDateTimeUtc());
+    const bool ok = m_session->start(practiceFilter(m_settings), m_settings.practiceOrder, QDateTime::currentDateTimeUtc());
     if (!ok) m_practiceSummary = tr("Nothing to practise now. Look up or highlight words while reading, then come back.");
     emit practiceChanged();
     return ok;

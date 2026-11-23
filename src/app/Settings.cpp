@@ -52,6 +52,7 @@ void fields(Settings& s, F&& f)
     f("practice_passages", s.practicePassages);
     f("practice_highlights", s.practiceHighlights);
     f("practice_new_per_day", s.practiceNewPerDay);
+    f("practice_order", s.practiceOrder);
     f("last_folder", s.lastFolder);
     f("shortcuts", s.shortcuts);
     f("mouse_shortcuts", s.mouseShortcuts);

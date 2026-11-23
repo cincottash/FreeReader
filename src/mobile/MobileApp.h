@@ -111,6 +111,8 @@ class MobileApp : public QObject {
     // Practice: {active, direction, front, frontDetail, frontSentence, frontIsLong, back, backDetail, backSentence,
     // source, needsMeaning, revealed, progress, intervals [again, hard, good, easy], done, summary, dueNow, newAvailable}.
     Q_PROPERTY(QVariantMap practice READ practice NOTIFY practiceChanged)
+    // The order the cards come in: random, alphabetical, newest, oldest, book (every card is practised).
+    Q_PROPERTY(QString practiceOrder READ practiceOrder WRITE setPracticeOrder NOTIFY practiceChanged)
     Q_PROPERTY(QString version READ version CONSTANT)
     // The room the phone's status and navigation bars take (Android 15 draws apps under them).
     Q_PROPERTY(int safeTop READ safeTop NOTIFY insetsChanged)
@@ -216,6 +218,8 @@ public:
     Q_INVOKABLE void revealCard();
     Q_INVOKABLE void rateCard(int rating);   // 1 Again, 2 Hard, 3 Good, 4 Easy
     Q_INVOKABLE void endPractice();
+    QString practiceOrder() const { return m_settings.practiceOrder; }
+    void setPracticeOrder(const QString& order);
     Q_INVOKABLE void openLink(const QString& url);
     QString version() const;
     int safeTop() const { return m_insets.top(); }

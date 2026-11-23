@@ -97,6 +97,12 @@ public:
     // The next cards for a session: learning cards that are due, reviews that are due, then new cards up to
     // `newLimit` for today. Cards are created here for words that have none yet in a chosen direction.
     QList<PracticeCard> session(const Filter& f, int newLimit, const QDateTime& now, int maxCards = 200);
+    // Every card the filter allows (cards made for words that have none yet in a chosen direction), in `order`:
+    // "random", "alphabetical", "newest", "oldest" or "book" (each book's words in reading order). No daily limits:
+    // a session goes through them all (the owner's choice, 2026-11-23).
+    QList<PracticeCard> allCards(const Filter& f, const QString& order, const QDateTime& now);
+    int practisableCount(const Filter& f) const;   // how many cards allCards() would give
+    static QStringList orders() { return {"random", "alphabetical", "newest", "oldest", "book"}; }
     PracticeCard card(int id) const;
     QList<PracticeCard> cardsFor(int wordId) const;
     void saveReview(const PracticeCard& before, const PracticeCard& after, practice::Rating rating, const QDateTime& now);

@@ -113,11 +113,11 @@ PracticeCard answerCard(WordLog& log, const Scheduler& scheduler, QList<Practice
     return after;
 }
 
-bool Session::start(const WordLog::Filter& filter, int newLimit, const QDateTime& now)
+bool Session::start(const WordLog::Filter& filter, const QString& order, const QDateTime& now)
 {
     clear();
     if (!m_log) return false;
-    m_queue = m_log->session(filter, newLimit, now);
+    m_queue = m_log->allCards(filter, order, now);
     return next();
 }
 

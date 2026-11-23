@@ -123,7 +123,7 @@ private:
     QCheckBox* m_highlights;
     QCheckBox* m_typed;
     QCheckBox* m_sentenceFront;
-    QSpinBox* m_newPerDay;
+    QComboBox* m_order;
     QPushButton* m_start;
     QLabel* m_startHint;
 
@@ -149,7 +149,6 @@ private:
 
     // Done
     QLabel* m_doneText;
-    QPushButton* m_moreNew;
 
     // List
     QLineEdit* m_search;
@@ -166,5 +165,4 @@ private:
     core::practice::Rating m_suggested = core::practice::Rating::Good;
     int m_done = 0;
     int m_ratings[5] = {0, 0, 0, 0, 0};
-    int m_extraNew = 0;
 };

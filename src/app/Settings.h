@@ -53,7 +53,8 @@ struct Settings {
     bool practiceSentenceFront = false;   // the sentence it came from on the front too
     bool practicePassages = false;
     bool practiceHighlights = true;   // highlighted words (up to 4) join the word log, without a lookup
-    int practiceNewPerDay = 20;
+    int practiceNewPerDay = 20;       // no longer offered (every card is practised); kept so old files still read
+    QString practiceOrder = QStringLiteral("random");   // random, alphabetical, newest, oldest, book
 
     // Files
     QString lastFolder;

@@ -219,14 +219,20 @@ QWidget* PracticeView::buildStart()
     m_sentenceFront = new QCheckBox(tr("Show the Sentence on the Front"));
     m_sentenceFront->setProperty("testId", "practiceSentenceFront");
     lay->addWidget(m_sentenceFront);
-    auto* newRow = new QHBoxLayout;
-    newRow->addWidget(new QLabel(tr("New Cards a Day")));
-    m_newPerDay = new QSpinBox;
-    m_newPerDay->setRange(0, 500);
-    m_newPerDay->setProperty("testId", "practiceNewPerDay");
-    newRow->addWidget(m_newPerDay);
-    newRow->addStretch(1);
-    lay->addLayout(newRow);
+    // The order the cards come in; every card is practised (no daily limits).
+    auto* orderRow = new QHBoxLayout;
+    orderRow->addWidget(new QLabel(tr("Order")));
+    m_order = new QComboBox;
+    m_order->setProperty("testId", "practiceOrder");
+    m_order->addItem(tr("Random"), QStringLiteral("random"));
+    m_order->addItem(tr("Alphabetical"), QStringLiteral("alphabetical"));
+    m_order->addItem(tr("Newest First"), QStringLiteral("newest"));
+    m_order->addItem(tr("Oldest First"), QStringLiteral("oldest"));
+    m_order->addItem(tr("Book Order"), QStringLiteral("book"));
+    m_order->setToolTip(tr("Book Order: each book's words in the order they come in the book."));
+    orderRow->addWidget(m_order);
+    orderRow->addStretch(1);
+    lay->addLayout(orderRow);
 
     lay->addSpacing(16);
     m_start = new QPushButton(tr("Start Practice"));
@@ -246,14 +252,14 @@ QWidget* PracticeView::buildStart()
         m_settings.practiceTyped = m_typed->isChecked();
         m_settings.practiceSentenceFront = m_sentenceFront->isChecked();
         m_settings.practicePassages = m_passages->isChecked();
-        m_settings.practiceNewPerDay = m_newPerDay->value();
+        m_settings.practiceOrder = m_order->currentData().toString();
         m_settings.practiceHighlights = m_highlights->isChecked();
         emit settingsChanged();
         refreshCounts();
     };
     for (QCheckBox* c : m_dir) connect(c, &QCheckBox::toggled, this, saveOptions);
     for (QCheckBox* c : {m_passages, m_starred, m_typed, m_sentenceFront, m_highlights}) connect(c, &QCheckBox::toggled, this, saveOptions);
-    connect(m_newPerDay, &QSpinBox::valueChanged, this, saveOptions);
+    connect(m_order, &QComboBox::currentIndexChanged, this, saveOptions);
     connect(m_book, &QComboBox::currentIndexChanged, this, [this] { refreshCounts(); });
     connect(m_start, &QPushButton::clicked, this, [this] { startSession(); });
     return scroll;
@@ -278,12 +284,12 @@ void PracticeView::showStart()
         c->setChecked(m_settings.practiceDirections.contains(c->property("direction").toString()));
     }
     {
-        const QSignalBlocker b1(m_typed), b2(m_sentenceFront), b3(m_passages), b4(m_newPerDay), b5(m_book), b6(m_highlights);
+        const QSignalBlocker b1(m_typed), b2(m_sentenceFront), b3(m_passages), b4(m_order), b5(m_book), b6(m_highlights);
         m_highlights->setChecked(m_settings.practiceHighlights);
         m_typed->setChecked(m_settings.practiceTyped);
         m_sentenceFront->setChecked(m_settings.practiceSentenceFront);
         m_passages->setChecked(m_settings.practicePassages);
-        m_newPerDay->setValue(m_settings.practiceNewPerDay);
+        m_order->setCurrentIndex(qMax(0, m_order->findData(m_settings.practiceOrder)));
         const int keep = m_book->currentData().toInt();
         m_book->clear();
         m_book->addItem(tr("All Books"), 0);
@@ -291,7 +297,6 @@ void PracticeView::showStart()
         const int at = m_book->findData(keep);
         m_book->setCurrentIndex(at < 0 ? 0 : at);
     }
-    m_extraNew = 0;
     m_pages->setCurrentIndex(StartPage);
     m_tabPractice->setChecked(true);
     m_tabList->setChecked(false);
@@ -301,19 +306,15 @@ void PracticeView::showStart()
 
 void PracticeView::refreshCounts()
 {
-    const core::PracticeCounts c = m_log->counts(filter(), now());
+    // Every card is practised, in the order chosen: no "due" or "new today".
+    const int cards = m_log->practisableCount(filter());
     const int words = m_log->count();
     m_empty->setVisible(words == 0);
-    const int newLeft = std::min(c.newAvailable, std::max(0, m_settings.practiceNewPerDay - c.newToday));
-    m_counts->setText(tr("%1 due · %2 new today · %3 learned · %4 in the word log")
-                          .arg(count(c.dueNow, tr("card"), tr("cards")), QLocale().toString(newLeft), QLocale().toString(c.learned),
-                               count(words, tr("word"), tr("words"))));
-    const bool any = c.dueNow + newLeft > 0;
-    m_start->setEnabled(any);
-    if (any) m_startHint->clear();
+    m_counts->setText(tr("%1 to practise · %2 in the word log").arg(count(cards, tr("card"), tr("cards")), count(words, tr("word"), tr("words"))));
+    m_start->setEnabled(cards > 0);
+    if (cards > 0) m_startHint->clear();
     else if (words == 0) m_startHint->setText(tr("Translate or highlight some words while reading first."));
-    else if (c.newAvailable > 0) m_startHint->setText(tr("Nothing due. Today's new cards are done; raise New Cards a Day for more."));
-    else m_startHint->setText(tr("Nothing due now. Come back later: cards return when they are due."));
+    else m_startHint->setText(tr("No words match these choices."));
 }
 
 // ---------------------------------------------------------------- Card page
@@ -458,7 +459,7 @@ QWidget* PracticeView::buildCard()
 
 bool PracticeView::startSession()
 {
-    m_queue = m_log->session(filter(), m_settings.practiceNewPerDay + m_extraNew, now());
+    m_queue = m_log->allCards(filter(), m_settings.practiceOrder, now());
     if (m_queue.isEmpty()) {
         refreshCounts();
         return false;
@@ -622,7 +623,8 @@ void PracticeView::updateRateButtons()
     const QDateTime t = now();
     for (int i = 0; i < 4; ++i) {
         const QDateTime due = m_scheduler.preview(m_card.memory, Rating(i + 1), t);
-        m_rateWhen[i]->setText(core::practice::Scheduler::describeInterval(t, due));
+        m_rateWhen[i]->hide();   // no due dates any more: every card is practised each time
+        Q_UNUSED(due);
         const bool suggested = Rating(i + 1) == m_suggested;
         m_rate[i]->setObjectName(suggested ? QStringLiteral("Suggested") : QString());
         m_rate[i]->style()->polish(m_rate[i]);
@@ -646,14 +648,11 @@ void PracticeView::endSession()
     if (page() != CardPage) return;
     m_queue.clear();
     m_card = {};
-    const core::PracticeCounts c = m_log->counts(filter(), now());
     QString text = m_done == 0 ? tr("No cards answered.") : tr("Done for now: %1.").arg(count(m_done, tr("card"), tr("cards")));
     if (m_done > 0)
         text += QLatin1Char('\n') + tr("Again %1 · Hard %2 · Good %3 · Easy %4")
                                         .arg(m_ratings[1]).arg(m_ratings[2]).arg(m_ratings[3]).arg(m_ratings[4]);
-    if (c.dueNow > 0) text += QLatin1Char('\n') + tr("%1 still due.").arg(count(c.dueNow, tr("card is"), tr("cards are")));
     m_doneText->setText(text);
-    m_moreNew->setVisible(c.newAvailable > 0);
     m_pages->setCurrentIndex(DonePage);
     m_answer->setReadOnly(false);
 }
@@ -691,21 +690,14 @@ QWidget* PracticeView::buildDone()
     lay->addWidget(m_doneText);
     auto* row = new QHBoxLayout;
     row->addStretch(1);
-    m_moreNew = new QPushButton(tr("Learn 10 More New Words"));
-    m_moreNew->setProperty("testId", "moreNew");
     auto* again = new QPushButton(tr("Back to Practice"));
     again->setObjectName(QStringLiteral("Primary"));
     again->setProperty("testId", "doneBack");
-    row->addWidget(m_moreNew);
     row->addWidget(again);
     row->addStretch(1);
     lay->addLayout(row);
     lay->addStretch(2);
     connect(again, &QPushButton::clicked, this, &PracticeView::showStart);
-    connect(m_moreNew, &QPushButton::clicked, this, [this] {
-        m_extraNew += 10;
-        if (!startSession()) showStart();
-    });
     return page;
 }
 
