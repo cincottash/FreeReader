@@ -1416,6 +1416,7 @@ int ReaderView::toggleWordBookmark()
     if (!m_notes || !m_bookId || !m_pages->hasSelection() || !m_engine->isOpen()) return 0;
     if (const int existing = wordBookmarkAtSelection()) {
         m_notes->remove(existing);
+        clearSelectionKeepingPopup();   // the word was selected only for the bookmark (the owner's request, 2026-11-23)
         refreshAnnotations();
         return 0;
     }

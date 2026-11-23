@@ -144,8 +144,21 @@ void DictionaryPopup::place()
     m_lay->activate();
     const int chrome = m_lay->contentsMargins().top() + m_lay->contentsMargins().bottom() + m_title->sizeHint().height() +
                        m_full->sizeHint().height() + (m_source->isVisible() ? m_source->heightForWidth(w - 40) : 0) + 4 * m_lay->spacing() + 8;
-    const int h = qMin(qMax(160, p->height() * 2 / 3), chrome + bodyHeight + 4);
-    setFixedHeight(qMax(120, qMin(h, p->height() - 32)));
+    const int cap = qMin(qMax(160, p->height() * 2 / 3), p->height() - 32);
+    int h = qMax(120, qMin(cap, chrome + bodyHeight + 4 + 2 * frameWidth()));
+    setFixedHeight(h);
+    // As really laid out: while the entry still scrolls and there is room, the card grows by what is hidden.
+    for (int pass = 0; pass < 3 && h < cap; ++pass) {
+        m_lay->activate();
+        m_scroll->widget()->adjustSize();
+        const int hidden = m_scroll->verticalScrollBar()->maximum();
+        int missing = hidden;
+        for (QLabel* l : {m_title, m_source})
+            if (l->isVisibleTo(this)) missing += qMax(0, l->heightForWidth(l->width()) - l->height());
+        if (missing <= 0) break;
+        h = qMin(cap, h + missing);
+        setFixedHeight(h);
+    }
     int x = qBound(16, m_anchor.center().x() - w / 2, qMax(16, p->width() - w - 16));
     int y = m_anchor.bottom() + 10;
     if (y + height() > p->height() - 16) y = m_anchor.top() - height() - 10;

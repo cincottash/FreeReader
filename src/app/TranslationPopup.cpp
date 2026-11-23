@@ -335,10 +335,26 @@ void TranslationPopup::place()
     if (!p) return;
     const int w = qMin(420, p->width() - 32);
     setFixedWidth(w);
-    // Labels wrap to the width; ask the layout how tall that makes the pop-up.
+    // Labels wrap to the width; ask the layout how tall that makes the pop-up. Their style sheets (font sizes) are
+    // applied first: measured before that, a wrapped meaning came out a line short (the owner's report, 2026-11-23).
+    ensurePolished();
+    for (QWidget* c : findChildren<QWidget*>()) c->ensurePolished();
+    m_lay->invalidate();
     m_lay->activate();
-    const int h = qMin(p->height() - 32, qMax(80, m_lay->heightForWidth(w)));
+    // The border takes room too: the text has the inside of it, not the whole width.
+    const int frame = 2 * frameWidth();
+    int h = qMin(p->height() - 32, qMax(80, m_lay->heightForWidth(w - frame) + frame));
     setFixedHeight(h);
+    // Then each wrapped label is checked as it was really laid out; the pop-up grows when one needs more room.
+    for (int pass = 0; pass < 3 && h < p->height() - 32; ++pass) {
+        m_lay->activate();
+        int missing = 0;
+        for (QLabel* l : findChildren<QLabel*>())
+            if (l->isVisibleTo(this) && l->wordWrap()) missing += qMax(0, l->heightForWidth(l->width()) - l->height());
+        if (missing == 0) break;
+        h = qMin(p->height() - 32, h + missing);
+        setFixedHeight(h);
+    }
     int x = qBound(16, m_anchor.center().x() - w / 2, qMax(16, p->width() - w - 16));
     int y = m_anchor.bottom() + 10;
     if (y + h > p->height() - 16) y = m_anchor.top() - h - 10;
