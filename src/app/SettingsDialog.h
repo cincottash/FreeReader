@@ -1,6 +1,8 @@
 // Settings, in three tabs:
-// - Translation: the Gemini key (kept in the system's credential store, never in a file) and model, LM Studio's
-//   address, offline only, and whether selecting text opens the pop-up. Test and Check try them out.
+// - Translation: the Gemini key (kept in the system's credential store, never in a file) and model, the books kept
+//   offline (Gemini isn't asked about them), LM Studio's address, and whether selecting text opens the pop-up.
+//   Test and Check try them out. This tab is the one place for every translation option; Settings > Translation in
+//   the menu bar has the quick switches.
 // - Keyboard Shortcuts: every command, editable; a key can't be used twice.
 // - General: the app data folder, the library's folders, and resetting text and layout.
 // Changes apply at once so they can be seen; OK keeps them, Cancel (also Escape and the window's close button)
@@ -15,6 +17,7 @@
 
 #include <functional>
 #include <memory>
+#include <utility>
 #include <vector>
 
 class QCheckBox;
@@ -61,6 +64,11 @@ public:
     void checkLmStudio();
     void testLmStudio();
     void refreshTranslation();
+    // Keep This Book Offline: `openBook` gives the book open now (its id, 0 for none, and its title).
+    void setOpenBook(std::function<std::pair<int, QString>()> openBook) { m_openBook = std::move(openBook); }
+    void refreshOfflineBooks();   // after the open book or the list of offline books changed
+    void setOpenBookOffline(bool on);
+    void allowGeminiForEveryBook();   // empties the list of books kept offline
     void setDictionary(core::OfflineDictionary* dictionary, const QString& installPath);
     void setEnglishDictionary(core::OfflineDictionary* dictionary, const QString& installPath);
     // `key`: "es" (Spanish -> English), "en" (English definitions) or "es-es" (Spanish definitions).
@@ -133,7 +141,10 @@ private:
     QLineEdit* m_lmAddress;
     QComboBox* m_lmModel;
     QLabel* m_lmResult;
-    QCheckBox* m_offline;
+    QCheckBox* m_bookOffline;
+    QLabel* m_offlineCount;
+    QPushButton* m_allowAll;
+    std::function<std::pair<int, QString>()> m_openBook;
     struct DictRow {
         QString language;   // its key: "es" Spanish -> English, "en" English definitions, "es-es" Spanish definitions
         core::OfflineDictionary* dict = nullptr;

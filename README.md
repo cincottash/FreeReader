@@ -97,7 +97,9 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 - **Set it up once:** get a free key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey), then
   paste it in **Settings ▸ Translation ▸ Translation Settings…**. The key is kept in Windows Credential Manager
   (or the system's key store on Linux), never in a file. **Test** looks up one word to check it works.
-- **Offline Only** (for all books, or just the open one) never sends text over the internet.
+- **Keeping text offline:** Gemini is the only engine that sends text over the internet, so turning off **Use
+  Gemini** keeps every book offline. **Keep This Book Offline** does it for the open book only. Both are in
+  **Settings ▸ Translation**, and in the translation settings window, which also counts the books kept offline.
 - **Offline dictionaries** (optional downloads in the translation settings) answer single words with no internet,
   when the engines before them can't:
   - **Spanish → English** (31 MB): 120,000 words from [Wiktionary](https://en.wiktionary.org) (CC BY-SA 4.0),

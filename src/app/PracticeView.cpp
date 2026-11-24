@@ -583,7 +583,7 @@ void PracticeView::lookUpMeaning()
     r.sentence = m_word.sentence.size() > 600 || m_word.sentence == m_word.text ? QString() : m_word.sentence;
     r.from = m_word.language == QLatin1String("und") ? QString() : m_word.language;
     // The book's own offline choice applies here too.
-    m_translator->setOfflineOnly(m_settings.offlineOnly || (m_word.bookId && m_settings.offlineBooks.contains(QString::number(m_word.bookId))));
+    m_translator->setOfflineOnly(m_word.bookId && m_settings.offlineBooks.contains(QString::number(m_word.bookId)));
     m_lookUp->setText(tr("Looking Up…"));
     m_lookUp->setEnabled(false);
     m_lookupId = m_translator->translate(r);

@@ -130,7 +130,7 @@ void SettingsDialog::reject()
         const Settings& b = *m_before;
         Settings& s = m_settings;
         s.translateOnSelect = b.translateOnSelect;
-        s.offlineOnly = b.offlineOnly;
+        s.offlineBooks = b.offlineBooks;
         s.useGemini = b.useGemini;
         s.geminiModel = b.geminiModel;
         s.useLmStudio = b.useLmStudio;
@@ -215,6 +215,23 @@ QWidget* SettingsDialog::buildTranslationTab()
     m_geminiResult = muted(QString());
     m_geminiResult->setProperty("testId", "geminiResult");
     lay->addWidget(m_geminiResult);
+    // Gemini is the only engine that sends text over the internet, so keeping books offline belongs here.
+    lay->addWidget(muted(tr("Gemini is the only engine that sends text over the internet: with Use Gemini off, nothing "
+                            "leaves this computer. A single book can be kept offline instead; the engines on this "
+                            "computer still answer for it.")));
+    m_bookOffline = new QCheckBox(tr("Keep This Book Offline"));
+    m_bookOffline->setProperty("testId", "bookOffline");
+    m_bookOffline->setToolTip(tr("Text from the open book is never sent to Gemini. Also in Settings > Translation in the menu bar."));
+    lay->addWidget(m_bookOffline);
+    auto* offlineRow = new QHBoxLayout;
+    m_offlineCount = muted(QString());
+    m_offlineCount->setProperty("testId", "offlineCount");
+    offlineRow->addWidget(m_offlineCount, 1);
+    m_allowAll = new QPushButton(tr("Allow Gemini for Every Book"));
+    m_allowAll->setProperty("testId", "allowGeminiEveryBook");
+    m_allowAll->setToolTip(tr("Empties the list of books kept offline."));
+    offlineRow->addWidget(m_allowAll);
+    lay->addLayout(offlineRow);
 
     lay->addWidget(sectionTitle(tr("LM STUDIO (ON THIS COMPUTER)")));
     lay->addWidget(muted(tr("Asked when Gemini can't answer (offline, or today's free lookups are used up). LM Studio's server "
@@ -366,10 +383,6 @@ QWidget* SettingsDialog::buildTranslationTab()
     m_auto->setToolTip(tr("Off: selecting only selects. Right-click the selection and choose Translate, or press Ctrl+E."));
     m_auto->setProperty("testId", "translateOnSelect");
     lay->addWidget(m_auto);
-    m_offline = new QCheckBox(tr("Offline Only (Never Send Text Over the Internet)"));
-    m_offline->setToolTip(tr("Gemini is not asked. Single books can be kept offline from the View menu."));
-    m_offline->setProperty("testId", "offlineOnly");
-    lay->addWidget(m_offline);
     lay->addStretch(1);
 
     connect(save, &QPushButton::clicked, this, [this] {
@@ -386,18 +399,17 @@ QWidget* SettingsDialog::buildTranslationTab()
     connect(check, &QPushButton::clicked, this, &SettingsDialog::checkLmStudio);
     connect(m_useGemini, &QCheckBox::toggled, this, [this](bool on) {
         m_settings.useGemini = on;
+        refreshOfflineBooks();
         emit translationChanged();
     });
+    connect(m_bookOffline, &QCheckBox::toggled, this, &SettingsDialog::setOpenBookOffline);
+    connect(m_allowAll, &QPushButton::clicked, this, &SettingsDialog::allowGeminiForEveryBook);
     connect(m_useLm, &QCheckBox::toggled, this, [this](bool on) {
         m_settings.useLmStudio = on;
         emit translationChanged();
     });
     connect(m_auto, &QCheckBox::toggled, this, [this](bool on) {
         m_settings.translateOnSelect = on;
-        emit translationChanged();
-    });
-    connect(m_offline, &QCheckBox::toggled, this, [this](bool on) {
-        m_settings.offlineOnly = on;
         emit translationChanged();
     });
     connect(m_model, &QComboBox::currentTextChanged, this, [this](const QString& t) {
@@ -417,11 +429,11 @@ QWidget* SettingsDialog::buildTranslationTab()
 
 void SettingsDialog::refreshTranslation()
 {
-    const QSignalBlocker b1(m_useGemini), b2(m_useLm), b3(m_auto), b4(m_offline), b5(m_model);
+    const QSignalBlocker b1(m_useGemini), b2(m_useLm), b3(m_auto), b5(m_model);
     m_useGemini->setChecked(m_settings.useGemini);
     m_useLm->setChecked(m_settings.useLmStudio);
     m_auto->setChecked(m_settings.translateOnSelect);
-    m_offline->setChecked(m_settings.offlineOnly);
+    refreshOfflineBooks();
     m_model->setCurrentText(m_settings.geminiModel.isEmpty() ? QString::fromLatin1(core::GeminiProvider::kDefaultModel) : m_settings.geminiModel);
     m_lmAddress->setText(m_settings.lmStudioAddress);
     fillLmModels({});
@@ -466,6 +478,43 @@ void SettingsDialog::refreshTranslation()
     const bool has = m_gemini && m_gemini->hasKey();
     m_keyStatus->setText(has ? tr("A key is saved in %1.").arg(storeName()) : tr("No key yet."));
     m_removeKey->setEnabled(has);
+}
+
+void SettingsDialog::refreshOfflineBooks()
+{
+    const std::pair<int, QString> open = m_openBook ? m_openBook() : std::pair<int, QString>{0, QString()};
+    const QSignalBlocker b(m_bookOffline);
+    m_bookOffline->setChecked(open.first && m_settings.offlineBooks.contains(QString::number(open.first)));
+    // With Gemini off every book is offline already.
+    m_bookOffline->setEnabled(open.first && m_settings.useGemini);
+    // The book's own title goes in the line beside it, not in the switch (labels are title case, titles aren't).
+    const QString book = open.first ? tr("Open now: %1.").arg(open.second.isEmpty() ? tr("Untitled") : open.second)
+                                    : tr("No book is open.");
+    const int n = int(m_settings.offlineBooks.size());
+    const QString count = n == 0   ? tr("No book is kept offline.")
+                          : n == 1 ? tr("1 book is kept offline.")
+                                   : tr("%1 books are kept offline.").arg(QLocale().toString(n));
+    m_offlineCount->setText(book + QLatin1Char(' ') + count);
+    m_allowAll->setEnabled(n > 0);
+}
+
+void SettingsDialog::setOpenBookOffline(bool on)
+{
+    const int id = m_openBook ? m_openBook().first : 0;
+    if (id) {
+        m_settings.offlineBooks.removeAll(QString::number(id));
+        if (on) m_settings.offlineBooks << QString::number(id);
+        emit translationChanged();
+    }
+    refreshOfflineBooks();
+}
+
+void SettingsDialog::allowGeminiForEveryBook()
+{
+    if (m_settings.offlineBooks.isEmpty()) return;
+    m_settings.offlineBooks.clear();
+    emit translationChanged();
+    refreshOfflineBooks();
 }
 
 QString SettingsDialog::saveGeminiKey(const QString& key)

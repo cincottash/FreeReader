@@ -37,7 +37,6 @@ void fields(Settings& s, F&& f)
     f("page_turn_ms", s.pageTurnMs);
     f("page_turn_motion", s.pageTurnMotion);
     f("translate_on_select", s.translateOnSelect);
-    f("offline_only", s.offlineOnly);
     f("offline_books", s.offlineBooks);
     f("page_directions", s.pageDirections);
     f("use_gemini", s.useGemini);
@@ -88,6 +87,8 @@ bool Settings::load(const QString& path)
     if (!f.open(QIODevice::ReadOnly)) return false;
     const QJsonObject o = QJsonDocument::fromJson(f.readAll()).object();
     fields(*this, [&](const char* k, auto& v) { get(o, k, v); });
+    // Offline Only (before 2026-11-23) was the same as Use Gemini off: a file saved with it on keeps Gemini off.
+    if (o.value(QLatin1String("offline_only")).toBool()) useGemini = false;
     // Keep values sane even if the file was edited by hand.
     look.clamp();
     readingSpeed = qBound(200, readingSpeed, 6000);
