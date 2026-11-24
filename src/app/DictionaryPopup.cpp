@@ -1,5 +1,10 @@
 #include "DictionaryPopup.h"
 
+#include "FlipAnimation.h"
+#include "Icons.h"
+
+#include <QLocale>
+
 #include "core/translate/DictionaryCardHtml.h"
 
 #include <QGraphicsDropShadowEffect>
@@ -65,12 +70,21 @@ DictionaryPopup::DictionaryPopup(QWidget* parent) : QFrame(parent)
     m_full->setToolTip(tr("The whole entry on Wiktionary, in your browser"));
     m_translate = link(tr("Translate"), "dcTranslate");
     m_translate->setToolTip(tr("The translation pop-up for this word"));
+    m_highlight = link(tr("Highlight"), "dcHighlight");
+    m_highlight->hide();
     m_getDefinitions = link(tr("Get Definitions…"), "dcGetDefinitions");
     m_getDefinitions->setToolTip(tr("A dictionary of definitions in the book's language is an optional download in Settings"));
     actions->addWidget(m_full);
     actions->addWidget(m_translate);
+    actions->addWidget(m_highlight);
     actions->addWidget(m_getDefinitions);
     actions->addStretch(1);
+    m_flip = new QPushButton;
+    m_flip->setFocusPolicy(Qt::NoFocus);
+    m_flip->setCursor(Qt::PointingHandCursor);
+    m_flip->setProperty("testId", "dcFlip");
+    m_flip->hide();
+    actions->addWidget(m_flip);
     m_lay->addLayout(actions);
     m_source = new QLabel;
     m_source->setObjectName(QStringLiteral("Muted"));
@@ -84,6 +98,8 @@ DictionaryPopup::DictionaryPopup(QWidget* parent) : QFrame(parent)
         hide();
         emit translateRequested();
     });
+    connect(m_highlight, &QPushButton::clicked, this, &DictionaryPopup::highlightRequested);
+    connect(m_flip, &QPushButton::clicked, this, &DictionaryPopup::flipSide);
     connect(m_getDefinitions, &QPushButton::clicked, this, [this] {
         hide();
         emit settingsRequested();
@@ -112,6 +128,8 @@ QString DictionaryPopup::toHtml(const core::DictionaryCard& card, const Theme& t
 void DictionaryPopup::showCard(const core::DictionaryCard& card, const QString& title, const QString& source,
                                const QUrl& fullDefinition, const QRect& anchor, bool offerDefinitions)
 {
+    m_twoSides = false;
+    m_flip->hide();
     m_card = card;
     m_url = fullDefinition;
     m_anchor = anchor;
@@ -124,6 +142,56 @@ void DictionaryPopup::showCard(const core::DictionaryCard& card, const QString& 
     m_source->setVisible(!source.isEmpty());
     m_scroll->verticalScrollBar()->setValue(0);
     place();
+}
+
+void DictionaryPopup::showSides(const Side& front, const Side& back, const QRect& anchor)
+{
+    m_sides[0] = front;
+    m_sides[1] = back;
+    m_front = true;
+    m_anchor = anchor;
+    m_twoSides = true;
+    m_getDefinitions->hide();
+    showSide(m_sides[0]);
+    m_scroll->verticalScrollBar()->setValue(0);
+    place();
+}
+
+void DictionaryPopup::showSide(const Side& s)
+{
+    m_card = s.card;
+    m_url = s.fullDefinition;
+    m_title->setText(s.title.toUpper());
+    m_html = toHtml(s.card, m_theme);
+    m_body->setText(m_html);
+    m_full->setVisible(m_url.isValid());
+    m_source->setText(s.source);
+    m_source->setVisible(!s.source.isEmpty());
+    // The button names the other side's language, in the reader's language (English).
+    const Side& other = m_sides[m_front ? 1 : 0];
+    const QString name = QLocale::languageToString(QLocale(other.language).language());
+    m_flip->setText(tr("Flip to %1").arg(name));
+    m_flip->setToolTip(tr("Turn the card over: the %1").arg(other.title));
+    m_flip->show();
+}
+
+void DictionaryPopup::flipSide()
+{
+    if (!m_twoSides) return;
+    flip::turn(this, [this] {
+        m_front = !m_front;
+        showSide(m_sides[m_front ? 0 : 1]);
+        m_scroll->verticalScrollBar()->setValue(0);
+        place();
+    }, m_theme.bg, 10);
+}
+
+void DictionaryPopup::setHighlight(bool available, bool highlighted, const QColor& color)
+{
+    m_highlight->setText(highlighted ? tr("Remove Highlight") : tr("Highlight"));
+    m_highlight->setIcon(icons::dot(color, highlighted ? m_theme.fg : QColor()));
+    m_highlight->setToolTip(highlighted ? tr("Take the highlight away") : tr("Highlight this word in the color used last"));
+    m_highlight->setVisible(available);
 }
 
 void DictionaryPopup::place()

@@ -55,6 +55,7 @@ public:
     ReaderView* reader() const { return m_reader; }
     LibraryView* library() const { return m_start; }
     PracticeView* practice() const { return m_practice; }
+    PracticeView* practiceSide() const { return m_practiceSide; }
     LibrarySearchView* librarySearch() const { return m_librarySearch; }
     StatisticsView* statistics() const { return m_statistics; }
     void showStatistics();
@@ -136,6 +137,7 @@ private:
     LibraryView* m_start;   // the library
     ReaderView* m_reader;
     PracticeView* m_practice;
+    PracticeView* m_practiceSide;   // the practice workspace beside the page (in the reader)
     std::unique_ptr<core::WordLog> m_words;
     std::unique_ptr<core::Annotations> m_annotations;
     QWidget* m_beforePractice = nullptr;

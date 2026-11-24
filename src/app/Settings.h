@@ -14,13 +14,16 @@ struct Settings {
     bool showContents = false;
     bool showNotebook = false;
     bool showBilingual = false;       // the English of the page in a panel on the right
+    bool showPractice = false;        // the practice workspace on the right while reading
 
     // Reading
     Appearance look;                  // All Books; languages and books can override it (library database)
     QString theme = QStringLiteral("midnight");     // a theme key or "system"
     QStringList recentThemes;                        // most recent first; shown as dots in the reader's header
     int readingSpeed = 1100;          // characters per minute, learned from page turns
-    bool footerPagesLeft = false;     // the footer shows the pages left in the chapter instead of the time (click it)
+    // The footer shows the pages left in the chapter (or the time left: click it). Pages by default since
+    // 2026-11-23, under a new key so settings files saved before (with the time) start with the pages too.
+    bool footerPagesLeft = true;
     QStringList highlightOrder;       // the highlight colors, most recently used first (the dots' order)
     // Page turn animation: none / slide / cover / fade / curl; how long it takes; how it moves (smooth: fast then
     // slowing down, even: the same speed throughout, gentle: slow start and end).

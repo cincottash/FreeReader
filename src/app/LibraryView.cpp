@@ -152,11 +152,13 @@ public:
     QSize sizeHint(const QStyleOptionViewItem& o, const QModelIndex& i) const override
     {
         QSize s = QStyledItemDelegate::sizeHint(o, i);
-        s.setHeight(i.data(Qt::UserRole + 2).toBool() ? 34 : 32);
+        // The Practice button's row (a widget of its own), a heading, or a filter.
+        s.setHeight(i.data(Qt::UserRole + 4).toBool() ? 88 : i.data(Qt::UserRole + 2).toBool() ? 34 : 32);
         return s;
     }
     void paint(QPainter* p, const QStyleOptionViewItem& opt, const QModelIndex& i) const override
     {
+        if (i.data(Qt::UserRole + 4).toBool()) return;   // the Practice button draws itself
         const bool header = i.data(Qt::UserRole + 2).toBool();
         QStyleOptionViewItem o(opt);
         initStyleOption(&o, i);
@@ -390,13 +392,7 @@ LibraryView::LibraryView(core::Library* library, Settings& settings, QWidget* pa
     m_notKept->hide();
     h->addWidget(m_notKept);
     h->addStretch(1);
-    m_practice = new QPushButton(tr("Practice"));
-    m_practice->setObjectName(QStringLiteral("Chip"));
-    m_practice->setCursor(Qt::PointingHandCursor);
-    m_practice->setToolTip(tr("Flashcards of the words you looked up (Ctrl+P)"));
-    m_practice->setProperty("testId", "libraryPractice");
-    h->addWidget(m_practice);
-    connect(m_practice, &QPushButton::clicked, this, &LibraryView::practiceRequested);
+    // Practice is the big button under Library on the left (rebuildFilters).
     m_search = new QLineEdit;
     m_search->setPlaceholderText(tr("Search Title or Author"));
     m_search->setClearButtonEnabled(true);
@@ -640,6 +636,9 @@ void LibraryView::setTheme(const Theme& t)
     if (auto* d = dynamic_cast<CoverDelegate*>(m_grid->itemDelegate())) d->covers.clear();
     m_grid->viewport()->update();
     m_filters->viewport()->update();
+    if (m_practice)
+        if (auto* icon = m_practice->findChild<QLabel*>())
+            icon->setPixmap(icons::icon("cards", t.accentFg, 26).pixmap(26, 26));
 }
 
 void LibraryView::setSettingsNotKept(bool on) { m_notKept->setVisible(on); }
@@ -720,6 +719,47 @@ void LibraryView::rebuildFilters()
     entry(tr("Reading"), QStringLiteral("reading"), reading);
     entry(tr("Finished"), QStringLiteral("finished"), finished);
     entry(tr("Not Started"), QStringLiteral("notstarted"), notStarted);
+    // Practice: a big button right under Library, easy to find (the owner's request, 2026-11-23).
+    {
+        auto* it = new QListWidgetItem(m_filters);
+        it->setFlags(Qt::NoItemFlags);
+        it->setData(Qt::UserRole + 4, true);
+        auto* holder = new QWidget;
+        auto* hl = new QVBoxLayout(holder);
+        hl->setContentsMargins(12, 12, 12, 8);
+        m_practice = new QPushButton;
+        m_practice->setObjectName(QStringLiteral("BigPractice"));
+        m_practice->setAccessibleName(tr("Practice Words"));
+        m_practice->setCursor(Qt::PointingHandCursor);
+        m_practice->setToolTip(tr("Flashcards of the words you looked up or highlighted (Ctrl+P). While reading, the "
+                                  "Practice button opens them beside the page."));
+        m_practice->setProperty("testId", "libraryPractice");
+        m_practice->setFixedHeight(64);
+        auto* row = new QHBoxLayout(m_practice);
+        row->setContentsMargins(14, 8, 14, 8);
+        row->setSpacing(12);
+        auto* icon = new QLabel;
+        icon->setPixmap(icons::icon("cards", m_theme.accentFg, 26).pixmap(26, 26));
+        icon->setProperty("testId", "libraryPracticeIcon");
+        row->addWidget(icon);
+        auto* texts = new QVBoxLayout;
+        texts->setSpacing(1);
+        auto* name = new QLabel(tr("Practice Words"));
+        name->setStyleSheet(QStringLiteral("font-size: 15px; font-weight: 700;"));
+        texts->addWidget(name);
+        const int words = m_practiceCount ? m_practiceCount() : 0;
+        auto* sub = new QLabel(words == 0   ? tr("No Words Yet")
+                               : words == 1 ? tr("1 Word in the Word List")
+                                            : tr("%1 Words in the Word List").arg(QLocale().toString(words)));
+        sub->setStyleSheet(QStringLiteral("font-size: 12px;"));
+        sub->setProperty("testId", "libraryPracticeCount");
+        texts->addWidget(sub);
+        row->addLayout(texts, 1);
+        for (QLabel* l : {icon, name, sub}) l->setAttribute(Qt::WA_TransparentForMouseEvents);
+        hl->addWidget(m_practice);
+        m_filters->setItemWidget(it, holder);
+        connect(m_practice, &QPushButton::clicked, this, &LibraryView::practiceRequested);
+    }
     if (!langs.isEmpty()) {
         header(tr("LANGUAGES"));
         QList<QPair<QString, QString>> sorted;

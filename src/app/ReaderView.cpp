@@ -8,6 +8,8 @@
 #include "TocPanel.h"
 #include "NotebookPanel.h"
 #include "BilingualPanel.h"
+#include "PracticePanel.h"
+#include "PracticeView.h"
 
 #include <QCryptographicHash>
 #include "SearchPanel.h"
@@ -61,6 +63,7 @@
 #include <QVBoxLayout>
 
 #include <cmath>
+#include <limits>
 
 namespace {
 
@@ -141,7 +144,13 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     m_aaButton->setFocusPolicy(Qt::NoFocus);
     m_aaButton->setToolTip(tr("Text and layout: font, size, spacing, margins, columns"));
     m_aaButton->setProperty("testId", "aaButton");
-    h->addWidget(m_aaButton);    // Recently used themes as dots (as in the mock-up), then the full theme list.
+    h->addWidget(m_aaButton);
+    // One page or two side by side, like an open book (the Columns setting, One or Two).
+    m_spreadButton = iconButton("spread", tr("Two Pages Side by Side"), m_theme);
+    m_spreadButton->setCheckable(true);
+    m_spreadButton->setProperty("testId", "spreadButton");
+    h->addWidget(m_spreadButton);
+    // Recently used themes as dots (as in the mock-up), then the full theme list.
     m_themeDots = new QWidget;
     m_themeDots->setLayout(new QHBoxLayout);
     m_themeDots->layout()->setContentsMargins(6, 0, 6, 0);
@@ -149,6 +158,20 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     h->addWidget(m_themeDots);
     h->addWidget(m_bookmarkButton);
     h->addWidget(m_notebookButton);
+    // Practice: a button with its name, easy to find (the owner's request, 2026-11-23).
+    m_practiceButton = new QToolButton;
+    m_practiceButton->setObjectName(QStringLiteral("Practice"));
+    m_practiceButton->setText(tr("Practice"));
+    m_practiceButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    m_practiceButton->setIcon(icons::icon("cards", m_theme.fg));
+    m_practiceButton->setIconSize(QSize(20, 20));
+    m_practiceButton->setFixedHeight(36);
+    m_practiceButton->setCheckable(true);
+    m_practiceButton->setCursor(Qt::PointingHandCursor);
+    m_practiceButton->setFocusPolicy(Qt::NoFocus);
+    m_practiceButton->setToolTip(tr("Practice beside the book: flashcards, and the words of this page or book with their meanings (Ctrl+P)"));
+    m_practiceButton->setProperty("testId", "practiceButton");
+    h->addWidget(m_practiceButton);
     h->addWidget(m_fullButton);
     lay->addWidget(bar);
 
@@ -174,6 +197,16 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     m_bilingual->setFixedWidth(380);
     m_bilingual->hide();
     body->addWidget(m_bilingual);
+    m_practicePanel = new PracticePanel;
+    m_practicePanel->setFixedWidth(480);
+    m_practicePanel->hide();
+    m_practicePanel->setProperty("testId", "practicePanel");
+    body->addWidget(m_practicePanel);
+    connect(m_practicePanel, &PracticePanel::closeRequested, this, [this] {
+        setPracticeVisible(false);
+        m_pages->setFocus();
+    });
+    connect(m_practicePanel, &PracticePanel::fullWindowRequested, this, &ReaderView::fullPracticeRequested);
     m_bilingualTimer.setSingleShot(true);
     m_bilingualTimer.setInterval(250);   // a quick run of page turns asks once, for the page it stops on
     connect(&m_bilingualTimer, &QTimer::timeout, this, &ReaderView::refreshBilingual);
@@ -197,6 +230,9 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     connect(m_translate, &TranslationPopup::speakRequested, this, &ReaderView::speak);
     m_dictCard = new DictionaryPopup(m_pages);
     connect(m_dictCard, &DictionaryPopup::translateRequested, this, [this] { translateSelection(false); });
+    // Highlight from the pop-ups, without the right-click menu.
+    connect(m_translate, &TranslationPopup::highlightRequested, this, &ReaderView::toggleLookupHighlight);
+    connect(m_dictCard, &DictionaryPopup::highlightRequested, this, &ReaderView::toggleLookupHighlight);
     connect(m_dictCard, &DictionaryPopup::settingsRequested, this, &ReaderView::translationSettingsRequested);
     connect(m_dictCard, &DictionaryPopup::fullDefinitionRequested, this, [this](const QUrl& url) {
         m_lastUrl = url.toString(QUrl::FullyEncoded);
@@ -270,6 +306,16 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
         m_pages->setFocus();
     });
     connect(m_notebookButton, &QToolButton::toggled, this, [this](bool on) { setNotebookVisible(on); });
+    connect(m_practiceButton, &QToolButton::clicked, this, [this](bool on) { setPracticeVisible(on); });
+    connect(m_pages, &PageView::columnsChanged, this, &ReaderView::syncSpreadButton);
+    connect(m_spreadButton, &QToolButton::clicked, this, [this] {
+        toggleTwoPages();
+        m_pages->setFocus();
+    });
+    // New words (a lookup, a highlight) show in the workspace at once.
+    connect(this, &ReaderView::wordLogged, this, [this] {
+        if (practiceVisible() && m_practicePanel->view()) m_practicePanel->view()->refresh();
+    });
     connect(m_notebook, &NotebookPanel::activated, this, &ReaderView::goToAnnotation);
     connect(m_notebook, &NotebookPanel::editNoteRequested, this, &ReaderView::editNote);
     connect(m_notebook, &NotebookPanel::colorRequested, this, [this](int id, const QString& color) {
@@ -359,8 +405,11 @@ void ReaderView::setTheme(const Theme& t)
     m_searchButton->setIcon(icons::icon("search", t.fg));
     m_bookmarkButton->setIcon(icons::icon("bookmark", t.fg));
     m_notebookButton->setIcon(icons::icon("panel", t.fg));
+    m_spreadButton->setIcon(icons::icon("spread", t.fg));
+    m_practiceButton->setIcon(icons::icon("cards", t.fg));
     m_notebook->setTheme(t);
     m_bilingual->setTheme(t);
+    m_practicePanel->setTheme(t);
     setFullScreenIcon(window() && window()->isFullScreen());
     m_pages->setTheme(t);
     m_translate->setTheme(t);
@@ -493,6 +542,11 @@ void ReaderView::showBook(int bookId, const core::Position& start)
     setContentsVisible(m_settings.showContents);
     setNotebookVisible(m_settings.showNotebook);
     setBilingualVisible(m_settings.showBilingual);
+    if (PracticeView* v = m_practicePanel->view()) {
+        v->endSession();   // a session from another book doesn't carry over
+        v->setOpenBook(bookId, book ? book->metadata.title : QString());
+    }
+    setPracticeVisible(m_settings.showPractice);
     closeSearch();
     applyReadingOptions();
     m_pages->setRightToLeft(pagesRightToLeft());
@@ -603,6 +657,13 @@ void ReaderView::updateHeaderAndFooter()
     m_footer->setProgress(fraction, stats);
     m_footer->setClickableStat(int(stats.size()) - 1, m_settings.footerPagesLeft ? tr("Click to show the time left in the chapter")
                                                                                   : tr("Click to show the pages left in the chapter"));
+    syncSpreadButton();
+    // The workspace's This Page follows the pages showing.
+    if (practiceVisible()) {
+        updatePracticePage();
+        PracticeView* v = m_practicePanel->view();
+        if (v->page() == PracticeView::ListPage && v->listBook() == PracticeView::kThisPage) v->refresh();
+    }
 }
 
 void ReaderView::onPositionChanged(const core::Position& p, bool byTurn)
@@ -883,6 +944,9 @@ void ReaderView::translateSelection(bool dictionaryFirst)
     core::TranslationRequest r;
     r.text = text.size() > 4000 ? text.left(4000) : text;
     r.sentence = m_pages->selectionSentence();
+    // The Dictionary card's side in the book's language shows the sentence as the book has it (a very long one cut
+    // to the part around the word).
+    m_lookupBookSentence = r.sentence == r.text ? QString() : core::contextAround(r.sentence, r.text);
     if (r.sentence.size() > 600 || r.sentence == r.text) r.sentence.clear();
     r.from = languageCode();
     m_dictionaryFirst = dictionaryFirst;
@@ -909,8 +973,50 @@ void ReaderView::showDictionary()
     m_note->hide();
     m_translate->hide();
     const QRect anchor = m_pages->rangeRect(m_pages->selectionSpine(), m_pages->selectionStart(), m_pages->selectionEnd());
+    // The card's words, for its Highlight button.
+    m_lookupSpine = m_pages->selectionSpine();
+    m_lookupStart = m_pages->selectionStart();
+    m_lookupEnd = m_pages->selectionEnd();
     m_dictCard->setTheme(m_theme);
+    updateLookupHighlight();
+    // A dictionary of definitions in the book's language and a translating one both know it: a card with two
+    // sides, the book's language first, then the reader's (Flip turns it over).
+    const core::FoundCard defs = core::findDictionaryCard(m_dictionaries, text, languageCode(), core::DictionaryKind::Definitions);
+    const core::FoundCard trans = core::findDictionaryCard(m_dictionaries, text, languageCode(), core::DictionaryKind::Translating);
+    if (defs.found() && trans.found() && trans.dictionary->info().target != languageCode()) {
+        m_dictCard->showSides({defs.card, defs.title, defs.source, defs.fullDefinition, languageCode()},
+                              {trans.card, trans.title, trans.source, trans.fullDefinition, trans.dictionary->info().target}, anchor);
+        return;
+    }
     m_dictCard->showCard(f.card, f.title, f.source, f.fullDefinition, anchor, f.offerDefinitions);
+}
+
+void ReaderView::updateLookupHighlight()
+{
+    const bool can = m_notes && m_bookId && m_lookupSpine >= 0 && m_lookupEnd > m_lookupStart;
+    const QList<core::Annotation> hits = can ? m_notes->highlightsAt(m_bookId, m_lookupSpine, m_lookupStart, m_lookupEnd) : QList<core::Annotation>();
+    const QString next = core::Annotations::colorsInOrder(m_settings.highlightOrder).value(0, QStringLiteral("yellow"));
+    const QColor color = core::Annotations::colorValue(hits.isEmpty() ? next : hits.first().color);
+    // An explanation is about a sentence, not words to keep: no Highlight there.
+    if (m_lookupKind != core::TranslationRequest::Kind::Explain) m_translate->setHighlight(can, !hits.isEmpty(), color);
+    m_dictCard->setHighlight(can, !hits.isEmpty(), color);
+}
+
+void ReaderView::toggleLookupHighlight()
+{
+    if (!m_notes || !m_bookId || m_lookupSpine < 0 || m_lookupEnd <= m_lookupStart) return;
+    const QList<core::Annotation> hits = m_notes->highlightsAt(m_bookId, m_lookupSpine, m_lookupStart, m_lookupEnd);
+    if (!hits.isEmpty()) {
+        m_notes->remove(hits.first().id);
+        refreshAnnotations();
+    } else {
+        // The looked-up words again (the selection may be gone), highlighted in the color used last.
+        m_keepPopup = true;
+        m_pages->selectRange({m_lookupSpine, m_lookupStart}, {m_lookupSpine, m_lookupEnd});
+        m_keepPopup = false;
+        highlightSelection(core::Annotations::colorsInOrder(m_settings.highlightOrder).value(0, QStringLiteral("yellow")));
+    }
+    updateLookupHighlight();
 }
 
 void ReaderView::explainSelection()
@@ -967,11 +1073,13 @@ void ReaderView::onTranslated(int id, const core::TranslationResult& r, const QS
         if (m_lookupKind == core::TranslationRequest::Kind::Explain && !allOff)
             text = tr("Explanations come from Gemini or LM Studio, and neither could answer.") + QLatin1Char('\n') + text;
         m_translate->showNothing(text);
+        if (m_lookupKind == core::TranslationRequest::Kind::Lookup) updateLookupHighlight();
     } else if (m_lookupKind == core::TranslationRequest::Kind::Explain) {
         // An explanation isn't vocabulary: shown, not logged.
         m_translate->showExplanation(r);
     } else {
-        m_translate->showResult(r, m_dictionaryFirst);
+        m_translate->showResult(r, m_dictionaryFirst, m_lookupBookSentence);
+        updateLookupHighlight();
         // Every lookup goes to the word log, with the place it was seen.
         if (m_words && m_bookId) {
             m_words->record(r, wordPlace(m_lookupSpine, m_lookupStart, m_lookupEnd, m_lookupSentence));
@@ -1061,12 +1169,9 @@ QMenu* ReaderView::buildSelectionMenu()
         wa->setDefaultWidget(row);
         wa->setProperty("testId", "menuHighlightRow");
         menu->addAction(wa);
-        if (current) {
-            QAction* remove = menu->addAction(tr("Remove Highlight"), this, [this] { removeHighlightAtSelection(); });
-            remove->setProperty("testId", "menuRemoveHighlight");
-        }
         menu->addSeparator();
     }
+    // Translate is always the first item (the owner's rule, 2026-11-23); Remove Highlight is with the note below.
     QAction* translate = menu->addAction(tr("Translate"), this, [this] { translateSelection(false); });
     translate->setProperty("testId", "menuTranslate");
     QAction* explain = menu->addAction(tr("Explain This Sentence"), this, [this] { explainSelection(); });
@@ -1092,6 +1197,10 @@ QMenu* ReaderView::buildSelectionMenu()
     if (m_notes && m_bookId) {
         const int current = highlightAtSelection();
         const bool hasNote = current && !m_notes->get(current).note.isEmpty();
+        if (current) {
+            QAction* remove = menu->addAction(tr("Remove Highlight"), this, [this] { removeHighlightAtSelection(); });
+            remove->setProperty("testId", "menuRemoveHighlight");
+        }
         QAction* note = menu->addAction(hasNote ? tr("Edit Note…") : tr("Add Note…"), this, [this] {
             int id = highlightAtSelection();
             if (!id) id = highlightSelection(QStringLiteral("yellow"), false);
@@ -1556,6 +1665,8 @@ void ReaderView::refreshAnnotations()
     const QSignalBlocker b(m_bookmarkButton);
     m_bookmarkButton->setChecked(pageIsBookmarked());
     m_bookmarkButton->setToolTip(m_bookmarkButton->isChecked() ? tr("Remove the Bookmark (Ctrl+D)") : tr("Bookmark This Page (Ctrl+D)"));
+    // A pop-up open for highlighted (or no longer highlighted) words says so on its Highlight button.
+    if (m_translate->isVisible() || m_dictCard->isVisible()) updateLookupHighlight();
 }
 
 void ReaderView::goToAnnotation(int annotationId)
@@ -1601,6 +1712,7 @@ void ReaderView::setNotebookVisible(bool on)
 {
     // One panel on the right at a time.
     if (on && m_bilingual->isVisible()) setBilingualVisible(false);
+    if (on && m_practicePanel->isVisible()) setPracticeVisible(false);
     m_notebook->setVisible(on);
     const QSignalBlocker b(m_notebookButton);
     m_notebookButton->setChecked(on);
@@ -1616,12 +1728,65 @@ bool ReaderView::bilingualVisible() const { return m_bilingual->isVisible(); }
 void ReaderView::setBilingualVisible(bool on)
 {
     if (on && m_notebook->isVisible()) setNotebookVisible(false);
+    if (on && m_practicePanel->isVisible()) setPracticeVisible(false);
     m_bilingual->setVisible(on);
     if (m_settings.showBilingual != on) {
         m_settings.showBilingual = on;
         emit appearanceChanged();   // the settings file needs saving
     }
     if (on) refreshBilingual();
+}
+
+// ---------------------------------------------------------------- the practice workspace
+
+void ReaderView::setPracticeView(PracticeView* view) { m_practicePanel->setView(view); }
+
+bool ReaderView::practiceVisible() const { return m_practicePanel->isVisible(); }
+
+void ReaderView::setPracticeVisible(bool on)
+{
+    PracticeView* v = m_practicePanel->view();
+    if (!v) on = false;
+    if (on && m_notebook->isVisible()) setNotebookVisible(false);
+    if (on && m_bilingual->isVisible()) setBilingualVisible(false);
+    const bool was = m_practicePanel->isVisible();
+    m_practicePanel->setVisible(on);
+    {
+        const QSignalBlocker b(m_practiceButton);
+        m_practiceButton->setChecked(on);
+    }
+    if (on && !was) {
+        updatePracticePage();
+        // Words From and the Word List start on this book; a session already going carries on.
+        if (v->page() == PracticeView::DonePage) v->showStart();
+        else v->refresh();
+    }
+    if (m_settings.showPractice != on) {
+        m_settings.showPractice = on;
+        emit appearanceChanged();   // the settings file needs saving
+    }
+}
+
+void ReaderView::updatePracticePage()
+{
+    PracticeView* v = m_practicePanel->view();
+    if (!v || !m_engine->isOpen()) return;
+    const core::Position a = m_pages->screenStart(), e = m_pages->screenEnd();
+    // The screen's end, when it is in a later spine item, counts as the end of this one.
+    v->setPageRange(a.spine, a.offset, e.spine == a.spine ? e.offset : std::numeric_limits<int>::max());
+}
+
+void ReaderView::syncSpreadButton()
+{
+    // One page or two: as laid out now (Automatic picks by the room the pages have).
+    const bool two = m_pages->columnCount() == 2;
+    m_spreadButton->setChecked(two);
+    m_spreadButton->setToolTip(two ? tr("One Page") : tr("Two Pages Side by Side"));
+}
+
+void ReaderView::toggleTwoPages()
+{
+    changeAppearance(QStringLiteral("columns"), m_pages->columnCount() == 2 ? QStringLiteral("one") : QStringLiteral("two"));
 }
 
 QList<ReaderView::ParagraphRef> ReaderView::visibleParagraphs() const

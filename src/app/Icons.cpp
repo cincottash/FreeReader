@@ -31,6 +31,9 @@ const QHash<QString, QString>& shapes()
         {"list", "<path d='M8 6h12M8 12h12M8 18h12'/><circle cx='4.5' cy='6' r='0.8'/><circle cx='4.5' cy='12' r='0.8'/><circle cx='4.5' cy='18' r='0.8'/>"},
         {"speaker", "<path d='M4 9.5v5h3.5L12 18V6L7.5 9.5z'/><path d='M15.5 9a4 4 0 010 6M18 6.5a7.5 7.5 0 010 11'/>"},
         {"book", "<path d='M5 4.5h9.5a2 2 0 012 2V20H7a2 2 0 01-2-2z'/><path d='M5 18a2 2 0 012-2h9.5M19 7v13'/>"},
+        // Two pages side by side (an open book), and flashcards (two cards, one behind the other).
+        {"spread", "<rect x='2.5' y='5' width='8.5' height='14' rx='1.2'/><rect x='13' y='5' width='8.5' height='14' rx='1.2'/><path d='M5 9h3.5M5 12h3.5M5 15h3.5M15.5 9H19M15.5 12H19M15.5 15H19'/>"},
+        {"cards", "<rect x='3.5' y='7.5' width='13' height='12' rx='2'/><path d='M7.5 4.5h11a2 2 0 012 2v9'/><path d='M7.5 13.5h5'/>"},
     };
     return s;
 }
@@ -55,6 +58,20 @@ QIcon icon(const char* name, const QColor& color, int size)
         ic.addPixmap(pm);
     }
     return ic;
+}
+
+QIcon dot(const QColor& color, const QColor& ring)
+{
+    QPixmap pm(32, 32);
+    pm.setDevicePixelRatio(2.0);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setPen(ring.isValid() ? QPen(ring, 1.6) : Qt::NoPen);
+    p.setBrush(color);
+    p.drawEllipse(QRectF(2, 2, 12, 12));
+    p.end();
+    return QIcon(pm);
 }
 
 }  // namespace icons

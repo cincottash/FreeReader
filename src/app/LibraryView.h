@@ -43,6 +43,9 @@ public:
     void setTheme(const Theme& t);
     void setPrompt(Prompt p) { m_prompt = std::move(p); }
     void setConfirm(Confirm c) { m_confirm = std::move(c); }
+    // The big Practice button under Library on the left: how many words the word log has.
+    void setPracticeCount(std::function<int()> count) { m_practiceCount = std::move(count); }
+    QPushButton* practiceButton() const { return m_practice; }
     void setSettingsNotKept(bool on);
     void setMessage(const QString& text);            // a status or error line ("Couldn't open …")
     QString message() const;
@@ -111,7 +114,8 @@ private:
 
     QLineEdit* m_search;
     QPushButton* m_add;
-    QPushButton* m_practice;
+    QPushButton* m_practice = nullptr;   // in the filter list, made again with it
+    std::function<int()> m_practiceCount;
     QPushButton* m_searchInside;
     QPushButton* m_notKept;
     QListWidget* m_filters;

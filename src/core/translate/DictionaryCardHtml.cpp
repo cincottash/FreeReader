@@ -84,10 +84,11 @@ QString dictionaryCardHtml(const DictionaryCard& card, const QColor& fg, const Q
     return h;
 }
 
-FoundCard findDictionaryCard(const QList<OfflineDictionary*>& dictionaries, const QString& text, const QString& language)
+FoundCard findDictionaryCard(const QList<OfflineDictionary*>& dictionaries, const QString& text, const QString& language, DictionaryKind kind)
 {
     FoundCard f;
     for (const bool monolingual : {true, false}) {
+        if ((kind == DictionaryKind::Definitions && !monolingual) || (kind == DictionaryKind::Translating && monolingual)) continue;
         for (const OfflineDictionary* d : dictionaries)
             if (d && d->isSetUp() && d->info().language == language && d->isMonolingual() == monolingual) {
                 DictionaryCard c = d->card(text);

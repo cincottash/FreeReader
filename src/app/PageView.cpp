@@ -212,7 +212,9 @@ int PageView::columnCount() const { return m_geo.columns; }
 
 void PageView::applyParams()
 {
+    const int columnsBefore = m_geo.columns;
     m_geo = geometryFor(size());
+    if (m_geo.columns != columnsBefore) emit columnsChanged();   // one page or two, with the same column width
     layout::LayoutParams p;
     p.columnWidth = m_geo.columnWidth;
     p.pageHeight = std::floor(m_geo.pageHeight);
@@ -252,6 +254,13 @@ int PageView::firstPage(const layout::ChapterLayout& cl) const
     const int page = cl.pageForOffset(m_anchor.offset);
     const int c = qMax(1, m_geo.columns);
     return page - page % c;
+}
+
+core::Position PageView::screenStart() const
+{
+    const auto cl = current();
+    if (!cl || cl->pages.empty()) return m_anchor;
+    return {m_anchor.spine, cl->pages[size_t(firstPage(*cl))].start};
 }
 
 core::Position PageView::screenEnd() const

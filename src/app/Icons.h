@@ -8,5 +8,7 @@ namespace icons {
 
 // back, search, toc, bookmark, panel, commands, fullscreen, exitFullscreen, chevronLeft, chevronRight, close, open
 QIcon icon(const char* name, const QColor& color, int size = 20);
+// A round dot of a highlight color (the pop-ups' Highlight button); `ring`: an outline around it (highlighted now).
+QIcon dot(const QColor& color, const QColor& ring = QColor());
 
 }  // namespace icons
