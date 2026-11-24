@@ -855,7 +855,7 @@ void ReaderView::setPagesRightToLeft(bool on)
 
 bool ReaderView::bookIsOffline() const
 {
-    return m_settings.offlineOnly || (m_bookId && m_settings.offlineBooks.contains(QString::number(m_bookId)));
+    return m_bookId && m_settings.offlineBooks.contains(QString::number(m_bookId));
 }
 
 void ReaderView::setBookOffline(bool on)
@@ -952,7 +952,7 @@ void ReaderView::onTranslated(int id, const core::TranslationResult& r, const QS
         const bool allOff = !m_settings.useGemini && !m_settings.useLmStudio && !m_settings.useDictionary && !m_settings.useOfflineTranslator;
         QString text = allOff ? tr("Every translation engine is turned off (Settings > Translation).")
                               : why.isEmpty() ? tr("No translation engine is set up yet.") : why;
-        if (bookIsOffline()) text += QLatin1Char('\n') + tr("This book is kept offline, so Gemini isn't asked.");
+        if (bookIsOffline() && m_settings.useGemini) text += QLatin1Char('\n') + tr("This book is kept offline, so Gemini isn't asked.");
         // Nothing answered, and a free download would have: say where to get it (the dictionary for a word, the
         // offline translator for Spanish sentences).
         const bool lookup = m_lookupKind == core::TranslationRequest::Kind::Lookup;
@@ -1723,7 +1723,7 @@ void ReaderView::onBilingualTranslated(int id, const core::TranslationResult& r,
     const bool allOff = !m_settings.useGemini && !m_settings.useLmStudio && !m_settings.useOfflineTranslator;
     QString text = allOff ? tr("Turn on Gemini, LM Studio or the offline translator (Settings > Translation) to see the English of whole paragraphs.")
                           : tr("The English for this page couldn't be fetched.") + (why.isEmpty() ? QString() : QLatin1Char('\n') + why);
-    if (bookIsOffline() && !allOff) text += QLatin1Char('\n') + tr("This book is kept offline, so Gemini isn't asked.");
+    if (bookIsOffline() && m_settings.useGemini) text += QLatin1Char('\n') + tr("This book is kept offline, so Gemini isn't asked.");
     m_bilingual->setParagraphs(m_bilingual->paragraphs(), text);
 }
 

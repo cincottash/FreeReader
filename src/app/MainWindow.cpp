@@ -328,7 +328,9 @@ void MainWindow::buildCommands()
                tr("The selected sentence in English, with notes on its grammar and idioms."));
     addCommand(QStringLiteral("book-offline"), tr("Keep This Book Offline"), QKeySequence(), [this] {
         m_reader->setBookOffline(!m_reader->bookIsOffline());
-    }, [this] { return isReading() && !m_settings.offlineOnly; }, tr("Text from this book is never sent to Gemini."));
+        if (m_settingsDialog) m_settingsDialog->refreshOfflineBooks();
+    }, [this] { return isReading() && m_settings.useGemini; },
+       tr("Text from this book is never sent to Gemini; the engines on this computer still answer."));
     if (Command* c = command(QStringLiteral("book-offline"))) c->action->setCheckable(true);
     addCommand(QStringLiteral("pages-right-to-left"), tr("Pages Right to Left"), QKeySequence(), [this] {
         m_reader->setPagesRightToLeft(!m_reader->pagesRightToLeft());
@@ -377,12 +379,12 @@ void MainWindow::buildCommands()
     };
     toggle("translate-on-select", tr("Translate When Text Is Selected"), &Settings::translateOnSelect,
            tr("Off: selecting only selects. Right-click > Translate, or Ctrl+E."));
-    toggle("use-gemini", tr("Use Gemini (Online)"), &Settings::useGemini, tr("Google's Gemini, asked first."));
+    toggle("use-gemini", tr("Use Gemini (Online)"), &Settings::useGemini,
+           tr("Google's Gemini, asked first. The only engine that sends text over the internet: off, nothing is sent."));
     toggle("use-lm-studio", tr("Use LM Studio (This Computer)"), &Settings::useLmStudio, tr("Asked when Gemini can't answer."));
     toggle("use-dictionary", tr("Use the Offline Dictionary"), &Settings::useDictionary, tr("Single words, when nothing before it in the list answers."));
     toggle("use-offline-translator", tr("Use the Offline Translator"), &Settings::useOfflineTranslator,
            tr("Sentences and pages with no internet, when Gemini and LM Studio can't answer (a download in Settings)."));
-    toggle("offline-only", tr("Offline Only"), &Settings::offlineOnly, tr("No text is sent over the internet: Gemini is never asked."));
     addCommand(QStringLiteral("keyboard-shortcuts"), tr("Keyboard Shortcuts"), QKeySequence(), [this] { showSettings(SettingsDialog::ShortcutsTab); },
                nullptr, tr("Every shortcut, and changing them."));
     applyShortcuts();
@@ -426,7 +428,6 @@ void MainWindow::buildMenus()
     add(view, "contents");
     add(view, "notebook");
     add(view, "bilingual");
-    add(view, "book-offline");
     add(view, "pages-right-to-left");
     view->addSeparator();
     add(view, "larger");
@@ -478,7 +479,6 @@ void MainWindow::buildMenus()
     add(translation, "use-dictionary");
     add(translation, "use-offline-translator");
     translation->addSeparator();
-    add(translation, "offline-only");
     add(translation, "book-offline");
     translation->addSeparator();
     add(translation, "translation-settings");
@@ -515,14 +515,15 @@ void MainWindow::fillThemeMenu()
         connect(a, &QAction::triggered, this, [this, key] { chooseTheme(key); });
         connect(a, &QAction::hovered, this, [this, key] { previewTheme(key); });
     };
-    addTheme(m_themeMenu, QStringLiteral("system"), tr("Match Operating System"));
-    m_themeMenu->addSeparator();
+    // The theme groups (each a submenu), then the choices without a submenu, then the theme list.
     for (const QString& g : Theme::groups()) {
         QMenu* sub = m_themeMenu->addMenu(g);
         connect(sub, &QMenu::aboutToHide, this, [this] { previewTheme(QString()); });
         for (const ThemeDef& d : themeTable())
             if (d.group == g) addTheme(sub, d.key, d.name);
     }
+    m_themeMenu->addSeparator();
+    addTheme(m_themeMenu, QStringLiteral("system"), tr("Match Operating System"));
     m_themeMenu->addSeparator();
     if (Command* c = command(QStringLiteral("themes"))) {
         c->action->setText(tr("Theme List…"));
@@ -638,7 +639,6 @@ void MainWindow::syncChecks()
     set("use-lm-studio", m_settings.useLmStudio);
     set("use-dictionary", m_settings.useDictionary);
     set("use-offline-translator", m_settings.useOfflineTranslator);
-    set("offline-only", m_settings.offlineOnly);
     set("book-offline", m_reader && m_reader->bookIsOffline());
     set("bilingual", m_reader && m_reader->bilingualVisible());
     set("pages-right-to-left", m_reader && isReading() && m_reader->pagesRightToLeft());
@@ -654,6 +654,11 @@ void MainWindow::showSettings(int tab)
         m_settingsDialog->setEnglishDictionary(m_dictionaryEn, dictionaryFile(QStringLiteral("en")));
         m_settingsDialog->setDictionaryFor(QStringLiteral("es-es"), m_definitionsEs, dictionaryFile(QStringLiteral("es-es")));
         m_settingsDialog->setOfflineTranslator(m_offline);
+        // The book open now, for Keep This Book Offline in the window (0: none).
+        m_settingsDialog->setOpenBook([this]() -> std::pair<int, QString> {
+            if (!isReading() || !m_reader->bookId()) return {0, QString()};
+            return {m_reader->bookId(), m_library->book(m_reader->bookId()).title};
+        });
         connect(m_settingsDialog, &SettingsDialog::translationChanged, this, [this] {
             applyTranslationSettings();
             saveSettingsSoon();
@@ -763,6 +768,7 @@ void MainWindow::onOpened()
     m_stack->setCurrentWidget(m_reader);
     m_reader->showBook(id, start);
     if (m_pendingJump.spine >= 0) applyPendingJump();
+    if (m_settingsDialog) m_settingsDialog->refreshOfflineBooks();   // its Keep This Book Offline names the book
     emit bookShown();
 }
 
@@ -784,6 +790,7 @@ void MainWindow::showLibrary()
         m_engine->close();
         setWindowTitle(QStringLiteral(APP_NAME));
         m_stack->setCurrentWidget(m_start);
+        if (m_settingsDialog) m_settingsDialog->refreshOfflineBooks();
     }
     m_start->refresh();
 }

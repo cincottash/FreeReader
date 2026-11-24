@@ -37,8 +37,9 @@ struct Settings {
     // Off: selecting text only selects it (right-click > Translate, or Ctrl+E). A new key replaced "auto_translate"
     // (on by default) on 2026-11-22, so every existing settings file starts with it off, as the owner asked.
     bool translateOnSelect = false;
-    bool offlineOnly = false;         // never send text over the internet
-    QStringList offlineBooks;         // book ids kept offline
+    // Gemini is the only engine that sends text over the internet: Use Gemini off keeps every book offline. The old
+    // "offline_only" switch did the same and was merged into it on 2026-11-23 (a saved one turns Gemini off).
+    QStringList offlineBooks;         // book ids kept offline (Gemini isn't asked about them)
     QStringList pageDirections;       // "bookId=rtl" / "bookId=ltr": a book's page direction chosen by hand
     bool useGemini = true;
     QString geminiModel;              // empty: the default (latest Flash-Lite)
