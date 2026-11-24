@@ -1,5 +1,6 @@
-// The reading screen: header (back to the library, title and chapter, contents, text and layout, themes, full screen), the
-// contents panel, the pages, the progress footer, Back after a jump, and footnote pop-ups.
+// The reading screen: header (back to the library, title and chapter, contents, text and layout, one or two pages,
+// themes, the Notebook, Practice, full screen), the contents panel, the pages, a panel on the right (the Notebook,
+// English alongside or the practice workspace), the progress footer, Back after a jump, and footnote pop-ups.
 #pragma once
 
 #include "PageView.h"
@@ -33,6 +34,8 @@ class QToolButton;
 class TocPanel;
 class NotebookPanel;
 class BilingualPanel;
+class PracticePanel;
+class PracticeView;
 class SearchPanel;
 class TranslationPopup;
 class DictionaryPopup;
@@ -145,6 +148,15 @@ public:
     void refreshBilingual();
     BilingualPanel* bilingualPanel() const { return m_bilingual; }
 
+    // The practice workspace on the right (Ctrl+P or the Practice button): flashcards and the words of this page,
+    // this book or all books, beside the page. One panel on the right at a time.
+    void setPracticeView(PracticeView* view);
+    PracticePanel* practicePanel() const { return m_practicePanel; }
+    bool practiceVisible() const;
+    void setPracticeVisible(bool on);
+    // Two pages side by side, or one (the header's button): the Columns setting, Two or One.
+    void toggleTwoPages();
+
     // Search This Book.
     SearchPanel* searchPanel() const { return m_search; }
     void openSearch(const QString& query = QString());
@@ -154,6 +166,9 @@ public:
     DictionaryPopup* dictionaryPopup() const { return m_dictCard; }
     // Dictionary (right-click): the selected word's whole entry, as a dictionary card.
     void showDictionary();
+    // The pop-ups' Highlight button: the looked-up words highlighted in the color used last, or not any more.
+    void toggleLookupHighlight();
+    void updateLookupHighlight();
     void translateSelection(bool dictionaryFirst = false);
     // Explain This Sentence: the selection's sentence in English with notes on its grammar and idioms.
     void explainSelection();
@@ -176,6 +191,7 @@ signals:
     void moreThemesRequested(const QPoint& windowPos);   // below-right corner of the button, window coordinates
     void translationSettingsRequested();
     void wordLogged();
+    void fullPracticeRequested();   // the workspace's Open Full Window
 
 protected:
     void resizeEvent(QResizeEvent*) override;
@@ -260,6 +276,7 @@ private:
     core::WordLog* m_words = nullptr;
     int m_lookupSpine = -1, m_lookupStart = 0, m_lookupEnd = 0;
     QString m_lookupSentence;
+    QString m_lookupBookSentence;   // the sentence as the book has it, for the Dictionary card's first side
     bool m_lookupIsWord = false;
     core::OfflineTranslator* m_offlineTranslator = nullptr;
     int m_lookupId = 0;
@@ -276,6 +293,11 @@ private:
     QToolButton* m_searchButton;
     QToolButton* m_bookmarkButton;
     QToolButton* m_notebookButton;
+    QToolButton* m_spreadButton;
+    QToolButton* m_practiceButton;
+    PracticePanel* m_practicePanel;
+    void updatePracticePage();   // the pages showing, for the workspace's This Page
+    void syncSpreadButton();
     int m_searchId = 0;
 
     std::vector<core::Position> m_history;

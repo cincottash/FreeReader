@@ -75,13 +75,20 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 
 - **Right-click** a word (it's selected for you) or a selection and choose **Translate** (or select and press
   Ctrl+E): a pop-up shows what it means in that sentence, other meanings, its dictionary form ("tenía" → tener),
-  a definition in Spanish and the whole sentence in English. **Copy** and **Hear Pronunciation** are in the pop-up.
-  The same menu has Dictionary, Copy, Search the Web and Search Wikipedia.
+  a definition in Spanish and the whole sentence in English. **Copy** and **Hear Pronunciation** are in the pop-up,
+  and **Highlight** highlights the word in the color you used last without another right-click (again: Remove
+  Highlight). The same menu has Dictionary, Copy, Search the Web and Search Wikipedia; Translate is always first.
 - **Dictionary** (right-click a word) opens the word's whole entry, laid out like a printed dictionary: its forms
   and origin, each part of speech, numbered senses with their labels (colloquial, Mexico…) and examples. A verb
   form opens its verb ("dijo" → decir). **Full Definition** opens the entry on Wiktionary; **Translate** switches to
   the translation pop-up. Spanish books use the Spanish definitions download below; English books, the English
   one.
+- **The Dictionary card turns over** like a flashcard: one side all in the book's language (the definition, the
+  sentence as the book has it), the other all in English (the meaning, other meanings, the sentence in English).
+  **Flip to English** / **Flip to Spanish** at its bottom right turns it. With both offline dictionaries installed,
+  the sides are the Spanish definitions and the Spanish–English entry.
+
+  ![The Dictionary card's Spanish side](.github/readme/dictionary-flip.png)
 
   ![The Dictionary card for "ingenioso"](.github/readme/dictionary.png)
 - **Explain This Sentence** (right-click, or Ctrl+Shift+E): the sentence in English with short notes on how it
@@ -125,9 +132,14 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 
 ## Practice
 
-![A flashcard with its answer shown](.github/readme/practice.png)
+![The practice workspace beside the book, with a flashcard](.github/readme/practice-workspace.png)
 
-- **Practice Words** (Ctrl+P, or the Practice button in the library) turns the words you looked up or
+- **Practice while you read:** the **Practice** button in the reader's header (or Ctrl+P) opens a practice
+  workspace beside the page, the way Kindle shows its notes beside the book. It has the flashcards and the
+  **Word List** of **This Page** (the words you looked up or highlighted on the pages showing), this book or all
+  books, with their meanings. It stays open as you turn pages, and new words show in it at once. The button at
+  its top right opens Practice in the whole window.
+- **Practice Words** (the big button under Library on the home page, or Ctrl+P there) turns the words you looked up or
   highlighted into flashcards (a highlighted word is never looked up for this: the offline dictionary fills in its
   meaning, or its card has a **Look Up Meaning** button). Each session goes through all your cards in the **Order**
   you choose: Random, Alphabetical, Newest First, Oldest First, or Book Order. A card you mark **Again** comes back
@@ -136,6 +148,14 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
   gap. Flip the card, or type the answer (missing accents are accepted but pointed out).
 - **Word List:** every word with its meaning, book and page. Search, change a meaning, star, **Show in Book**,
   and **Export…** a file Anki can import.
+
+<details>
+<summary>Practice in the whole window</summary>
+
+![A flashcard with its answer shown](.github/readme/practice.png)
+
+</details>
+
 - **Statistics** (Go menu): time read today and this week, days in a row, books finished, words, cards learned,
   reviews and how many you remembered, with charts of the last 30 days and the time spent on each book.
 
@@ -169,8 +189,11 @@ FreeReader never changes your book files: highlights and notes live in its own d
 - **Contents:** the list button in the header (Ctrl+T). The current chapter is marked.
 - **Go to a page or point:** Ctrl+G, then a page number or a percentage such as `45%`. Click the progress bar
   to jump there. **Back to Page …** (or Alt+Left) returns to where you were.
-- **Time or pages left:** the footer shows the time left in the chapter, from your reading speed (learned as you
-  turn pages). Click it to show the pages left in the chapter instead, and again to switch back.
+- **One page or two:** the two-pages button in the header shows two pages side by side, like an open book, or one
+  page. (The **Columns** setting in the **Aa** panel and the View menu is the same choice, with **Automatic**: two
+  pages when the window is wide enough.)
+- **Pages or time left:** the footer shows the pages left in the chapter. Click it to show the time left instead,
+  from your reading speed (learned as you turn pages), and again to switch back.
 - **Footnotes** open in a small pop-up next to the reference. **Pictures** open full size when clicked.
 - **Menus:** File, View, Go, Settings and Help at the top left. Ctrl+K lists every command with a search box.
 - **Settings** (Ctrl+,): Translation, Keyboard Shortcuts and General (the app data folder, the library folders,
@@ -251,7 +274,7 @@ desktop yet. It runs through X11; on a Wayland desktop it uses XWayland, which m
 FreeReader [book] [--data-folder FOLDER]
 FreeReader [book] --screenshot out.png [--page N | --percent P] [--turn N] [--size WxH]
            [--columns one|two|auto] [--text-size PERCENT] [--font FAMILY] [--theme KEY]
-           [--contents] [--palette] [--appearance] [--theme-list] [--add-books FOLDER] [--list-view]
+           [--contents] [--palette] [--appearance] [--theme-list] [--practice] [--add-books FOLDER] [--list-view]
 FreeReader --check-translation result.txt
 ```
 

@@ -211,6 +211,7 @@ static int screenshot(QCommandLineParser& cli, const QString& out)
     if (cli.isSet(QStringLiteral("palette"))) w.runCommand(QStringLiteral("commands"));
     if (cli.isSet(QStringLiteral("theme-list"))) w.runCommand(QStringLiteral("themes"));
     if (cli.isSet(QStringLiteral("appearance"))) w.runCommand(QStringLiteral("appearance"));
+    if (cli.isSet(QStringLiteral("practice"))) w.runCommand(QStringLiteral("practice"));
     QCoreApplication::processEvents();
     QElapsedTimer settle;
     settle.start();
@@ -265,6 +266,7 @@ int main(int argc, char* argv[])
     cli.addOption({QStringLiteral("add-books"), QStringLiteral("With --screenshot: add the books in this folder to the library first."), QStringLiteral("folder")});
     cli.addOption({QStringLiteral("list-view"), QStringLiteral("With --screenshot: show the library as a list.")});
     cli.addOption({QStringLiteral("appearance"), QStringLiteral("With --screenshot: show the text and layout panel.")});
+    cli.addOption({QStringLiteral("practice"), QStringLiteral("With --screenshot: show the practice workspace beside the page (or Practice, in the library).")});
     cli.addOption({QStringLiteral("font"), QStringLiteral("With --screenshot: use this font for the text."), QStringLiteral("family")});
     cli.addOption({QStringLiteral("check-speech"), QStringLiteral("Write the speech engines, languages and voices to this file and exit."), QStringLiteral("file")});
     cli.addOption({QStringLiteral("check-translation"), QStringLiteral("Look up one word with Gemini (the saved key), write the answer to this file and exit."), QStringLiteral("file")});

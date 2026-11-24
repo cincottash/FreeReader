@@ -25,7 +25,10 @@ struct FoundCard {
 
 // A dictionary of definitions in the book's language first (Spanish for a Spanish book), else a translating one
 // (Spanish -> English). Dictionaries that aren't open or are switched off are skipped.
-FoundCard findDictionaryCard(const QList<OfflineDictionary*>& dictionaries, const QString& text, const QString& language);
+// `kind`: only a dictionary of definitions, or only a translating one (the two sides of the Dictionary card).
+enum class DictionaryKind { Any, Definitions, Translating };
+FoundCard findDictionaryCard(const QList<OfflineDictionary*>& dictionaries, const QString& text, const QString& language,
+                             DictionaryKind kind = DictionaryKind::Any);
 
 QString dictionaryCardHtml(const DictionaryCard& card, const QColor& fg, const QColor& muted, const QColor& line);
 

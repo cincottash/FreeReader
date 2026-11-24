@@ -93,6 +93,12 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     m_practice->setInteractive(interactive);
     m_practice->setTranslator(m_translator);
     m_stack->addWidget(m_practice);
+    // The practice workspace beside the page while reading: its own view of the same word log.
+    m_practiceSide = new PracticeView(m_words.get(), m_settings);
+    m_practiceSide->setInteractive(interactive);
+    m_practiceSide->setTranslator(m_translator);
+    m_reader->setPracticeView(m_practiceSide);
+    m_start->setPracticeCount([this] { return m_words->count(); });
     m_stack->addWidget(m_start);
     m_stack->addWidget(m_reader);
     m_librarySearch = new LibrarySearchView(m_library);
@@ -165,6 +171,16 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
         }
     });
     connect(m_practice, &PracticeView::settingsChanged, this, &MainWindow::saveSettingsSoon);
+    connect(m_practiceSide, &PracticeView::settingsChanged, this, &MainWindow::saveSettingsSoon);
+    // Show in Book from the workspace: the same book jumps there, beside the workspace.
+    connect(m_practiceSide, &PracticeView::showInBookRequested, m_practice, &PracticeView::showInBookRequested);
+    // Open Full Window: Practice in the whole window, on this book (a session in the workspace ends).
+    connect(m_reader, &ReaderView::fullPracticeRequested, this, [this] {
+        m_practiceSide->endSession();
+        m_reader->setPracticeVisible(false);
+        m_practice->setOpenBook(m_reader->bookId(), m_library ? m_library->book(m_reader->bookId()).title : QString());
+        showPractice();
+    });
     connect(m_practice, &PracticeView::backRequested, this, [this] {
         QWidget* to = m_beforePractice == m_reader && m_engine->isOpen() ? static_cast<QWidget*>(m_reader) : static_cast<QWidget*>(m_start);
         m_stack->setCurrentWidget(to);
@@ -355,8 +371,12 @@ void MainWindow::buildCommands()
     addCommand(QStringLiteral("notebook"), tr("Show or Hide Notebook"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_N),
                [this] { m_reader->setNotebookVisible(!m_reader->notebookVisible()); saveSettingsSoon(); }, reading,
                tr("The book's highlights, notes and bookmarks."));
-    addCommand(QStringLiteral("practice"), tr("Practice Words"), QKeySequence(Qt::CTRL | Qt::Key_P), [this] { showPractice(); }, nullptr,
-               tr("Flashcards of the words you looked up."));
+    // While reading: the practice workspace beside the page, on or off; elsewhere: Practice in the whole window.
+    addCommand(QStringLiteral("practice"), tr("Practice Words"), QKeySequence(Qt::CTRL | Qt::Key_P), [this] {
+        if (isReading()) m_reader->setPracticeVisible(!m_reader->practiceVisible());
+        else showPractice();
+    }, nullptr,
+               tr("Flashcards of the words you looked up. While reading, they open beside the page."));
     addCommand(QStringLiteral("bilingual"), tr("Show English Alongside"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_B), [this] {
         m_reader->setBilingualVisible(!m_reader->bilingualVisible());
         syncChecks();

@@ -27,20 +27,40 @@ public:
     // translating dictionary and a dictionary of definitions can be downloaded (a link to Settings says so).
     void showCard(const core::DictionaryCard& card, const QString& title, const QString& source, const QUrl& fullDefinition,
                   const QRect& anchor, bool offerDefinitions);
+    // Two sides (the owner's request, 2026-11-23): `front` from a dictionary of definitions in the book's language,
+    // `back` from a translating one (Spanish -> English). Flip, at the bottom right, turns the card over.
+    struct Side {
+        core::DictionaryCard card;
+        QString title, source;
+        QUrl fullDefinition;
+        QString language;   // what the side is written in: "es", "en"
+    };
+    void showSides(const Side& front, const Side& back, const QRect& anchor);
+    bool hasTwoSides() const { return m_twoSides; }
+    bool showingFront() const { return m_front; }
+    void flipSide();
     const core::DictionaryCard& card() const { return m_card; }
     QString html() const { return m_html; }
     QUrl fullDefinitionUrl() const { return m_url; }
 
     // The card as rich text (tests read it; the label shows it).
     static QString toHtml(const core::DictionaryCard& card, const Theme& theme);
+    // Highlight (beside Translate): the word in the color used last; Remove Highlight once it is.
+    void setHighlight(bool available, bool highlighted, const QColor& color);
 
 signals:
     void translateRequested();
+    void highlightRequested();
     void fullDefinitionRequested(const QUrl& url);
     void settingsRequested();
 
 private:
     void place();
+    void showSide(const Side& s);
+
+    bool m_twoSides = false, m_front = true;
+    Side m_sides[2];
+    QPushButton* m_flip;
 
     Theme m_theme = Theme::midnight();
     core::DictionaryCard m_card;
@@ -54,6 +74,7 @@ private:
     QLabel* m_body;
     QPushButton* m_full;
     QPushButton* m_translate;
+    QPushButton* m_highlight;
     QPushButton* m_getDefinitions;
     QLabel* m_source;
 };

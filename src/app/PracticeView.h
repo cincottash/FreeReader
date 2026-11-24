@@ -7,6 +7,9 @@
 //   Meaning button (the only lookup Practice ever makes, and only when pressed).
 // - Word List: every word looked up or highlighted, searchable; edit the meaning, star, start over, delete, show it in the book,
 //   export for Anki.
+// - Compact (the practice workspace beside the page while reading): no Back button or heading, narrower layouts,
+//   the open book chosen in Words From and the Word List, and This Page in the Word List (the words looked up or
+//   highlighted on the pages showing).
 #pragma once
 
 #include "Theme.h"
@@ -22,6 +25,7 @@
 class QButtonGroup;
 class QCheckBox;
 class QComboBox;
+class QFrame;
 class QLabel;
 class QLineEdit;
 class QPushButton;
@@ -53,6 +57,22 @@ public:
     void showStart();           // refreshes counts
     void showList();
     Page page() const;
+
+    // The practice workspace while reading.
+    void setCompact(bool on);
+    bool isCompact() const { return m_compact; }
+    // The book being read (0: none): chosen in Words From and the Word List the next time either is shown.
+    void setOpenBook(int bookId, const QString& title);
+    // The pages showing now (one spine item, offsets start..end), for This Page in the Word List.
+    void setPageRange(int spine, int start, int end);
+    // After words were added or the page turned: the start page's counts or the Word List again (never during a
+    // session).
+    void refresh();
+    // The Word List's choice: kThisPage, 0 (All Books) or a book id.
+    static constexpr int kThisPage = -1;
+    void setListBook(int choice);
+    int listBook() const;
+    QStringList listWords() const;   // the words the Word List shows (tests)
 
     // Session (also driven by tests)
     bool startSession();        // false when there is nothing to practise
@@ -97,6 +117,18 @@ private:
     QTreeWidgetItem* currentListItem() const;
 
     void showMeaningOnCard();
+    void fillBookChoices(QComboBox* box, bool thisPage);
+
+    bool m_compact = false;
+    int m_openBook = 0;
+    QString m_openTitle;
+    int m_pageSpine = -1, m_pageStart = 0, m_pageEnd = 0;
+    QWidget* m_startCol = nullptr;
+    class QHBoxLayout* m_startOuter = nullptr;
+    QLabel* m_startTitle = nullptr;
+    QFrame* m_cardFrame = nullptr;
+    QLabel* m_cardKeys = nullptr;
+    QPushButton* m_exportButton = nullptr;
 
     core::WordLog* m_log;
     core::TranslationService* m_translator = nullptr;

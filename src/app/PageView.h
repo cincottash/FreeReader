@@ -38,6 +38,9 @@ public:
     void setPosition(const core::Position& p);
     core::Position position() const { return m_anchor; }   // the first character on screen
     core::Position screenEnd() const;                       // after the last character on screen
+    // The first character on screen: the page holding the anchor starts there (after a relayout the anchor, kept
+    // so the place doesn't drift, can be further down the page).
+    core::Position screenStart() const;
     bool isReady() const;                                   // the current chapter is laid out
     int columnCount() const;
 
@@ -99,6 +102,7 @@ signals:
     // A plain click on the page (no drag): pop-ups beside the text close, with or without a selection.
     void pageClicked();
     void resized();
+    void columnsChanged();   // one page or two now
     void selectionMenuRequested(const QPoint& globalPos);   // right-click on text
     void zoomRequested(int steps);       // Ctrl+wheel over the page: text size
     void marginsRequested(int steps);    // Ctrl+Shift+wheel over the page: margins

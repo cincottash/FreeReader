@@ -144,20 +144,21 @@ QString chapterLeftText(const BookIndex& ix, const Position& p, int readingSpeed
     const bool wholeBook = next == ix.total && std::none_of(ix.toc.begin(), ix.toc.end(), [&](const auto& t) { return t.spine >= 0 && t.global <= g; });
     if (pages || ix.pictures) {
         const int left = qMax(0, ix.pageNumberAt(qMax(g, next - 1)) - ix.pageNumber(p));
+        // Title case, like every label in the app (the owner's rule).
         if (wholeBook) {
-            if (left == 0) return QObject::tr("Last page");
-            if (left == 1) return QObject::tr("1 page left");
-            return QObject::tr("%1 pages left").arg(QLocale().toString(left));
+            if (left == 0) return QObject::tr("Last Page");
+            if (left == 1) return QObject::tr("1 Page Left");
+            return QObject::tr("%1 Pages Left").arg(QLocale().toString(left));
         }
-        if (left == 0) return QObject::tr("Last page of the chapter");
-        if (left == 1) return QObject::tr("1 page left in chapter");
-        return QObject::tr("%1 pages left in chapter").arg(QLocale().toString(left));
+        if (left == 0) return QObject::tr("Last Page of the Chapter");
+        if (left == 1) return QObject::tr("1 Page Left in Chapter");
+        return QObject::tr("%1 Pages Left in Chapter").arg(QLocale().toString(left));
     }
     const double minutes = double(next - g) / double(qMax(1, readingSpeed));
-    if (minutes < 1) return QObject::tr("Less than 1 min left in chapter");
+    if (minutes < 1) return QObject::tr("Less Than 1 Min Left in Chapter");
     const int m = int(std::lround(minutes));
-    if (m < 60) return QObject::tr("%1 min left in chapter").arg(QLocale().toString(m));
-    return QObject::tr("%1 h %2 min left in chapter").arg(QLocale().toString(m / 60)).arg(m % 60);
+    if (m < 60) return QObject::tr("%1 Min Left in Chapter").arg(QLocale().toString(m));
+    return QObject::tr("%1 Hr %2 Min Left in Chapter").arg(QLocale().toString(m / 60)).arg(m % 60);
 }
 
 }  // namespace core

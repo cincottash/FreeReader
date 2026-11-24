@@ -17,6 +17,7 @@ void fields(Settings& s, F&& f)
     f("show_contents", s.showContents);
     f("show_notebook", s.showNotebook);
     f("show_bilingual", s.showBilingual);
+    f("show_practice", s.showPractice);
     f("text_size_pct", s.look.textSizePct);
     f("line_spacing_pct", s.look.lineSpacingPct);
     f("margin_px", s.look.marginPx);
@@ -28,7 +29,7 @@ void fields(Settings& s, F&& f)
     f("theme", s.theme);
     f("recent_themes", s.recentThemes);
     f("reading_speed", s.readingSpeed);
-    f("footer_pages_left", s.footerPagesLeft);
+    f("footer_shows_pages", s.footerPagesLeft);
     f("highlight_order", s.highlightOrder);
     f("library_list", s.libraryList);
     f("library_sort", s.librarySort);

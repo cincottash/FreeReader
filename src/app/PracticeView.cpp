@@ -168,6 +168,8 @@ QWidget* PracticeView::buildStart()
     auto* col = new QWidget;
     col->setMaximumWidth(620);
     col->setMinimumWidth(320);
+    m_startCol = col;
+    m_startOuter = outer;
     outer->addWidget(col, 4);
     outer->addStretch(1);
     auto* lay = new QVBoxLayout(col);
@@ -179,6 +181,7 @@ QWidget* PracticeView::buildStart()
     tf.setPixelSize(24);
     tf.setWeight(QFont::DemiBold);
     title->setFont(tf);
+    m_startTitle = title;
     lay->addWidget(title);
     m_counts = wrapLabel("practiceCounts", "Muted");
     lay->addWidget(m_counts);
@@ -290,18 +293,13 @@ void PracticeView::showStart()
         m_sentenceFront->setChecked(m_settings.practiceSentenceFront);
         m_passages->setChecked(m_settings.practicePassages);
         m_order->setCurrentIndex(qMax(0, m_order->findData(m_settings.practiceOrder)));
-        const int keep = m_book->currentData().toInt();
-        m_book->clear();
-        m_book->addItem(tr("All Books"), 0);
-        for (const auto& [id, title] : m_log->booksWithWords()) m_book->addItem(title, id);
-        const int at = m_book->findData(keep);
-        m_book->setCurrentIndex(at < 0 ? 0 : at);
+        fillBookChoices(m_book, false);
     }
     m_pages->setCurrentIndex(StartPage);
     m_tabPractice->setChecked(true);
     m_tabList->setChecked(false);
     refreshCounts();
-    m_start->setFocus();
+    if (!m_compact) m_start->setFocus();   // beside the book, the page keeps the keyboard
 }
 
 void PracticeView::refreshCounts()
@@ -341,6 +339,7 @@ QWidget* PracticeView::buildCard()
     card->setAttribute(Qt::WA_StyledBackground);
     card->setMinimumWidth(360);
     card->setMaximumWidth(620);
+    m_cardFrame = card;
     row->addWidget(card, 6);
     row->addStretch(1);
     outer->addLayout(row);
@@ -445,6 +444,7 @@ QWidget* PracticeView::buildCard()
     auto* keys = wrapLabel("cardKeys", "Muted");
     keys->setWordWrap(false);
     keys->setText(tr("Space shows the answer · 1 to 4 rate it · Esc ends"));
+    m_cardKeys = keys;
     bottom->addWidget(keys);
     outer->addLayout(bottom);
 
@@ -748,6 +748,7 @@ QWidget* PracticeView::buildList()
     QPushButton* del = button(tr("Delete"), "wordDelete", tr("Removes the word and its cards from the word log."));
     buttons->addStretch(1);
     QPushButton* exp = button(tr("Export…"), "wordExport", tr("A tab-separated file Anki can import (File > Import), also opens in a spreadsheet."));
+    m_exportButton = exp;
     lay->addLayout(buttons);
 
     connect(m_search, &QLineEdit::textChanged, this, &PracticeView::fillList);
@@ -816,12 +817,7 @@ void PracticeView::showList()
 {
     {
         const QSignalBlocker b(m_listBook);
-        const int keep = m_listBook->currentData().toInt();
-        m_listBook->clear();
-        m_listBook->addItem(tr("All Books"), 0);
-        for (const auto& [id, title] : m_log->booksWithWords()) m_listBook->addItem(title, id);
-        const int at = m_listBook->findData(keep);
-        m_listBook->setCurrentIndex(at < 0 ? 0 : at);
+        fillBookChoices(m_listBook, m_compact);
     }
     m_pages->setCurrentIndex(ListPage);
     m_tabList->setChecked(true);
@@ -840,7 +836,16 @@ void PracticeView::fillList()
     const QString needle = core::practice::foldAccents(m_search->text().trimmed().toLower());
     const QDateTime t = now();
     int shown = 0;
-    const QList<core::WordEntry> all = m_log->words(m_listBook->currentData().toInt());
+    const int choice = m_listBook->currentData().toInt();
+    QList<core::WordEntry> all = m_log->words(choice == kThisPage ? m_openBook : choice);
+    if (choice == kThisPage) {
+        // Where each word was last looked up or highlighted: on the pages showing now.
+        QList<core::WordEntry> here;
+        for (const core::WordEntry& w : all)
+            if (m_openBook && w.spine == m_pageSpine && w.start >= m_pageStart && w.start < m_pageEnd) here << w;
+        std::sort(here.begin(), here.end(), [](const core::WordEntry& a, const core::WordEntry& b) { return a.start < b.start; });
+        all = here;
+    }
     for (const core::WordEntry& w : all) {
         if (!needle.isEmpty()) {
             const QString hay = core::practice::foldAccents((w.text + QLatin1Char(' ') + w.lemma + QLatin1Char(' ') + w.translation + QLatin1Char(' ') +
@@ -864,9 +869,100 @@ void PracticeView::fillList()
     }
     m_listCount->setText(shown == int(all.size()) ? count(shown, tr("word"), tr("words"))
                                                    : tr("%1 of %2").arg(QLocale().toString(shown), count(int(all.size()), tr("word"), tr("words"))));
+    if (choice == kThisPage && all.isEmpty())
+        m_listCount->setText(tr("No words on this page yet. Translate or highlight one and it shows here."));
 }
 
-bool PracticeView::exportTo(const QString& path, QString* error) { return m_log->exportTsv(path, m_listBook->currentData().toInt(), error); }
+bool PracticeView::exportTo(const QString& path, QString* error)
+{
+    const int choice = m_listBook->currentData().toInt();
+    return m_log->exportTsv(path, choice == kThisPage ? m_openBook : choice, error);
+}
+
+void PracticeView::fillBookChoices(QComboBox* box, bool thisPage)
+{
+    const int keep = box->currentData().isValid() ? box->currentData().toInt() : 0;
+    box->clear();
+    if (thisPage && m_openBook) box->addItem(tr("This Page"), kThisPage);
+    box->addItem(tr("All Books"), 0);
+    bool listed = false;
+    for (const auto& [id, title] : m_log->booksWithWords()) {
+        box->addItem(title, id);
+        if (id == m_openBook) listed = true;
+    }
+    // The book being read, even before it has words.
+    if (m_openBook && !listed) box->addItem(m_openTitle.isEmpty() ? tr("This Book") : m_openTitle, m_openBook);
+    int want = keep;
+    if (box->property("chooseOpen").toBool()) {
+        want = m_openBook;
+        box->setProperty("chooseOpen", false);
+    }
+    const int at = box->findData(want);
+    box->setCurrentIndex(at < 0 ? qMax(0, box->findData(0)) : at);
+}
+
+void PracticeView::setCompact(bool on)
+{
+    m_compact = on;
+    m_back->setVisible(!on);
+    m_heading->setVisible(!on);
+    m_tabPractice->setText(on ? tr("Flashcards") : tr("Practice"));
+    // Beside the book the column fills the panel; in the whole window it is centred.
+    m_startCol->setMinimumWidth(on ? 0 : 320);
+    m_startOuter->setStretch(0, on ? 0 : 1);
+    m_startOuter->setStretch(2, on ? 0 : 1);
+    m_startOuter->setContentsMargins(on ? 4 : 11, on ? 0 : 11, on ? 4 : 11, 11);
+    QFont tf = m_startTitle->font();
+    tf.setPixelSize(on ? 18 : 24);
+    m_startTitle->setFont(tf);
+    m_startTitle->setText(on ? tr("Practice While You Read") : tr("Practice Your Words"));
+    m_cardFrame->setMinimumWidth(on ? 0 : 360);
+    m_cardKeys->setWordWrap(on);
+    m_exportButton->setVisible(!on);   // in the full window
+    // Word, meaning and page fit beside the book; the book, lookups and next review are in the full window.
+    for (int c : {2, 4, 5}) m_list->setColumnHidden(c, on);
+    m_list->setColumnWidth(0, on ? 150 : 200);
+}
+
+void PracticeView::setOpenBook(int bookId, const QString& title)
+{
+    if (bookId == m_openBook && title == m_openTitle) return;
+    m_openBook = bookId;
+    m_openTitle = title;
+    m_book->setProperty("chooseOpen", true);
+    m_listBook->setProperty("chooseOpen", true);
+}
+
+void PracticeView::setPageRange(int spine, int start, int end)
+{
+    m_pageSpine = spine;
+    m_pageStart = start;
+    m_pageEnd = end;
+}
+
+void PracticeView::refresh()
+{
+    if (page() == StartPage) showStart();
+    else if (page() == ListPage) {
+        if (m_listBook->property("chooseOpen").toBool()) showList();
+        else fillList();
+    }
+}
+
+void PracticeView::setListBook(int choice)
+{
+    const int at = m_listBook->findData(choice);
+    if (at >= 0) m_listBook->setCurrentIndex(at);
+}
+
+int PracticeView::listBook() const { return m_listBook->currentData().toInt(); }
+
+QStringList PracticeView::listWords() const
+{
+    QStringList out;
+    for (int i = 0; i < m_list->topLevelItemCount(); ++i) out << m_list->topLevelItem(i)->text(0);
+    return out;
+}
 
 bool PracticeView::eventFilter(QObject* o, QEvent* e)
 {
