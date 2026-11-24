@@ -48,16 +48,38 @@ QString JsonTranslator::translate(const char*, const char* sourceText, const cha
     return s;
 }
 
+namespace {
+QString g_interface = QStringLiteral("en");
+}
+
+QString interfaceLanguage() { return g_interface; }
+
 bool installInterfaceLanguage(const QString& code, const QString& dataFolder)
 {
     // The one installed before goes first (English: back to the app's own text).
     static JsonTranslator* installed = nullptr;
+    static QTranslator* qtOwn = nullptr;   // Qt's own text (Yes, No, Copy, Paste), when the build has it
     if (installed) {
         QCoreApplication::removeTranslator(installed);
         delete installed;
         installed = nullptr;
     }
+    if (qtOwn) {
+        QCoreApplication::removeTranslator(qtOwn);
+        delete qtOwn;
+        qtOwn = nullptr;
+    }
+    g_interface = QStringLiteral("en");
     if (code.isEmpty() || code == QLatin1String("en")) return false;
+    {
+        auto* q = new QTranslator;
+        if (q->load(QStringLiteral(":/qt/qtbase_%1.qm").arg(code))) {
+            QCoreApplication::installTranslator(q);
+            qtOwn = q;
+        } else {
+            delete q;
+        }
+    }
     auto* t = new JsonTranslator;
     const QString own = dataFolder.isEmpty() ? QString() : QDir(dataFolder).filePath(QStringLiteral("languages/%1.json").arg(code));
     const bool ok = (!own.isEmpty() && QFile::exists(own) && t->loadFile(own)) || t->loadFile(QStringLiteral(":/languages/%1.json").arg(code));
@@ -67,5 +89,6 @@ bool installInterfaceLanguage(const QString& code, const QString& dataFolder)
     }
     QCoreApplication::installTranslator(t);
     installed = t;
+    g_interface = code;
     return true;
 }

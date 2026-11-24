@@ -474,7 +474,7 @@ QString ReaderView::languageName() const
     const QString code = languageCode();
     if (code.isEmpty()) return {};
     const QLocale loc(code);
-    return loc.language() == QLocale::C ? QString() : QLocale::languageToString(loc.language());
+    return loc.language() == QLocale::C ? QString() : core::languages::displayName(code);
 }
 
 Appearance ReaderView::effectiveAppearance() const
@@ -680,7 +680,7 @@ void ReaderView::updateHeaderAndFooter()
     if (!chapter.isEmpty()) sub << chapter;
     if (!book->metadata.language.isEmpty()) {
         const QLocale loc(book->metadata.language);
-        if (loc.language() != QLocale::C) sub << QLocale::languageToString(loc.language());
+        if (loc.language() != QLocale::C) sub << core::languages::displayTitle(book->metadata.language);
     }
     m_subtitle->setText(sub.join(QStringLiteral(" · ")));
     m_subtitle->setVisible(!sub.isEmpty());
@@ -1103,14 +1103,16 @@ void ReaderView::onTranslated(int id, const core::TranslationResult& r, const QS
         // Nothing answered, and a free download would have: say where to get it (the dictionary for a word, the
         // offline translator for Spanish sentences).
         const bool lookup = m_lookupKind == core::TranslationRequest::Kind::Lookup;
-        if (!allOff && lookup && m_lookupIsWord && m_translator && !m_translator->hasOfflineDictionary(languageCode()) &&
-            (languageCode() == QLatin1String("es") || languageCode() == QLatin1String("en")))
-            text += QLatin1Char('\n') + tr("Tip: the offline dictionary answers words without the internet. Download it in "
-                                           "Settings > Translation > Translation Settings….");
-        else if (!allOff && lookup && !m_lookupIsWord && languageCode() == QLatin1String("es") && m_offlineTranslator &&
-                 !m_offlineTranslator->isInstalled())
-            text += QLatin1Char('\n') + tr("Tip: the offline translator translates sentences without the internet. Download it "
-                                           "in Settings > Translation > Translation Settings….");
+        const QString mine = core::languages::readerLanguage();
+        // A pack exists for this book's language: its dictionary and its translator are a download away.
+        const bool packed = core::languages::packFor(mine, languageCode()).has_value();
+        if (!allOff && lookup && m_lookupIsWord && m_translator && !m_translator->hasOfflineDictionary(languageCode()) && packed)
+            text += QLatin1Char('\n') + tr("Tip: the offline dictionary answers words without the internet. Download the "
+                                           "%1 pack in Settings > General.").arg(core::languages::displayName(languageCode()));
+        else if (!allOff && lookup && !m_lookupIsWord && packed && languageCode() != mine && m_offlineTranslator &&
+                 !(m_offlineTranslator->hasProgram() && m_offlineTranslator->hasPair(languageCode(), mine)))
+            text += QLatin1Char('\n') + tr("Tip: the offline translator translates sentences without the internet. Download "
+                                           "the %1 pack in Settings > General.").arg(core::languages::displayName(languageCode()));
         if (m_lookupKind == core::TranslationRequest::Kind::Explain && !allOff)
             text = tr("Explanations come from Gemini or LM Studio, and neither could answer.") + QLatin1Char('\n') + text;
         m_translate->showNothing(text);
@@ -1217,7 +1219,8 @@ QMenu* ReaderView::buildSelectionMenu()
     translate->setProperty("testId", "menuTranslate");
     QAction* explain = menu->addAction(tr("Explain This Sentence"), this, [this] { explainSelection(); });
     explain->setProperty("testId", "menuExplain");
-    explain->setToolTip(tr("The sentence in English, with notes on its grammar and idioms (Gemini or LM Studio)."));
+    explain->setToolTip(tr("The sentence in %1, with notes on its grammar and idioms (Gemini or LM Studio).")
+                            .arg(core::languages::displayName(core::languages::readerLanguage())));
     QAction* dict = menu->addAction(tr("Dictionary"), this, [this] { showDictionary(); });
     dict->setProperty("testId", "menuDictionary");
     dict->setEnabled(words >= 1 && words <= 4);
@@ -1305,7 +1308,7 @@ QString ReaderView::speechProblem(const QString& language, bool* canOpenSettings
     for (const QLocale& l : locales)
         if (l.language() == want.language()) return {};
     if (!m_interactive && !m_speechLocalesForTests) return {};
-    const QString name = QLocale::languageToString(want.language());
+    const QString name = core::languages::displayName(want.name().section(QLatin1Char('_'), 0, 0));
 #ifdef Q_OS_WIN
     if (canOpenSettings) *canOpenSettings = true;
     // Another language's voice would read the word wrongly: nothing is said, and the fix is a free voice pack.
@@ -2000,15 +2003,16 @@ void ReaderView::onBilingualTranslated(int id, const core::TranslationResult& r,
                 const QString saved = m_library ? m_library->cachedTranslation(paragraphKey(p.text)).value(QLatin1String("translation")).toString() : QString();
                 english << (!saved.isEmpty() ? saved : at >= 0 ? r.paragraphs[at].trimmed() : QString());
             }
-            m_bilingual->setParagraphs(english, tr("Translated offline (Bergamot); the online English replaces it when Gemini or LM Studio can answer."));
+            m_bilingual->setParagraphs(english, tr("Translated offline (Bergamot); the online translation replaces it when Gemini or LM Studio can answer."));
         }
         return;
     }
     if (!m_bilingual->isVisible()) return;
     // Nothing could translate the page: keep what is there and say why.
     const bool allOff = !m_settings.useGemini && !m_settings.useLmStudio && !m_settings.useOfflineTranslator;
-    QString text = allOff ? tr("Turn on Gemini, LM Studio or the offline translator (Settings > Translation) to see the English of whole paragraphs.")
-                          : tr("The English for this page couldn't be fetched.") + (why.isEmpty() ? QString() : QLatin1Char('\n') + why);
+    const QString mine = core::languages::displayName(core::languages::readerLanguage());
+    QString text = allOff ? tr("Turn on Gemini, LM Studio or the offline translator (Settings > Translation) to see the %1 of whole paragraphs.").arg(mine)
+                          : tr("The %1 for this page couldn't be fetched.").arg(mine) + (why.isEmpty() ? QString() : QLatin1Char('\n') + why);
     if (bookIsOffline() && m_settings.useGemini) text += QLatin1Char('\n') + tr("This book is kept offline, so Gemini isn't asked.");
     m_bilingual->setParagraphs(m_bilingual->paragraphs(), text);
 }

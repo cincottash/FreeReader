@@ -28,3 +28,6 @@ private:
 // "languages" folder (it wins, so a corrected file can be tried without a new build). Installs it for the whole
 // app; English (or a language without a file) installs nothing. False when nothing was installed.
 bool installInterfaceLanguage(const QString& code, const QString& dataFolder);
+// The language the app's text is in now ("en" when no file is installed). Windows built before a change keep their
+// text: the main window is rebuilt to show the new one (main.cpp).
+QString interfaceLanguage();

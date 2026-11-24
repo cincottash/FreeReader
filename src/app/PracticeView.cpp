@@ -6,6 +6,7 @@
 #include "Settings.h"
 
 #include "core/practice/Answer.h"
+#include "core/translate/LanguagePacks.h"
 #include "core/translate/TranslationService.h"
 
 #include <QButtonGroup>
@@ -156,22 +157,32 @@ QString PracticeView::languageName() const
 {
     QHash<QString, int> n;
     for (const core::WordEntry& w : m_log->words()) ++n[w.language];
+    // The commonest language read, other than the reader's own (its words have definitions, not translations).
     QString best;
     int most = 0;
-    for (auto it = n.cbegin(); it != n.cend(); ++it)
-        if (it.value() > most && it.key() != QLatin1String("und")) {
-            most = it.value();
-            best = it.key();
-        }
+    for (const bool skipOwn : {true, false}) {
+        for (auto it = n.cbegin(); it != n.cend(); ++it)
+            if (it.value() > most && it.key() != QLatin1String("und") && !(skipOwn && it.key() == core::languages::readerLanguage())) {
+                most = it.value();
+                best = it.key();
+            }
+        if (!best.isEmpty()) break;
+    }
     if (best.isEmpty()) return tr("Book Language");
-    return QLocale::languageToString(QLocale(best).language());
+    return core::languages::displayTitle(best);
 }
 
 QString PracticeView::directionLabel(const QString& d) const
 {
+    // "Spanish → English"; in Spanish "Español → inglés" (a capital only to start the label).
     const QString lang = languageName();
-    if (d == QLatin1String("recognize")) return tr("%1 → English").arg(lang);
-    if (d == QLatin1String("recall")) return tr("English → %1").arg(lang);
+    const QString mine = core::languages::readerLanguage();
+    if (d == QLatin1String("recognize")) return tr("%1 → %2").arg(lang, core::languages::displayName(mine));
+    if (d == QLatin1String("recall")) {
+        QString bookLang = lang;
+        if (!bookLang.isEmpty() && core::languages::displayName(mine) != core::languages::displayTitle(mine)) bookLang[0] = bookLang[0].toLower();
+        return tr("%1 → %2").arg(core::languages::displayTitle(mine), bookLang);
+    }
     if (d == QLatin1String("definition")) return tr("Definition → Word");
     return tr("Sentence With a Gap → Word");
 }

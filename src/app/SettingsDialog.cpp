@@ -308,10 +308,10 @@ QWidget* SettingsDialog::buildTranslationTab()
     lay->addWidget(m_lmResult);
 
     lay->addWidget(sectionTitle(tr("OFFLINE DICTIONARIES")));
-    lay->addWidget(muted(tr("Answers single words with no internet, when Gemini and LM Studio can't (or are off), "
-                            "with no internet. Spanish → English finds verb forms and plurals (“tenía” → “tener”); English "
-                            "definitions are for English books. Spanish definitions fill the Dictionary card (right-click a word > "
-                            "Dictionary) for Spanish books. Each is an optional download.")));
+    lay->addWidget(muted(tr("Answers single words with no internet, when Gemini and LM Studio can't (or are off). Spanish → "
+                            "English finds verb forms and plurals (“tenía” → “tener”); English → Spanish is for readers whose "
+                            "language is Spanish. English and Spanish definitions are for books in your own language, and fill "
+                            "the Dictionary card (right-click a word > Dictionary). Each is an optional download.")));
     m_useDict = new QCheckBox(tr("Use the Offline Dictionaries"));
     m_useDict->setProperty("testId", "useDictionary");
     lay->addWidget(m_useDict);
@@ -325,6 +325,8 @@ QWidget* SettingsDialog::buildTranslationTab()
     m_rows[1].source = core::DictionaryDownload::englishDefinitions();
     m_rows[2].language = QStringLiteral("es-es");
     m_rows[2].source = core::DictionaryDownload::spanishDefinitions();
+    m_rows[3].language = QStringLiteral("en-es");
+    m_rows[3].source = core::DictionaryDownload::englishSpanish();
     for (DictRow& d : m_rows) {
         const QByteArray suffix = d.language == QLatin1String("es") ? QByteArray() : QByteArray("-") + d.language.toLatin1();
         auto* rowLay = new QHBoxLayout;
@@ -340,6 +342,9 @@ QWidget* SettingsDialog::buildTranslationTab()
                                         "FreeReader's page on GitHub, once. Nothing else is sent.")
                                : d.language == QLatin1String("en")
                                    ? tr("Downloads the English dictionary made from Open English WordNet (CC BY 4.0) from "
+                                        "FreeReader's page on GitHub, once. Nothing else is sent.")
+                               : d.language == QLatin1String("en-es")
+                                   ? tr("Downloads the English → Spanish dictionary made from Wiktionary (CC BY-SA 4.0) from "
                                         "FreeReader's page on GitHub, once. Nothing else is sent.")
                                    : tr("Downloads the Spanish dictionary of definitions made from the Spanish Wiktionary "
                                         "(CC BY-SA 4.0) from FreeReader's page on GitHub, once. Nothing else is sent."));
@@ -374,9 +379,10 @@ QWidget* SettingsDialog::buildTranslationTab()
     }
 
     lay->addWidget(sectionTitle(tr("OFFLINE TRANSLATOR (SENTENCES)")));
-    lay->addWidget(muted(tr("Translates whole sentences and pages from Spanish with no internet, when Gemini and LM Studio "
-                            "can't answer. It's Bergamot, the engine Firefox translates with, and Mozilla's Spanish → English "
-                            "model: plainer English than Gemini's, and weaker on old Spanish. An optional download.")));
+    lay->addWidget(muted(tr("Translates whole sentences and pages with no internet, when Gemini and LM Studio can't answer. "
+                            "It's Bergamot, the engine Firefox translates with, and Mozilla's models (Spanish → English comes "
+                            "with it; English → Spanish comes with the English pack for Spanish readers): plainer than "
+                            "Gemini's, and weaker on old Spanish. An optional download.")));
     m_useTranslator = new QCheckBox(tr("Use the Offline Translator"));
     m_useTranslator->setProperty("testId", "useOfflineTranslator");
     lay->addWidget(m_useTranslator);
@@ -477,9 +483,10 @@ void SettingsDialog::refreshTranslation()
         m_useDict->setChecked(m_settings.useDictionary);
     }
     for (DictRow& d : m_rows) {
-        const QString title = d.language == QLatin1String("es") ? tr("Spanish → English")
-                            : d.language == QLatin1String("en") ? tr("English definitions")
-                                                                : tr("Spanish definitions");
+        const QString title = d.language == QLatin1String("es")      ? tr("Spanish → English")
+                              : d.language == QLatin1String("en")    ? tr("English definitions")
+                              : d.language == QLatin1String("en-es") ? tr("English → Spanish")
+                                                                     : tr("Spanish definitions");
         const bool installed = d.dict && d.dict->info().ok;
         if (installed) {
             const core::DictionaryInfo& i = d.dict->info();
@@ -501,8 +508,13 @@ void SettingsDialog::refreshTranslation()
         const bool installed = m_translatorEngine && m_translatorEngine->isInstalled();
         const bool downloading = isDownloadingTranslator();
         const bool offered = m_translatorSource.size > 0;   // a pack is built for this system
-        m_translatorStatus->setText(installed  ? tr("Spanish → English: installed.")
-                                    : offered ? tr("Spanish → English: not installed.")
+        QStringList pairs;
+        if (installed)
+            for (const QString& p : m_translatorEngine->pairs())
+                pairs << QStringLiteral("%1 → %2").arg(core::languages::displayName(p.section(QLatin1Char('-'), 0, 0)),
+                                                        core::languages::displayName(p.section(QLatin1Char('-'), 1, 1)));
+        m_translatorStatus->setText(installed  ? tr("Installed: %1.").arg(pairs.join(QStringLiteral(", ")))
+                                    : offered ? tr("Not installed.")
                                               : tr("Not available for this system yet."));
         m_translatorGet->setVisible(m_translatorEngine && offered && (downloading || !installed));
         m_translatorGet->setText(downloading ? tr("Cancel Download")
@@ -610,6 +622,7 @@ QString SettingsDialog::dictionaryKey(const core::DictionaryInfo& info)
     if (info.language == QLatin1String("es") && info.target == QLatin1String("en")) return QStringLiteral("es");
     if (info.language == QLatin1String("en") && info.target == QLatin1String("en")) return QStringLiteral("en");
     if (info.language == QLatin1String("es") && info.target == QLatin1String("es")) return QStringLiteral("es-es");
+    if (info.language == QLatin1String("en") && info.target == QLatin1String("es")) return QStringLiteral("en-es");
     return {};
 }
 
@@ -815,6 +828,11 @@ void SettingsDialog::installTranslator(const QString& unpacked, const QString& e
         QDir(unpacked).removeRecursively();
         return done(tr("The download doesn't contain the translator and its model, so it wasn't installed."));
     }
+    // Models downloaded on their own ("en-es") stay: moved into the new folder before the old one goes.
+    if (m_translatorEngine)
+        for (const QString& pair : m_translatorEngine->pairs())
+            if (!check.hasPair(pair.section(QLatin1Char('-'), 0, 0), pair.section(QLatin1Char('-'), 1, 1)))
+                QDir().rename(QDir(folder).filePath(pair), QDir(unpacked).filePath(pair));
     QDir(folder).removeRecursively();
     if (!QDir().rename(unpacked, folder)) {
         QDir(unpacked).removeRecursively();
@@ -822,6 +840,83 @@ void SettingsDialog::installTranslator(const QString& unpacked, const QString& e
     }
     m_translatorEngine->setFolder(folder);
     done(tr("The offline translator is installed."));
+}
+
+bool SettingsDialog::isDownloadingTranslatorModel() const { return m_modelDownload && m_modelDownload->isRunning(); }
+
+void SettingsDialog::setTranslatorModelSource(const QString& pair, const core::DictionaryDownload::Source& s)
+{
+    m_modelSources.insert(pair, s);
+}
+
+void SettingsDialog::downloadTranslatorModel(const QString& pair)
+{
+    const QString folder = ownTranslatorFolder(m_translatorEngine);
+    const core::DictionaryDownload::Source source = m_modelSources.value(pair, core::DictionaryDownload::translatorModel(pair));
+    if (folder.isEmpty() || isDownloadingTranslatorModel() || source.size <= 0) return;
+    if (!m_modelDownload) {
+        m_modelDownload = new core::DictionaryDownload(this);
+        connect(m_modelDownload, &core::DictionaryDownload::progress, this, [this](qint64 got, qint64) {
+            if (m_packPart == QStringLiteral("model-") + m_modelPair) packProgress(got);
+        });
+        connect(m_modelDownload, &core::DictionaryDownload::finished, this, [this](const QString& unpacked, const QString& error) {
+            const QString pair = std::exchange(m_modelPair, QString());
+            installTranslatorModel(pair, unpacked, error);
+            packPartDone(QStringLiteral("model-") + pair);
+        });
+    }
+    m_modelPair = pair;
+    // Unpacked beside the translator's folder, then its pair folder moved in.
+    const QString temp = folder + QStringLiteral(".model.download");
+    QDir(temp).removeRecursively();
+    m_message->setText(tr("Downloading the translation model…"));
+    m_message->show();
+    m_modelDownload->start(source, temp);
+}
+
+void SettingsDialog::cancelTranslatorModelDownload()
+{
+    if (m_modelDownload) m_modelDownload->cancel();
+}
+
+void SettingsDialog::installTranslatorModel(const QString& pair, const QString& unpacked, const QString& error)
+{
+    const QString folder = ownTranslatorFolder(m_translatorEngine);
+    auto done = [this](const QString& message) {
+        m_message->setText(message);
+        m_message->show();
+        refreshTranslation();
+        emit translationChanged();
+    };
+    if (folder.isEmpty() || unpacked != folder + QStringLiteral(".model.download")) return done(tr("The translation model wasn't installed."));
+    if (!error.isEmpty()) {
+        QDir(unpacked).removeRecursively();
+        return done(error);
+    }
+    const QStringList two = pair.split(QLatin1Char('-'));
+    core::OfflineTranslator check;
+    check.setFolder(unpacked);
+    if (two.size() != 2 || !check.hasPair(two[0], two[1])) {
+        QDir(unpacked).removeRecursively();
+        return done(tr("The download doesn't contain the translation model, so it wasn't installed."));
+    }
+    QDir().mkpath(folder);
+    QDir(QDir(folder).filePath(pair)).removeRecursively();
+    const bool moved = QDir().rename(QDir(unpacked).filePath(pair), QDir(folder).filePath(pair));
+    QDir(unpacked).removeRecursively();
+    if (!moved) return done(tr("The translation model couldn't be put in the app data folder."));
+    m_translatorEngine->setFolder(folder);
+    done(tr("The translation model is installed."));
+}
+
+void SettingsDialog::removeTranslatorModel(const QString& pair)
+{
+    const QString folder = ownTranslatorFolder(m_translatorEngine);
+    if (folder.isEmpty() || pair.isEmpty() || pair.contains(QLatin1Char('/')) || pair.contains(QLatin1Char('\\')) || pair.contains(QLatin1String("..")))
+        return;
+    QDir(QDir(folder).filePath(pair)).removeRecursively();   // the app's own copy in its data folder
+    refreshTranslation();
+    emit translationChanged();
 }
 
 void SettingsDialog::removeTranslator()
@@ -849,24 +944,37 @@ void SettingsDialog::testGemini()
         return;
     }
     m_geminiResult->setText(tr("Asking Gemini…"));
-    core::TranslationRequest r;
-    r.text = QStringLiteral("biblioteca");
-    r.sentence = QStringLiteral("Pasó la tarde en la biblioteca.");
-    r.from = QStringLiteral("es");
+    const core::TranslationRequest r = testRequest();
     const bool wasEnabled = m_settings.useGemini;
     m_gemini->setEnabled(true);
     auto timer = std::make_shared<QElapsedTimer>();
     timer->start();
     QPointer<SettingsDialog> self(this);
-    m_gemini->translate(r, [self, timer, wasEnabled](const core::TranslationResult& res, core::TranslationFailure f, const QString& detail) {
+    m_gemini->translate(r, [self, timer, wasEnabled, r](const core::TranslationResult& res, core::TranslationFailure f, const QString& detail) {
         if (!self) return;
         self->m_gemini->setEnabled(wasEnabled);
         const QString secs = QLocale().toString(double(timer->elapsed()) / 1000.0, 'f', 1);
         if (f == core::TranslationFailure::None)
-            self->m_geminiResult->setText(tr("Working: “biblioteca” is “%1” (%2 s).").arg(res.translation, secs));
+            self->m_geminiResult->setText(tr("Working: “%1” is “%2” (%3 s).").arg(r.text, res.translation, secs));
         else
             self->m_geminiResult->setText(tr("Not working: %1.").arg(core::failureText(f)) + (detail.isEmpty() ? QString() : QStringLiteral(" ") + detail));
     });
+}
+
+core::TranslationRequest SettingsDialog::testRequest()
+{
+    // A word from a book in a language the reader reads: Spanish for an English reader, English for a Spanish one.
+    core::TranslationRequest r;
+    if (core::languages::readerLanguage() == QLatin1String("es")) {
+        r.text = QStringLiteral("library");
+        r.sentence = QStringLiteral("She spent the afternoon in the library.");
+        r.from = QStringLiteral("en");
+    } else {
+        r.text = QStringLiteral("biblioteca");
+        r.sentence = QStringLiteral("Pasó la tarde en la biblioteca.");
+        r.from = QStringLiteral("es");
+    }
+    return r;
 }
 
 void SettingsDialog::checkLmStudio()
@@ -916,22 +1024,19 @@ void SettingsDialog::testLmStudio()
     m_lm->setAddress(m_lmAddress->text());
     m_lm->setModel(m_settings.lmStudioModel);
     m_lmResult->setText(tr("Asking LM Studio… (the first answer can take a while if the model has to be loaded)"));
-    core::TranslationRequest r;
-    r.text = QStringLiteral("biblioteca");
-    r.sentence = QStringLiteral("Pasó la tarde en la biblioteca.");
-    r.from = QStringLiteral("es");
+    const core::TranslationRequest r = testRequest();
     const bool wasEnabled = m_settings.useLmStudio;
     m_lm->setEnabled(true);
     auto timer = std::make_shared<QElapsedTimer>();
     timer->start();
     QPointer<SettingsDialog> self(this);
-    m_lm->translate(r, [self, timer, wasEnabled](const core::TranslationResult& res, core::TranslationFailure f, const QString& detail) {
+    m_lm->translate(r, [self, timer, wasEnabled, r](const core::TranslationResult& res, core::TranslationFailure f, const QString& detail) {
         if (!self) return;
         self->m_lm->setEnabled(wasEnabled);
         const QString secs = QLocale().toString(double(timer->elapsed()) / 1000.0, 'f', 1);
         if (f == core::TranslationFailure::None)
-            self->m_lmResult->setText(tr("Working: “biblioteca” is “%1” (%2 s, %3).")
-                                          .arg(res.translation, secs,
+            self->m_lmResult->setText(tr("Working: “%1” is “%2” (%3 s, %4).")
+                                          .arg(r.text, res.translation, secs,
                                                self->m_settings.lmStudioModel.isEmpty() ? tr("the loaded model") : self->m_settings.lmStudioModel));
         else
             self->m_lmResult->setText(tr("Not working: %1.").arg(core::failureText(f)) + (detail.isEmpty() ? QString() : QStringLiteral(" ") + detail));
@@ -1116,9 +1221,9 @@ QWidget* SettingsDialog::buildGeneralTab()
     lay->setSpacing(8);
     // Languages: the reader's own, and a pack for each language read.
     lay->addWidget(sectionTitle(tr("LANGUAGES")));
-    lay->addWidget(muted(tr("Translations and explanations are given in this language. Each language read has a pack: its "
-                            "dictionary, its definitions and the offline translator, for reading with no internet. Gemini and "
-                            "LM Studio need nothing downloaded.")));
+    lay->addWidget(muted(tr("FreeReader's text, translations and explanations are in this language. Each language read has a "
+                            "pack: its dictionary, its definitions and the offline translator, for reading with no internet. "
+                            "Gemini and LM Studio need nothing downloaded.")));
     {
         auto* row = new QHBoxLayout;
         row->setSpacing(10);
@@ -1133,6 +1238,25 @@ QWidget* SettingsDialog::buildGeneralTab()
         lay->addLayout(row);
         connect(m_readerLanguage, &QComboBox::currentIndexChanged, this,
                 [this] { setReaderLanguage(m_readerLanguage->currentData().toString()); });
+        // Another language chosen: the app's text follows when the window is rebuilt.
+        m_restartRow = new QWidget;
+        auto* restartLay = new QHBoxLayout(m_restartRow);
+        restartLay->setContentsMargins(0, 0, 0, 0);
+        restartLay->setSpacing(10);
+        m_restartNote = muted(QString());
+        m_restartNote->setProperty("testId", "restartNote");
+        restartLay->addWidget(m_restartNote, 1);
+        auto* restart = new QPushButton(tr("Restart Now"));
+        restart->setObjectName(QStringLiteral("Suggested"));
+        restart->setProperty("testId", "restartForLanguage");
+        restart->setToolTip(tr("Opens FreeReader's window again in the language chosen, with the book that is open."));
+        restartLay->addWidget(restart, 0, Qt::AlignTop);
+        connect(restart, &QPushButton::clicked, this, [this] {
+            accept();   // the settings as they are now
+            emit restartRequested();
+        });
+        lay->addWidget(m_restartRow);
+        m_restartRow->hide();
     }
     m_packBox = new QWidget;
     m_packBox->setProperty("testId", "languagePacks");
@@ -1236,8 +1360,8 @@ void SettingsDialog::buildPackRows()
         row->setSpacing(10);
         auto* texts = new QVBoxLayout;
         texts->setSpacing(1);
-        auto* name = new QLabel(p.language == p.reader ? tr("%1 (Definitions Only)").arg(core::languages::englishName(p.language))
-                                                       : core::languages::englishName(p.language));
+        auto* name = new QLabel(p.language == p.reader ? tr("%1 (Definitions Only)").arg(core::languages::displayTitle(p.language))
+                                                       : core::languages::displayTitle(p.language));
         name->setStyleSheet(QStringLiteral("font-weight: 600;"));
         texts->addWidget(name);
         r.status = muted(QString());
@@ -1272,7 +1396,13 @@ void SettingsDialog::buildPackRows()
 
 bool SettingsDialog::partInstalled(const QString& key) const
 {
-    if (key == QLatin1String("translator")) return m_translatorEngine && m_translatorEngine->isInstalled();
+    // The program comes with its Spanish -> English model; other models come on their own ("model-en-es").
+    if (key == QLatin1String("translator"))
+        return m_translatorEngine && m_translatorEngine->hasProgram() && m_translatorEngine->hasPair(QStringLiteral("es"), QStringLiteral("en"));
+    if (key.startsWith(QLatin1String("model-"))) {
+        const QStringList two = key.mid(6).split(QLatin1Char('-'));
+        return m_translatorEngine && two.size() == 2 && m_translatorEngine->hasPair(two[0], two[1]);
+    }
     const DictRow* d = row(key);
     return d && d->dict && d->dict->info().ok;
 }
@@ -1293,6 +1423,7 @@ void SettingsDialog::refreshPacks()
         const QSignalBlocker b(m_readerLanguage);
         m_readerLanguage->setCurrentIndex(qMax(0, m_readerLanguage->findData(m_settings.readerLanguage)));
     }
+    refreshRestart();
     const QLocale loc;
     for (PackRow& r : m_packRows) {
         const std::optional<core::languages::LanguagePack> p = core::languages::packFor(m_settings.readerLanguage, r.language);
@@ -1324,7 +1455,26 @@ void SettingsDialog::setReaderLanguage(const QString& code)
     m_settings.readerLanguage = code;
     core::languages::setReaderLanguage(code);
     buildPackRows();
+    refreshRestart();
     emit languageChanged();
+}
+
+void SettingsDialog::setInterfaceLanguage(const QString& code)
+{
+    m_interfaceLanguage = code.isEmpty() ? QStringLiteral("en") : code;
+    refreshRestart();
+}
+
+void SettingsDialog::refreshRestart()
+{
+    if (!m_restartRow) return;
+    const bool other = m_settings.readerLanguage != m_interfaceLanguage;
+    // Said in the language chosen, so it can be read.
+    if (other)
+        m_restartNote->setText(m_settings.readerLanguage == QLatin1String("es")
+                                   ? QStringLiteral("El texto de FreeReader cambia a español al reiniciar la ventana.")
+                                   : QStringLiteral("FreeReader's text changes to English when the window restarts."));
+    m_restartRow->setVisible(other);
 }
 
 void SettingsDialog::downloadPacks(const QStringList& languages)
@@ -1341,7 +1491,7 @@ void SettingsDialog::downloadPacks(const QStringList& languages)
 void SettingsDialog::downloadPack(const QString& language)
 {
     const std::optional<core::languages::LanguagePack> p = core::languages::packFor(m_settings.readerLanguage, language);
-    if (!p || isDownloadingPack() || isDownloadingDictionary() || isDownloadingTranslator()) return;
+    if (!p || isDownloadingPack() || isDownloadingDictionary() || isDownloadingTranslator() || isDownloadingTranslatorModel()) return;
     m_packLanguage = language;
     m_packDone = 0;
     QStringList parts;
@@ -1372,7 +1522,7 @@ void SettingsDialog::startNextPackPart()
         m_packLanguage.clear();
         refreshPacks();
         if (!done.isEmpty()) {
-            m_message->setText(tr("The %1 pack is installed.").arg(core::languages::englishName(done)));
+            m_message->setText(tr("The %1 pack is installed.").arg(core::languages::displayName(done)));
             m_message->show();
             emit packFinished(done, QString());
         }
@@ -1384,10 +1534,15 @@ void SettingsDialog::startNextPackPart()
     }
     m_packPart = m_packQueue.takeFirst();
     refreshPacks();
+    const bool model = m_packPart.startsWith(QLatin1String("model-"));
     if (m_packPart == QLatin1String("translator")) downloadTranslator();
+    else if (model) downloadTranslatorModel(m_packPart.mid(6));
     else downloadDictionary(m_packPart);
     // Nothing started (no folder for it, or no download for this computer): the pack stops with a message.
-    if (m_packPart == QLatin1String("translator") ? !isDownloadingTranslator() : !isDownloadingDictionary(m_packPart)) packPartDone(m_packPart);
+    const bool started = m_packPart == QLatin1String("translator") ? isDownloadingTranslator()
+                         : model                                  ? isDownloadingTranslatorModel()
+                                                                  : isDownloadingDictionary(m_packPart);
+    if (!started) packPartDone(m_packPart);
 }
 
 void SettingsDialog::packProgress(qint64 got)
@@ -1417,7 +1572,7 @@ void SettingsDialog::packPartDone(const QString& key)
         m_packPart.clear();
         m_packQueue.clear();
         refreshPacks();
-        m_message->setText(tr("The %1 pack wasn't finished: %2").arg(core::languages::englishName(failed), why));
+        m_message->setText(tr("The %1 pack wasn't finished: %2").arg(core::languages::displayName(failed), why));
         m_message->show();
         emit packFinished(failed, why.isEmpty() ? tr("not finished") : why);
         return;
@@ -1433,6 +1588,7 @@ void SettingsDialog::cancelPackDownload()
     if (m_packLanguage.isEmpty()) return;
     m_packQueue.clear();
     if (m_packPart == QLatin1String("translator")) cancelTranslatorDownload();
+    else if (m_packPart.startsWith(QLatin1String("model-"))) cancelTranslatorModelDownload();
     else if (!m_packPart.isEmpty()) cancelDictionaryDownload(m_packPart);
 }
 
@@ -1441,8 +1597,8 @@ void SettingsDialog::removePack(const QString& language)
     const std::optional<core::languages::LanguagePack> p = core::languages::packFor(m_settings.readerLanguage, language);
     if (!p || m_packLanguage == language) return;
     for (const core::languages::PackPart& part : p->parts) {
-        // The translator program serves every pack: it goes with the last pack that has a translator.
-        if (part.key == QLatin1String("translator")) removeTranslator();
+        if (part.key == QLatin1String("translator")) removeTranslator();   // with every model in it
+        else if (part.key.startsWith(QLatin1String("model-"))) removeTranslatorModel(part.key.mid(6));
         else removeDictionary(part.key);
     }
     m_settings.practiceLanguages.removeAll(language);
@@ -1586,7 +1742,7 @@ void SettingsDialog::fillVoices()
     for (const Voice& v : voices) byLanguage[languageKeyOf(v.locale)] << v;
     QList<QPair<QString, QString>> languages;   // name, key
     for (auto it = byLanguage.cbegin(); it != byLanguage.cend(); ++it)
-        languages << qMakePair(QLocale::languageToString(QLocale(it.key()).language()), it.key());
+        languages << qMakePair(core::languages::displayTitle(it.key()), it.key());
     std::sort(languages.begin(), languages.end());
     int row = 0;
     for (const auto& [name, key] : languages) {

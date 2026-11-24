@@ -32,9 +32,15 @@ public:
     static Source englishDefinitions();
     // Spanish definitions (Spanish Wiktionary, for the Dictionary card).
     static Source spanishDefinitions();
+    // The English -> Spanish dictionary, for readers whose language is Spanish (release "dictionary-en-es-1": the
+    // English Wiktionary's translation tables and the Spanish Wiktionary's English entries).
+    static Source englishSpanish();
     // The offline sentence translator for this system (release "offline-translator-1": Bergamot and Mozilla's
     // Spanish -> English model). Size 0 where no pack is built (then it isn't offered).
     static Source offlineTranslator();
+    // One more of Mozilla's models for the offline translator, for the pair "en-es" (release "translator-en-es-1",
+    // the same file for every system): a zip with the folder en-es/. Size 0 for a pair with no model published.
+    static Source translatorModel(const QString& pair);
 
     explicit DictionaryDownload(QObject* parent = nullptr);
     ~DictionaryDownload() override;

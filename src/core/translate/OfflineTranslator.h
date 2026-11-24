@@ -5,12 +5,14 @@
 // can't answer; never for Explain This Sentence (it translates, it doesn't explain).
 //
 // Its folder (in the app data folder): the program (freereader-translator[.exe]), and one folder per language
-// pair ("es-en") with model.*.intgemm.alphas.bin, lex.*.bin, vocab.*.spm and nonbreaking_prefix.<lang>.
+// pair ("es-en", from the program's own download; "en-es", a model downloaded with the English pack for Spanish
+// readers) with model.*.intgemm.alphas.bin, lex.*.bin, vocab.*.spm and nonbreaking_prefix.<lang>.
 #pragma once
 
 #include "Translation.h"
 
 #include <QString>
+#include <QStringList>
 
 namespace core {
 
@@ -19,10 +21,13 @@ class OfflineTranslator : public TranslationProvider {
 public:
     explicit OfflineTranslator(QObject* parent = nullptr);
 
-    // The folder the pack was unpacked into; looks for the program and the model there.
+    // The folder the pack was unpacked into; looks for the program and the models there.
     void setFolder(const QString& folder);
     QString folder() const { return m_folder; }
-    bool isInstalled() const;                   // the program and a Spanish -> English model are there
+    bool isInstalled() const;                   // the program and at least one model are there
+    bool hasProgram() const;
+    bool hasPair(const QString& from, const QString& to) const;   // the model for "es" -> "en" is there
+    QStringList pairs() const;                  // the models there: "es-en", "en-es"
     QString program() const;
     void setEnabled(bool on) { m_enabled = on; }
 
@@ -33,7 +38,7 @@ public:
     void translate(const TranslationRequest& request, Done done) override;
 
     // The settings file Bergamot reads for a language pair (written next to the model). Empty when not installed.
-    QString configFor(const QString& from) const;
+    QString configFor(const QString& from, const QString& to = QStringLiteral("en")) const;
 
 private:
     QString m_folder;

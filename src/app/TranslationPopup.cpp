@@ -346,12 +346,14 @@ void TranslationPopup::applySide()
     const core::TranslationResult& r = m_result;
     const QString lang = m_language.section(QLatin1Char('-'), 0, 0).toLower();
     const bool word = !m_text.contains(QLatin1Char(' ')) && m_text.size() <= 40;
-    const QString bookName = QLocale::languageToString(QLocale(lang).language());
-    const QString readerName = QLocale::languageToString(QLocale(readerLanguage()).language());
+    const QString bookName = core::languages::displayName(lang);
+    const QString readerName = core::languages::displayName(readerLanguage());
     if (m_bookSide) {
         // All in the book's language: the word, its part of speech, the definition, the sentence as the book has it.
-        QString detail = lang == QLatin1String("es") ? spanishPartOfSpeech(r.partOfSpeech) : QString();
-        if (!r.lemma.isEmpty() && lang == QLatin1String("es")) detail += (detail.isEmpty() ? QString() : QStringLiteral(" · ")) + QStringLiteral("de ") + r.lemma;
+        // (The part of speech comes in the reader's language: put into Spanish for an English reader's Spanish book.)
+        QString detail = lang == QLatin1String("es") && readerLanguage() == QLatin1String("en") ? spanishPartOfSpeech(r.partOfSpeech) : QString();
+        if (!r.lemma.isEmpty() && (lang == QLatin1String("es") || lang == QLatin1String("en")))
+            detail += (detail.isEmpty() ? QString() : QStringLiteral(" · ")) + (lang == QLatin1String("es") ? QStringLiteral("de ") : QStringLiteral("from ")) + r.lemma;
         setHead(word ? m_text : QString(), detail);
         for (QWidget* w : {static_cast<QWidget*>(m_translation), static_cast<QWidget*>(m_alternatives), static_cast<QWidget*>(m_note)}) w->hide();
         m_definitionTitle->setText(languageTitle(m_language));

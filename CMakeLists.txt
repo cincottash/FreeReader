@@ -286,7 +286,25 @@ endif()
 
 # The icon and the bundled fonts (SIL Open Font License; the license texts sit next to the fonts).
 file(GLOB FONT_FILES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/resources/fonts/*.ttf)
-qt_add_resources(freereader_ui resources PREFIX "/" BASE resources FILES resources/icon.svg resources/check-light.svg resources/check-dark.svg ${FONT_FILES})
+# The app's own text in other languages (src/app/InterfaceLanguage.h): a few kB each, always built in.
+file(GLOB LANGUAGE_FILES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/resources/languages/*.json)
+qt_add_resources(freereader_ui resources PREFIX "/" BASE resources FILES resources/icon.svg resources/check-light.svg resources/check-dark.svg ${FONT_FILES} ${LANGUAGE_FILES})
+# Qt's own text in those languages (Yes and No in message boxes, Cut, Copy and Paste in text fields), from the Qt it
+# is built with; where Qt has no translations folder, that text stays in English.
+set(QT_TRANSLATION_FILES "")
+foreach(code IN LISTS LANGUAGE_FILES)
+    get_filename_component(code ${code} NAME_WE)
+    find_file(QTBASE_QM_${code} qtbase_${code}.qm PATHS "${QT6_INSTALL_PREFIX}/${QT6_INSTALL_TRANSLATIONS}" NO_DEFAULT_PATH)
+    if(QTBASE_QM_${code})
+        configure_file(${QTBASE_QM_${code}} ${CMAKE_BINARY_DIR}/qt-translations/qtbase_${code}.qm COPYONLY)
+        list(APPEND QT_TRANSLATION_FILES ${CMAKE_BINARY_DIR}/qt-translations/qtbase_${code}.qm)
+    else()
+        message(STATUS "Qt's own ${code} text not found: Qt's buttons stay in English in that language")
+    endif()
+endforeach()
+if(QT_TRANSLATION_FILES)
+    qt_add_resources(freereader_ui qt_translations PREFIX "/qt" BASE ${CMAKE_BINARY_DIR}/qt-translations FILES ${QT_TRANSLATION_FILES})
+endif()
 
 if(WIN32)
     target_compile_definitions(app PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)

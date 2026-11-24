@@ -6,6 +6,7 @@
 #include <QLocale>
 
 #include "core/translate/DictionaryCardHtml.h"
+#include "core/translate/LanguagePacks.h"
 
 #include <QGraphicsDropShadowEffect>
 #include <QHBoxLayout>
@@ -176,9 +177,9 @@ void DictionaryPopup::showSide(const Side& s)
     m_full->setVisible(m_url.isValid());
     m_source->setText(s.source);
     m_source->setVisible(!s.source.isEmpty());
-    // The button names the other side's language, in the reader's language (English).
+    // The button names the other side's language, in the reader's language.
     const Side& other = m_sides[m_front ? 1 : 0];
-    const QString name = QLocale::languageToString(QLocale(other.language).language());
+    const QString name = core::languages::displayName(other.language);
     m_flip->setText(tr("Flip to %1").arg(name));
     m_flip->setToolTip(tr("Turn the card over: the %1").arg(other.title));
     m_flip->show();

@@ -91,10 +91,10 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
   ![The Dictionary card's Spanish side](.github/readme/dictionary-flip.png)
 
   ![The Dictionary card for "ingenioso"](.github/readme/dictionary.png)
-- **Explain This Sentence** (right-click, or Ctrl+Shift+E): the sentence in English with short notes on how it
-  works (verb forms, pronouns, idioms, old words).
-- **Show English Alongside** (View menu, Ctrl+Shift+B): the English of every paragraph on the page in a panel
-  beside it, a page at a time; pages you've seen stay translated.
+- **Explain This Sentence** (right-click, or Ctrl+Shift+E): the sentence in your language with short notes on how
+  it works (verb forms, pronouns, idioms, old words).
+- **Show English Alongside** (View menu, Ctrl+Shift+B; for a Spanish speaker, Spanish): your language for every
+  paragraph on the page in a panel beside it, a page at a time; pages you've seen stay translated.
 - Prefer the pop-up as soon as you select? Turn on **Settings ▸ Translation ▸ Translate When Text Is Selected**.
 - Answers come from one engine at a time, always in this order: **Google's Gemini** (free tier, no card needed),
   then **LM Studio** on your own computer (optional), then what your **Word List** already says, then the **offline
@@ -107,10 +107,16 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 - **Keeping text offline:** Gemini is the only engine that sends text over the internet, so turning off **Use
   Gemini** keeps every book offline. **Keep This Book Offline** does it for the open book only. Both are in
   **Settings ▸ Translation**, and in the translation settings window, which also counts the books kept offline.
-- **Language packs:** the first start asks for your language and the languages you read, and downloads their packs:
-  a language's dictionary, its definitions and the offline translator, together. **Settings ▸ General…** changes them
-  later (Download, Remove). Only languages with every part are offered: Spanish, and English definitions for English
-  books, so far.
+- **Your language: English or Spanish.** FreeReader's menus, buttons and messages, its translations and its
+  explanations are all in the language you choose. A Spanish speaker reads English books with Spanish meanings, the
+  same way an English speaker reads Spanish ones.
+- **Language packs:** the first start asks for your language and the languages you read. The app switches to your
+  language at once, and every pack is ticked, so one click (**Download and Start**) gets everything. Nothing is
+  downloaded before that click, so the app itself stays small. A pack holds a language's dictionary, its definitions
+  and the offline translator. **Settings ▸ General…** changes them later (Download, Remove) and changes your language
+  (**Restart Now** reopens the window in it). Only languages with every part are offered, in both directions:
+  English and Spanish, so far.
+  ![The welcome in Spanish: your language, and the language packs ticked](.github/readme/welcome-es.png)
 - **Offline dictionaries** (in the language packs, or one by one in the translation settings) answer single words
   with no internet, when the engines before them can't:
   - **Spanish → English** (31 MB): 120,000 words from [Wiktionary](https://en.wiktionary.org) (CC BY-SA 4.0),
@@ -120,11 +126,16 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
     ("ran" → run, "studies" → study). [Release](https://github.com/cincottash/FreeReader/releases/tag/dictionary-en-1).
   - **Spanish definitions** (46 MB), for the Dictionary card: 148,000 Spanish words defined in Spanish, from the
     [Spanish Wiktionary](https://es.wiktionary.org) (CC BY-SA 4.0). [Release](https://github.com/cincottash/FreeReader/releases/tag/dictionary-es-es-1).
-- **Offline translator** (30 MB, optional download in the same place): translates Spanish sentences and pages
-  with no internet, in a fraction of a second, when Gemini and LM Studio can't. It's
+  - **English → Spanish** (6 MB), for Spanish speakers: 74,000 English words with their Spanish meanings and 84,000
+    forms ("went" → go), from the English Wiktionary's translation tables and the Spanish Wiktionary's English
+    entries (CC BY-SA 4.0). [Release](https://github.com/cincottash/FreeReader/releases/tag/dictionary-en-es-1).
+- **Offline translator** (30 MB, optional download in the same place): translates sentences and pages with no
+  internet, in a fraction of a second, when Gemini and LM Studio can't. It's
   [Bergamot](https://github.com/browsermt/bergamot-translator), the engine Firefox translates with, and Mozilla's
-  Spanish → English model (both MPL 2.0). Its English is plainer than Gemini's and weaker on old Spanish, so it isn't
-  kept: Gemini's answer replaces it once online. [Release](https://github.com/cincottash/FreeReader/releases/tag/offline-translator-1).
+  models (MPL 2.0): Spanish → English comes with it, and English → Spanish (25 MB) with the English pack for Spanish
+  speakers. Its translations are plainer than Gemini's and weaker on old Spanish, so they aren't kept: Gemini's
+  answer replaces them once online. [Release](https://github.com/cincottash/FreeReader/releases/tag/offline-translator-1),
+  [English → Spanish model](https://github.com/cincottash/FreeReader/releases/tag/translator-en-es-1).
 - <img src=".github/readme/selection-menu.png" align="right" width="200" alt="The right-click menu of a selection, with Read Aloud">
   **Read Aloud** (right-click a selection, or the command list) reads the selected words in the book's language;
   **Stop Reading Aloud** in the same menu stops it.

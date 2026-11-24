@@ -2,6 +2,7 @@
 
 #include "core/practice/Answer.h"
 
+#include <QCoreApplication>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -149,13 +150,32 @@ QString englishFormName(const QString& form, const QString& pos)
     return {};
 }
 
+// A part of speech or a form's name ("plural", "present participle") in the interface's language.
+QString inInterface(const QString& english)
+{
+    return english.isEmpty() ? english : QCoreApplication::translate("OfflineDictionary", english.toUtf8().constData());
+}
+
 QString posName(const QString& pos)
 {
-    static const QHash<QString, QString> names = {{"adj", "adjective"}, {"adv", "adverb"}, {"prep", "preposition"}, {"conj", "conjunction"},
-                                                  {"intj", "interjection"}, {"pron", "pronoun"}, {"det", "determiner"}, {"num", "numeral"},
-                                                  {"name", "proper noun"}, {"phrase", "phrase"}, {"prep_phrase", "phrase"}};
-    return names.value(pos, pos);
+    static const QHash<QString, const char*> names = {
+        {"adj", QT_TRANSLATE_NOOP("OfflineDictionary", "adjective")},     {"adv", QT_TRANSLATE_NOOP("OfflineDictionary", "adverb")},
+        {"prep", QT_TRANSLATE_NOOP("OfflineDictionary", "preposition")},  {"conj", QT_TRANSLATE_NOOP("OfflineDictionary", "conjunction")},
+        {"intj", QT_TRANSLATE_NOOP("OfflineDictionary", "interjection")}, {"pron", QT_TRANSLATE_NOOP("OfflineDictionary", "pronoun")},
+        {"det", QT_TRANSLATE_NOOP("OfflineDictionary", "determiner")},    {"num", QT_TRANSLATE_NOOP("OfflineDictionary", "numeral")},
+        {"name", QT_TRANSLATE_NOOP("OfflineDictionary", "proper noun")},  {"phrase", QT_TRANSLATE_NOOP("OfflineDictionary", "phrase")},
+        {"prep_phrase", QT_TRANSLATE_NOOP("OfflineDictionary", "phrase")}, {"noun", QT_TRANSLATE_NOOP("OfflineDictionary", "noun")},
+        {"verb", QT_TRANSLATE_NOOP("OfflineDictionary", "verb")},         {"article", QT_TRANSLATE_NOOP("OfflineDictionary", "article")},
+        {"masculine", QT_TRANSLATE_NOOP("OfflineDictionary", "masculine")}, {"feminine", QT_TRANSLATE_NOOP("OfflineDictionary", "feminine")}};
+    const auto it = names.constFind(pos);
+    return it == names.constEnd() ? pos : inInterface(QString::fromLatin1(it.value()));
 }
+
+// The English form names the code itself gives (WordNet's regular forms), for the extractor of the interface's text.
+[[maybe_unused]] const char* const kFormNames[] = {
+    QT_TRANSLATE_NOOP("OfflineDictionary", "plural"), QT_TRANSLATE_NOOP("OfflineDictionary", "third-person singular"),
+    QT_TRANSLATE_NOOP("OfflineDictionary", "past tense or past participle"), QT_TRANSLATE_NOOP("OfflineDictionary", "present participle"),
+    QT_TRANSLATE_NOOP("OfflineDictionary", "comparative"), QT_TRANSLATE_NOOP("OfflineDictionary", "superlative")};
 
 }  // namespace
 
@@ -343,7 +363,7 @@ TranslationResult OfflineDictionary::lookUp(const QString& text, const QString& 
             QList<Entry> base = entriesFor(db, also.lemma, 1);
             std::stable_partition(base.begin(), base.end(), [&](const Entry& e) { return e.pos == also.pos; });
             if (!base.isEmpty()) {
-                const QString line = tr("Also the %1 of “%2”: %3").arg(also.description, also.lemma, base.first().glosses.value(0));
+                const QString line = tr("Also the %1 of “%2”: %3").arg(inInterface(also.description), also.lemma, base.first().glosses.value(0));
                 r.definition = r.definition.isEmpty() ? line : line + QLatin1Char('\n') + r.definition;
             }
         }
@@ -354,14 +374,14 @@ TranslationResult OfflineDictionary::lookUp(const QString& text, const QString& 
     }
     QStringList pos{posName(first.pos)};
     for (const QString& tag : {QStringLiteral("masculine"), QStringLiteral("feminine")})
-        if (first.tags.split(QLatin1Char(' ')).contains(tag)) pos << tag;
+        if (first.tags.split(QLatin1Char(' ')).contains(tag)) pos << posName(tag);
     if (asForm) {
         // "first-person singular preterite indicative of piar" -> "first-person singular preterite indicative"
         QString d = formDescription;
         const int of = int(d.lastIndexOf(QStringLiteral(" of ")));
         if (of > 0) d = d.left(of);
         pos = QStringList{posName(formPos.isEmpty() ? first.pos : formPos)};
-        if (!d.trimmed().isEmpty()) pos << d.trimmed();
+        if (!d.trimmed().isEmpty()) pos << inInterface(d.trimmed());
     }
     r.partOfSpeech = pos.join(QStringLiteral(", "));
     r.lemma = lemma.compare(r.text, Qt::CaseInsensitive) == 0 ? QString() : lemma;
@@ -406,7 +426,7 @@ DictionaryEntry cardEntry(const Entry& e)
         // A dictionary without whole entries: its part of speech and glosses.
         QStringList pos{posName(e.pos)};
         for (const QString& tag : {QStringLiteral("masculine"), QStringLiteral("feminine")})
-            if (e.tags.split(QLatin1Char(' ')).contains(tag)) pos << tag;
+            if (e.tags.split(QLatin1Char(' ')).contains(tag)) pos << posName(tag);
         d.partOfSpeech = pos.join(QStringLiteral(", "));
         for (const QString& g : e.glosses) d.senses << DictionarySense{g, {}, {}};
     }
@@ -474,7 +494,7 @@ DictionaryCard OfflineDictionary::card(const QString& text) const
             QString d = form->description.trimmed();
             const int of = int(d.lastIndexOf(QStringLiteral(" of ")));
             if (english && of > 0) d = d.left(of);
-            h.formNote = d;
+            h.formNote = inInterface(d);
             if (!form->pos.isEmpty())
                 std::stable_partition(entries.begin(), entries.end(), [&](const Entry& e) { return e.pos == form->pos; });
         }
@@ -528,6 +548,8 @@ bool OfflineDictionary::handles(const TranslationRequest& request) const
 {
     // Words only: an explanation or a page of paragraphs is for the AI providers.
     if (request.kind != TranslationRequest::Kind::Lookup) return false;
+    // Answers in the reader's language only: a Spanish reader never gets the Spanish -> English dictionary's English.
+    if (!request.to.isEmpty() && !m_info.target.isEmpty() && request.to != m_info.target) return false;
     return request.from.isEmpty() || m_info.language.isEmpty() || request.from == m_info.language;
 }
 

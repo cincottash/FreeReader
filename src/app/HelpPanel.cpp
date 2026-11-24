@@ -2,6 +2,8 @@
 
 #include "Icons.h"
 
+#include "core/translate/LanguagePacks.h"
+
 #include <QDesktopServices>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -199,8 +201,8 @@ QString HelpPanel::html() const
           tr("In the pop-up: <b>Copy</b>, <b>Hear Pronunciation</b>, and <b>Highlight</b>, which highlights the word "
              "without another right-click."),
           tr("<b>Explain This Sentence</b> (Ctrl+Shift+E): the sentence translated, with notes on its grammar and idioms."),
-          tr("<b>English alongside:</b> %1 (Ctrl+Shift+B) translates every paragraph on the page in a panel beside it.")
-              .arg(link(QStringLiteral("bilingual"), tr("Show English Alongside"))),
+          tr("<b>Your language alongside:</b> %1 (Ctrl+Shift+B) translates every paragraph on the page in a panel beside it.")
+              .arg(link(QStringLiteral("bilingual"), tr("Show %1 Alongside").arg(core::languages::displayName(core::languages::readerLanguage())))),
           tr("<b>Where answers come from,</b> in this order: Google's Gemini (online, free), LM Studio on your computer, "
              "your Word List, then the offline dictionaries and the offline translator. Each can be switched off in "
              "Settings ▸ Translation."),
@@ -262,7 +264,7 @@ QString HelpPanel::html() const
           tr("No voice for the book's language? On Windows, add one (free) in Settings ▸ Time &amp; Language ▸ Speech.")});
 
     section("settings");
-    list({tr("%1: the language translations are given in, the language packs (a download per language read: its "
+    list({tr("%1: your language (FreeReader's text, translations and explanations), the language packs (a download per language read: its "
              "dictionary, its definitions and the offline translator), the app data folder, the library's folders, resetting "
              "text and layout.").arg(link(QStringLiteral("settings"), tr("General"))),
           tr("%1: the Gemini key, LM Studio, offline dictionaries and the offline translator.")
@@ -281,9 +283,9 @@ QString HelpPanel::html() const
        tr("Yes, with a language's pack: its dictionary, its definitions and the offline translator (Settings > General). "
           "Answers looked up before are kept and work offline too."));
     qa(tr("Which languages can I read?"),
-       tr("Spanish, with everything offline as well, and English books with English definitions. More languages come as "
-          "their packs are made complete: every language offered has its dictionary, its definitions and the offline "
-          "translator."));
+       tr("English and Spanish, each from the other, with everything offline as well; and books in your own language, "
+          "with its definitions. FreeReader itself is in English or Spanish. More languages come as their packs are made "
+          "complete: every language offered has its dictionary, its definitions and the offline translator."));
     qa(tr("Is my text sent anywhere?"),
        tr("Only to Gemini, and only the words and sentence you ask about. Turn off Use Gemini, or keep one book offline, "
           "to send nothing."));

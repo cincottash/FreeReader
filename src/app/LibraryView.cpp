@@ -5,6 +5,7 @@
 
 #include "core/format/FormatPlugin.h"
 #include "core/services/Importer.h"
+#include "core/translate/LanguagePacks.h"
 
 #include <QAction>
 #include <QApplication>
@@ -74,7 +75,7 @@ QString languageName(const QString& code)
     const QString c = code.section(QLatin1Char('-'), 0, 0).section(QLatin1Char('_'), 0, 0).toLower();
     if (c.isEmpty()) return QObject::tr("Unknown Language");
     const QLocale loc(c);
-    return loc.language() == QLocale::C ? c : QLocale::languageToString(loc.language());
+    return loc.language() == QLocale::C ? c : core::languages::displayTitle(c);   // in the app's language
 }
 
 // "1 book", "1,180 books": the system's number format, a real singular.

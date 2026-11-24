@@ -42,7 +42,10 @@
 #include <QGraphicsDropShadowEffect>
 #include "HelpPanel.h"
 #include "WelcomeDialog.h"
+#include "InterfaceLanguage.h"
 #include "core/translate/LanguagePacks.h"
+
+#include <utility>
 #include <QMessageBox>
 #include <QStandardPaths>
 #include <QGuiApplication>
@@ -59,6 +62,7 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     setWindowTitle(QStringLiteral(APP_NAME));
     setAcceptDrops(true);
     core::languages::setReaderLanguage(m_settings.readerLanguage);   // the engines answer in it
+    m_builtLanguage = interfaceLanguage();
     // The first start (and once for anyone who updated): the welcome, with the language and its packs. Never in
     // the tests or a screenshot run.
     if (interactive && !m_settings.welcomeShown) QTimer::singleShot(600, this, &MainWindow::showWelcome);
@@ -77,14 +81,19 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     // Spanish definitions (Spanish -> Spanish), for the Dictionary card only: never a translation.
     m_definitionsEs = new core::OfflineDictionary(this);
     m_definitionsEs->open(dictionaryFile(QStringLiteral("es-es")));
+    // English -> Spanish, for readers whose language is Spanish.
+    m_dictionaryEnEs = new core::OfflineDictionary(this);
+    m_dictionaryEnEs->open(dictionaryFile(QStringLiteral("en-es")));
     // When Gemini and LM Studio can't answer: the meaning saved in the Word List from an earlier lookup, the
-    // offline dictionaries (words), then the offline translator (sentences and passages).
+    // offline dictionaries (words), then the offline translator (sentences and passages). Each dictionary answers
+    // only in its own language pair, so the reader's language picks them (a Spanish reader: English -> Spanish, and
+    // Spanish definitions for Spanish books).
     m_savedWords = new core::SavedWords(this);
-    m_savedWords->setDictionaries({m_dictionary, m_dictionaryEn});
+    m_savedWords->setDictionaries({m_dictionary, m_dictionaryEn, m_dictionaryEnEs, m_definitionsEs});
     m_offline = new core::OfflineTranslator(this);
     m_offline->setFolder(translatorFolder());
-    m_translator->setProviders({m_gemini, m_lmStudio, m_savedWords, m_dictionary, m_dictionaryEn, m_offline});
-    m_translator->setInstant({m_dictionary, m_dictionaryEn});
+    m_translator->setProviders({m_gemini, m_lmStudio, m_savedWords, m_dictionary, m_dictionaryEn, m_dictionaryEnEs, m_definitionsEs, m_offline});
+    m_translator->setInstant({m_dictionary, m_dictionaryEn, m_dictionaryEnEs, m_definitionsEs});
     m_gemini->setKey(core::secrets::read(QStringLiteral("gemini-api-key")));
     m_stack = new QStackedWidget;
     m_start = new LibraryView(m_library, m_settings);
@@ -94,7 +103,7 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     m_words = std::make_unique<core::WordLog>(m_library);
     m_reader->setWordLog(m_words.get());
     m_reader->setOfflineTranslator(m_offline);
-    m_reader->setDictionaries({m_definitionsEs, m_dictionaryEn, m_dictionary});
+    m_reader->setDictionaries({m_definitionsEs, m_dictionaryEn, m_dictionary, m_dictionaryEnEs});
     m_savedWords->setWordLog(m_words.get());
     m_annotations = std::make_unique<core::Annotations>(m_library);
     m_reader->setAnnotations(m_annotations.get());
@@ -378,7 +387,7 @@ void MainWindow::buildCommands()
                [this] { return isReading() && m_reader->pages()->hasSelection(); }, tr("Shows the translation pop-up for the selected text."));
     addCommand(QStringLiteral("explain"), tr("Explain This Sentence"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_E), [this] { m_reader->explainSelection(); },
                [this] { return isReading() && m_reader->pages()->hasSelection(); },
-               tr("The selected sentence in English, with notes on its grammar and idioms."));
+               tr("The selected sentence in %1, with notes on its grammar and idioms.").arg(core::languages::displayName(core::languages::readerLanguage())));
     addCommand(QStringLiteral("book-offline"), tr("Keep This Book Offline"), QKeySequence(), [this] {
         m_reader->setBookOffline(!m_reader->bookIsOffline());
         if (m_settingsDialog) m_settingsDialog->refreshOfflineBooks();
@@ -415,11 +424,13 @@ void MainWindow::buildCommands()
         else showPractice();
     }, nullptr,
                tr("Flashcards of the words you looked up. While reading, they open beside the page."));
-    addCommand(QStringLiteral("bilingual"), tr("Show English Alongside"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_B), [this] {
+    // Named for the reader's language ("Show English Alongside"; for a Spanish reader, Spanish).
+    const QString mine = core::languages::displayName(core::languages::readerLanguage());
+    addCommand(QStringLiteral("bilingual"), tr("Show %1 Alongside").arg(mine), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_B), [this] {
         m_reader->setBilingualVisible(!m_reader->bilingualVisible());
         syncChecks();
         saveSettingsSoon();
-    }, [this] { return isReading(); }, tr("The English of every paragraph on the page, in a panel beside it (Gemini or LM Studio)."));
+    }, [this] { return isReading(); }, tr("The %1 of every paragraph on the page, in a panel beside it (Gemini or LM Studio).").arg(mine));
     command(QStringLiteral("bilingual"))->action->setCheckable(true);
     addCommand(QStringLiteral("statistics"), tr("Statistics"), QKeySequence(), [this] { showStatistics(); }, nullptr,
                tr("Time read, days in a row, books finished, words and reviews."));
@@ -677,6 +688,8 @@ void MainWindow::applyTranslationSettings()
     if (!m_dictionaryEn->info().ok) m_dictionaryEn->open(dictionaryFile(QStringLiteral("en")));
     m_definitionsEs->setEnabled(m_settings.useDictionary);
     if (!m_definitionsEs->info().ok) m_definitionsEs->open(dictionaryFile(QStringLiteral("es-es")));
+    m_dictionaryEnEs->setEnabled(m_settings.useDictionary);
+    if (!m_dictionaryEnEs->info().ok) m_dictionaryEnEs->open(dictionaryFile(QStringLiteral("en-es")));
     m_offline->setEnabled(m_settings.useOfflineTranslator);
     m_offline->setFolder(translatorFolder());
     m_gemini->setEnabled(m_settings.useGemini);
@@ -716,15 +729,41 @@ void MainWindow::showWelcome()
 {
     ensureSettingsDialog();   // it knows which packs are installed, and downloads them
     if (m_welcome) m_welcome->deleteLater();
-    m_welcome = new WelcomeDialog(m_settings, [this](const QString& language) { return m_settingsDialog->isPackInstalled(language); }, this);
+    m_welcomePacks.clear();
+    m_welcome = new WelcomeDialog(
+        m_settings, [this](const QString& language) { return m_settingsDialog->isPackInstalled(language); }, appdata::folder(), this);
     m_welcome->setAttribute(Qt::WA_DeleteOnClose);
-    connect(m_welcome, &WelcomeDialog::downloadRequested, this, [this](const QStringList& languages) {
-        // The downloads run in Settings > General, where their progress shows (and Cancel Download).
-        showSettings(SettingsDialog::GeneralTab);
-        m_settingsDialog->downloadPacks(languages);
+    connect(m_welcome, &WelcomeDialog::downloadRequested, this, [this](const QStringList& languages) { m_welcomePacks = languages; });
+    connect(m_welcome, &QDialog::finished, this, [this] {
+        saveSettingsNow();
+        // After the welcome has closed (its download request comes right after): in another language the window is
+        // rebuilt in it, and the new one downloads; otherwise this one does.
+        QTimer::singleShot(0, this, [this] {
+            const QStringList packs = std::exchange(m_welcomePacks, {});
+            if (interfaceLanguage() != m_builtLanguage) emit interfaceLanguageChanged(currentBookPath(), packs);
+            else if (!packs.isEmpty()) downloadPacks(packs);
+        });
     });
-    connect(m_welcome, &QDialog::finished, this, [this] { saveSettingsSoon(); });
     if (m_interactive) m_welcome->open();
+}
+
+void MainWindow::downloadPacks(const QStringList& languages)
+{
+    // The downloads run in Settings > General, where their progress shows (and Cancel Download).
+    showSettings(SettingsDialog::GeneralTab);
+    m_settingsDialog->downloadPacks(languages);
+}
+
+QString MainWindow::currentBookPath() const
+{
+    if (!isReading() || !m_library || !m_reader->bookId()) return {};
+    return m_library->book(m_reader->bookId()).path;
+}
+
+void MainWindow::prepareToClose()
+{
+    m_reader->closeBook();   // keeps the place in the book
+    saveSettingsNow();
 }
 
 void MainWindow::showSettings(int tab)
@@ -748,6 +787,13 @@ void MainWindow::ensureSettingsDialog()
         m_settingsDialog->setDictionary(m_dictionary, dictionaryFile(QStringLiteral("es")));
         m_settingsDialog->setEnglishDictionary(m_dictionaryEn, dictionaryFile(QStringLiteral("en")));
         m_settingsDialog->setDictionaryFor(QStringLiteral("es-es"), m_definitionsEs, dictionaryFile(QStringLiteral("es-es")));
+        m_settingsDialog->setDictionaryFor(QStringLiteral("en-es"), m_dictionaryEnEs, dictionaryFile(QStringLiteral("en-es")));
+        m_settingsDialog->setInterfaceLanguage(m_builtLanguage);
+        // Settings > General > Language > Restart Now: the window again, in the language chosen.
+        connect(m_settingsDialog, &SettingsDialog::restartRequested, this, [this] {
+            saveSettingsNow();
+            emit interfaceLanguageChanged(currentBookPath(), {});
+        });
         m_settingsDialog->setOfflineTranslator(m_offline);
         // The book open now, for Keep This Book Offline in the window (0: none).
         m_settingsDialog->setOpenBook([this]() -> std::pair<int, QString> {

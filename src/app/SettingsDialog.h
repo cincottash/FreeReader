@@ -14,6 +14,7 @@
 #include "core/translate/DictionaryDownload.h"
 
 #include <QDialog>
+#include <QHash>
 #include <QList>
 #include <QLocale>
 
@@ -94,6 +95,12 @@ public:
     void removeTranslator();
     bool isDownloadingTranslator() const;
     void setTranslatorSource(const core::DictionaryDownload::Source& s);
+    // One more model for the translator ("en-es"), unpacked into its own folder beside the program's.
+    void downloadTranslatorModel(const QString& pair);
+    void cancelTranslatorModelDownload();
+    bool isDownloadingTranslatorModel() const;
+    void removeTranslatorModel(const QString& pair);
+    void setTranslatorModelSource(const QString& pair, const core::DictionaryDownload::Source& s);   // tests
     QString lastMessage() const;
     // General tab, Languages: the reader's own language, and a pack per language read (its dictionary, its
     // definitions and the offline translator), downloaded part after part with one button.
@@ -105,6 +112,8 @@ public:
     bool isPackInstalled(const QString& language) const;
     bool isDownloadingPack() const { return !m_packLanguage.isEmpty(); }
     QString downloadingPack() const { return m_packLanguage; }
+    // The language the app's text is in now: another one chosen shows Restart Now (the window is rebuilt in it).
+    void setInterfaceLanguage(const QString& code);
 
     // Audio tab: the voices installed (by language) and a way to hear one; MainWindow gives both.
     struct Voice {
@@ -136,6 +145,7 @@ signals:
     void audioChanged();         // the speed, volume or a voice changed: save the settings
     void languageChanged();      // the reader's language or the languages read changed: apply and save
     void packFinished(const QString& language, const QString& error);   // error empty: the whole pack is installed
+    void restartRequested();     // Restart Now: the window again, in the language chosen
     void libraryFoldersChanged();
     void addLibraryFolderRequested();
     void cancelled();   // the settings were put back: apply them again
@@ -148,6 +158,7 @@ private:
     void fillAudio();
     void fill();
     void fillLmModels(const QList<core::LmStudioProvider::Model>& models);
+    static core::TranslationRequest testRequest();   // the word Test looks up
 
     Settings& m_settings;
     std::vector<Command*> m_commands;
@@ -179,7 +190,9 @@ private:
     QPushButton* m_allowAll;
     std::function<std::pair<int, QString>()> m_openBook;
     struct DictRow {
-        QString language;   // its key: "es" Spanish -> English, "en" English definitions, "es-es" Spanish definitions
+        // Its key: "es" Spanish -> English, "en" English definitions, "es-es" Spanish definitions, "en-es" English ->
+        // Spanish.
+        QString language;
         core::OfflineDictionary* dict = nullptr;
         QString path;
         core::DictionaryDownload::Source source;
@@ -190,7 +203,7 @@ private:
         class QProgressBar* progress = nullptr;
         core::DictionaryDownload* downloader = nullptr;
     };
-    DictRow m_rows[3];
+    DictRow m_rows[4];
     DictRow* row(const QString& language);
     const DictRow* row(const QString& language) const;
     void installDownloaded(const QString& language, const QString& file, const QString& error);
@@ -207,6 +220,10 @@ private:
     std::vector<PackRow> m_packRows;
     QWidget* m_packBox = nullptr;
     QComboBox* m_readerLanguage = nullptr;
+    QString m_interfaceLanguage = QStringLiteral("en");
+    QWidget* m_restartRow = nullptr;
+    QLabel* m_restartNote = nullptr;
+    void refreshRestart();
     QString m_packLanguage;            // the pack downloading now
     QStringList m_packQueue;           // its parts still to get (keys), then the next packs (as "pack:<language>")
     qint64 m_packDone = 0;             // bytes of its parts already downloaded
@@ -237,4 +254,8 @@ private:
     QPushButton* m_translatorRemove;
     class QProgressBar* m_translatorProgress;
     void installTranslator(const QString& folder, const QString& error);
+    core::DictionaryDownload* m_modelDownload = nullptr;
+    QString m_modelPair;               // the model downloading now
+    QHash<QString, core::DictionaryDownload::Source> m_modelSources;
+    void installTranslatorModel(const QString& pair, const QString& unpacked, const QString& error);
 };
