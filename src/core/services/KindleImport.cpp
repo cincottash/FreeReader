@@ -272,8 +272,9 @@ KindleExport parseNotebookJson(const QJsonObject& o)
     return finishNotebook(ex);
 }
 
-// RFC 4180: fields in double quotes when they hold a comma, a quote or a line break; a quote doubled.
-QList<QStringList> readCsv(const QString& s)
+// RFC 4180: fields in double quotes when they hold the separator, a quote or a line break; a quote doubled. The
+// separator is a comma, or a semicolon (Excel in many European languages saves CSV so).
+QList<QStringList> readCsv(const QString& s, QChar sep = QLatin1Char(','))
 {
     QList<QStringList> rows;
     QStringList row;
@@ -297,7 +298,7 @@ QList<QStringList> readCsv(const QString& s)
         if (c == QLatin1Char('"')) {
             quoted = true;
             any = true;
-        } else if (c == QLatin1Char(',')) {
+        } else if (c == sep) {
             row << field;
             field.clear();
             any = true;
@@ -538,9 +539,19 @@ KindleExport parseKindleExport(const QByteArray& data, const QString& titleHint)
         return parseNotebookJson(doc.object());
     QString text = QString::fromUtf8(data);
     if (text.startsWith(QChar(0xFEFF))) text.remove(0, 1);
-    if (text.startsWith(QLatin1String("kind,color,text")))
+    // A table: its first line names the columns, "kind" and "text" among them (in any order: a spreadsheet may move
+    // or add columns), with commas, semicolons or tabs between them.
+    const QString head = text.section(QLatin1Char('\n'), 0, 0).trimmed().toLower().remove(QLatin1Char('"'));
+    auto names = [&](QChar sep) {
+        QStringList cols;
+        for (const QString& c : head.split(sep)) cols << c.trimmed();
+        return cols.contains(QLatin1String("kind")) && cols.contains(QLatin1String("text"));
+    };
+    if (names(QLatin1Char(',')) && !head.contains(QLatin1Char('\t')))
         return parseNotebookTable(readCsv(text));
-    if (text.startsWith(QLatin1String("kind\tcolor\ttext"))) {
+    if (names(QLatin1Char(';')) && !head.contains(QLatin1Char('\t')))
+        return parseNotebookTable(readCsv(text, QLatin1Char(';')));
+    if (names(QLatin1Char('\t'))) {
         QList<QStringList> rows;
         for (QString line : text.split(QLatin1Char('\n'))) {
             if (line.endsWith(QLatin1Char('\r'))) line.chop(1);

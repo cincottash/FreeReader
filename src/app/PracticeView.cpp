@@ -886,12 +886,18 @@ void PracticeView::fillBookChoices(QComboBox* box, bool thisPage)
     if (thisPage && m_openBook) box->addItem(tr("This Page"), kThisPage);
     box->addItem(tr("All Books"), 0);
     bool listed = false;
+    // A long title is shortened in the list (the whole title is its tooltip), so the box beside the book shows it.
+    auto addBook = [box](const QString& title, int id) {
+        const QString shown = title.size() > 40 ? title.left(38).trimmed() + QStringLiteral("…") : title;
+        box->addItem(shown, id);
+        box->setItemData(box->count() - 1, title, Qt::ToolTipRole);
+    };
     for (const auto& [id, title] : m_log->booksWithWords()) {
-        box->addItem(title, id);
+        addBook(title, id);
         if (id == m_openBook) listed = true;
     }
     // The book being read, even before it has words.
-    if (m_openBook && !listed) box->addItem(m_openTitle.isEmpty() ? tr("This Book") : m_openTitle, m_openBook);
+    if (m_openBook && !listed) addBook(m_openTitle.isEmpty() ? tr("This Book") : m_openTitle, m_openBook);
     int want = keep;
     if (box->property("chooseOpen").toBool()) {
         want = m_openBook;

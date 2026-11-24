@@ -29,6 +29,7 @@ signals:
 
 private:
     QTreeWidget* m_tree;
+    class QLabel* m_none;
     std::vector<QTreeWidgetItem*> m_items;
     int m_current = -1;
     Theme m_theme = Theme::midnight();

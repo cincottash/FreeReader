@@ -53,6 +53,7 @@
 #include <QMenu>
 #include <QUrlQuery>
 #include <QHash>
+#include "ElidedLabel.h"
 #ifdef HAVE_TEXT_TO_SPEECH
 #include <QTextToSpeech>
 #endif
@@ -102,9 +103,10 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     h->addWidget(m_libraryButton);
     auto* titles = new QVBoxLayout;
     titles->setSpacing(1);
-    m_title = new QLabel;
+    // Shortened with "…" when the header has no room (a long title never widens the window).
+    m_title = new ElidedLabel;
     m_title->setObjectName(QStringLiteral("Title"));
-    m_subtitle = new QLabel;
+    m_subtitle = new ElidedLabel;
     m_subtitle->setObjectName(QStringLiteral("Muted"));
     m_title->setProperty("testId", "title");
     m_subtitle->setProperty("testId", "subtitle");
@@ -383,6 +385,10 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     connect(m_pages, &PageView::resized, m_translate, &QWidget::hide);
     connect(m_pages, &PageView::resized, m_dictCard, &QWidget::hide);
     connect(m_pages, &PageView::resized, m_note, &QWidget::hide);
+    // The Back chip stays at the bottom center when a panel opens or the window changes size.
+    connect(m_pages, &PageView::resized, this, [this] {
+        if (m_backChip->isVisible()) placeBackChip();
+    });
     connect(m_pages, &PageView::selectionMade, this, [this] {
         // A slip of the mouse that selects a letter or two, or only punctuation, isn't worth a lookup.
         const QString t = m_pages->selectedText();

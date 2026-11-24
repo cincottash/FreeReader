@@ -125,6 +125,15 @@ TocPanel::TocPanel(QWidget* parent) : QWidget(parent)
     m_tree->viewport()->installEventFilter(relayout);
     m_tree->installEventFilter(relayout);
     lay->addWidget(m_tree, 1);
+    // A book without a contents list (plain text without headings): said, instead of an empty panel.
+    m_none = new QLabel(tr("This book has no list of chapters. Go to a page or a percentage with Ctrl+G, or search it "
+                           "with Ctrl+F."));
+    m_none->setObjectName(QStringLiteral("Muted"));
+    m_none->setWordWrap(true);
+    m_none->setContentsMargins(20, 4, 20, 0);
+    m_none->setProperty("testId", "tocNone");
+    m_none->hide();
+    lay->insertWidget(1, m_none);
     connect(m_tree, &QTreeWidget::itemClicked, this, [this](QTreeWidgetItem* it) {
         const int idx = it->data(0, Qt::UserRole).toInt();
         if (idx >= 0 && (it->flags() & Qt::ItemIsEnabled)) emit entryActivated(idx);
@@ -155,6 +164,7 @@ void TocPanel::setEntries(const std::vector<core::TocEntry>& toc, const std::vec
         }
         m_items.push_back(it);
     }
+    m_none->setVisible(toc.empty());
     // Small tables of contents open fully; big ones show the top level.
     if (toc.size() <= 40) m_tree->expandAll();
     QTimer::singleShot(0, m_tree, [t = m_tree] { emit t->model()->layoutChanged(); });

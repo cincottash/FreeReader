@@ -178,7 +178,10 @@ public:
         }
         p->setFont(f);
         const QRect r = opt.rect.adjusted(header ? 12 : 14, header ? 8 : 0, -12, 0);
-        p->drawText(r, Qt::AlignVCenter | Qt::AlignLeft, text);
+        // A long name (a collection's) is shortened with "…" before it reaches the count.
+        const QFontMetrics nameFm(f), countFm(opt.font);
+        const int room = r.width() - (count.isEmpty() ? 0 : countFm.horizontalAdvance(count) + 10);
+        p->drawText(r, Qt::AlignVCenter | Qt::AlignLeft, nameFm.elidedText(text, Qt::ElideRight, qMax(20, room)));
         if (!count.isEmpty()) {
             p->setPen(theme->muted);
             p->drawText(r, Qt::AlignVCenter | Qt::AlignRight, count);
@@ -545,12 +548,13 @@ LibraryView::LibraryView(core::Library* library, Settings& settings, QWidget* pa
     m_list->setContextMenuPolicy(Qt::CustomContextMenu);
     m_list->setSortingEnabled(false);
     m_list->header()->setStretchLastSection(false);
+    // The title takes the room; the author a fixed share; language, progress and the dates as wide as they need,
+    // so a small window still shows titles (before 2026-11-24 the fixed columns left a title "Una …" at 1024 px).
     m_list->header()->setSectionResizeMode(0, QHeaderView::Stretch);
-    const int widths[] = {0, 220, 120, 100, 120, 120};
-    for (int c = 1; c < 6; ++c) {
-        m_list->header()->setSectionResizeMode(c, QHeaderView::Interactive);
-        m_list->header()->resizeSection(c, widths[c]);
-    }
+    m_list->header()->setSectionResizeMode(1, QHeaderView::Interactive);
+    m_list->header()->resizeSection(1, 170);
+    for (int c = 2; c < 6; ++c) m_list->header()->setSectionResizeMode(c, QHeaderView::ResizeToContents);
+    m_list->header()->setMinimumSectionSize(60);
     m_list->setStyleSheet(QStringLiteral("QHeaderView::section { padding: 6px 6px 6px 10px; border: 0; } QTreeView::item { padding: 6px 4px; }"));
     m_list->header()->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     m_list->setProperty("testId", "list");
@@ -575,6 +579,7 @@ LibraryView::LibraryView(core::Library* library, Settings& settings, QWidget* pa
     m_continueText = new QLabel;
     m_continueText->setTextFormat(Qt::RichText);
     m_continueText->setProperty("testId", "continueText");
+    m_continueText->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);   // a long title never widens the window
     cb->addWidget(m_continueText, 1);
     m_continue = new QPushButton(tr("Continue"));
     m_continue->setObjectName(QStringLiteral("Primary"));
@@ -770,7 +775,7 @@ void LibraryView::rebuildFilters()
     if (m_library)
         for (const core::Collection& c : m_library->collections()) {
             QListWidgetItem* it = entry(c.name, QStringLiteral("collection:%1").arg(c.id), c.count);
-            it->setToolTip(tr("Drag books here to add them. Right-click to rename or delete."));
+            it->setToolTip(c.name + QLatin1Char('\n') + tr("Drag books here to add them. Right-click to rename or delete."));
         }
     QListWidgetItem* add = entry(tr("+ New Collection"), QStringLiteral("new-collection"), -1);
     add->setToolTip(tr("Make a collection, then drag books onto it."));
@@ -804,7 +809,9 @@ void LibraryView::updateContinue()
     m_continueBar->setVisible(best != nullptr);
     if (!best) return;
     m_continueId = best->id;
-    QStringList parts{tr("Continue Reading: <b>%1</b>").arg(best->title.toHtmlEscaped())};
+    const QString title = best->title.size() > 60 ? best->title.left(58).trimmed() + QStringLiteral("…") : best->title;
+    QStringList parts{tr("Continue Reading: <b>%1</b>").arg(title.toHtmlEscaped())};
+    m_continueText->setToolTip(best->title);
     if (!best->pageLabel.isEmpty() && !best->pageCount.isEmpty()) parts << tr("Page %1 of %2").arg(best->pageLabel, best->pageCount);
     parts << QLocale().toString(int(std::floor(best->progress * 100 + 1e-6))) + QStringLiteral("%");
     m_continueText->setText(parts.join(QStringLiteral(" · ")));

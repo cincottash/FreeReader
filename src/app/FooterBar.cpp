@@ -36,17 +36,45 @@ void FooterBar::setClickableStat(int index, const QString& tooltip)
     m_clickableTip = tooltip;
 }
 
+QList<QPair<int, QString>> FooterBar::shown() const
+{
+    // What fits: in a narrow window the middle items go first (the percentage), then the first; the last one left is
+    // shortened. Nothing is drawn past the edges.
+    QList<QPair<int, QString>> v;
+    for (int i = 0; i < m_stats.size(); ++i) v << qMakePair(i, m_stats[i]);
+    const QFontMetrics fm(font());
+    const int gap = 20, room = qMax(0, width() - 24);
+    auto total = [&] {
+        int t = gap * qMax(0, int(v.size()) - 1);
+        for (const auto& s : v) t += fm.horizontalAdvance(s.second);
+        return t;
+    };
+    while (v.size() > 2 && total() > room) v.removeAt(v.size() / 2);
+    while (v.size() > 1 && total() > room) v.removeFirst();
+    if (v.size() == 1 && fm.horizontalAdvance(v[0].second) > room) v[0].second = fm.elidedText(v[0].second, Qt::ElideRight, room);
+    return v;
+}
+
+QStringList FooterBar::shownStats() const
+{
+    QStringList out;
+    for (const auto& s : shown()) out << s.second;
+    return out;
+}
+
 QRect FooterBar::statRect(int index) const
 {
-    if (index < 0 || index >= m_stats.size()) return {};
+    const auto v = shown();
     const QFontMetrics fm(font());
     const int gap = 20;
-    int total = 0;
-    for (const QString& s : m_stats) total += fm.horizontalAdvance(s);
-    total += gap * qMax(0, int(m_stats.size()) - 1);
+    int total = gap * qMax(0, int(v.size()) - 1);
+    for (const auto& s : v) total += fm.horizontalAdvance(s.second);
     int x = (width() - total) / 2;
-    for (int i = 0; i < index; ++i) x += fm.horizontalAdvance(m_stats[i]) + gap;
-    return QRect(x - 6, kTrackHit, fm.horizontalAdvance(m_stats[index]) + 12, height() - kTrackHit);
+    for (const auto& s : v) {
+        if (s.first == index) return QRect(x - 6, kTrackHit, fm.horizontalAdvance(s.second) + 12, height() - kTrackHit);
+        x += fm.horizontalAdvance(s.second) + gap;
+    }
+    return {};
 }
 
 int FooterBar::statAt(const QPointF& pos) const
@@ -79,16 +107,8 @@ void FooterBar::paintEvent(QPaintEvent*)
 
     p.setPen(m_theme.muted);
     const QFontMetrics fm(font());
-    const int gap = 20;
-    int total = 0;
-    for (const QString& s : m_stats) total += fm.horizontalAdvance(s);
-    total += gap * qMax(0, int(m_stats.size()) - 1);
-    int x = (width() - total) / 2;
     const int y = 3 + (height() - 3 + fm.ascent() - fm.descent()) / 2;
-    for (const QString& s : m_stats) {
-        p.drawText(x, y, s);
-        x += fm.horizontalAdvance(s) + gap;
-    }
+    for (const auto& s : shown()) p.drawText(statRect(s.first).left() + 6, y, s.second);
 }
 
 void FooterBar::mousePressEvent(QMouseEvent* e)
