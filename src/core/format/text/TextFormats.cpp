@@ -65,6 +65,18 @@ const QRegularExpression& headingRe()
     return re;
 }
 
+// A long heading that names its chapter by number: "CAPÍTULO 1. De lo que sucedió al caballero en la venta…" (the
+// Quijote's are about 100 characters). A number or Roman numeral must follow the word, so a sentence starting with
+// "Parte de la gente…" isn't taken for one.
+const QRegularExpression& longHeadingRe()
+{
+    static const QRegularExpression re(
+        QStringLiteral("^(cap[ií]tulo|chapter|chapitre|kapitel|capitolo|libro|book|livre|parte|part|partie|canto)\\s+([0-9]+|[IVXLCDM]+)\\b"
+                       "\\s*[.:—–-]?.{0,160}$"),
+        QRegularExpression::CaseInsensitiveOption | QRegularExpression::UseUnicodePropertiesOption);
+    return re;
+}
+
 bool isRoman(const QString& s)
 {
     static const QRegularExpression re(QStringLiteral("^[IVXLCDM]{1,7}\\.?$"));
@@ -161,6 +173,7 @@ void fromPlainText(MemoryBook& book, const QString& input)
         const QString first = QString(b.lines.first()).remove(deco);
         const QString all = QString(b.lines.join(QLatin1Char(' '))).remove(deco);
         if (first.isEmpty()) return {};
+        if (b.lines.size() == 1 && longHeadingRe().match(first).hasMatch()) return all;
         if (all.size() > 90) return {};
         if (headingRe().match(first).hasMatch() || isRoman(first)) return all;
         if (b.blankBefore >= 3 && isAllCaps(all) && all.size() <= 60) return all;

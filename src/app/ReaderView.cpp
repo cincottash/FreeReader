@@ -27,6 +27,7 @@
 #include "core/translate/OfflineTranslator.h"
 #include "core/translate/OfflineDictionary.h"
 #include "core/translate/DictionaryCardHtml.h"
+#include "core/translate/LanguagePacks.h"
 #include "core/services/BookIndex.h"
 #include "core/services/WordLog.h"
 #include "core/services/Statistics.h"
@@ -52,6 +53,8 @@
 #include <QStandardPaths>
 #include <QMenu>
 #include <QUrlQuery>
+#include <QHash>
+#include "ElidedLabel.h"
 #ifdef HAVE_TEXT_TO_SPEECH
 #include <QTextToSpeech>
 #endif
@@ -101,9 +104,10 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     h->addWidget(m_libraryButton);
     auto* titles = new QVBoxLayout;
     titles->setSpacing(1);
-    m_title = new QLabel;
+    // Shortened with "…" when the header has no room (a long title never widens the window).
+    m_title = new ElidedLabel;
     m_title->setObjectName(QStringLiteral("Title"));
-    m_subtitle = new QLabel;
+    m_subtitle = new ElidedLabel;
     m_subtitle->setObjectName(QStringLiteral("Muted"));
     m_title->setProperty("testId", "title");
     m_subtitle->setProperty("testId", "subtitle");
@@ -333,10 +337,22 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     connect(m_notebook, &NotebookPanel::exportRequested, this, [this] {
         if (!m_interactive || !m_bookId) return;
         const QString name = m_title->text().isEmpty() ? tr("Notebook") : m_title->text();
-        const QString path = QFileDialog::getSaveFileName(this, tr("Export Notebook"),
-                                                          QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + QLatin1Char('/') + name + QStringLiteral(" notes.md"),
-                                                          tr("Markdown (*.md);;JSON (*.json)"));
+        // Every format here can be imported again (File > Import Highlights…).
+        const QStringList filters = {tr("Markdown (*.md)"), tr("Plain Text (*.txt)"), tr("CSV, Comma-Separated (*.csv)"),
+                                     tr("TSV, Tab-Separated (*.tsv)"), tr("JSON (*.json)")};
+        QString chosen = filters.first();
+        QString path = QFileDialog::getSaveFileName(this, tr("Export Notebook"),
+                                                    QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + QLatin1Char('/') + name + QStringLiteral(" notes.md"),
+                                                    filters.join(QStringLiteral(";;")), &chosen);
         if (path.isEmpty()) return;
+        // The format chosen in the list wins over the name's ending.
+        static const QRegularExpression extRe(QStringLiteral("\\*(\\.\\w+)\\)"));
+        const QString ext = extRe.match(chosen).captured(1);
+        const QFileInfo fi(path);
+        if (!ext.isEmpty() && QLatin1Char('.') + fi.suffix().toLower() != ext) {
+            static const QStringList known = {QStringLiteral("md"), QStringLiteral("txt"), QStringLiteral("csv"), QStringLiteral("tsv"), QStringLiteral("json")};
+            path = (known.contains(fi.suffix().toLower()) ? fi.path() + QLatin1Char('/') + fi.completeBaseName() : path) + ext;
+        }
         QString err;
         if (!exportNotebook(path, &err)) QMessageBox::warning(this, tr("Export Notebook"), tr("Couldn't save the file. %1").arg(err));
     });
@@ -370,6 +386,10 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     connect(m_pages, &PageView::resized, m_translate, &QWidget::hide);
     connect(m_pages, &PageView::resized, m_dictCard, &QWidget::hide);
     connect(m_pages, &PageView::resized, m_note, &QWidget::hide);
+    // The Back chip stays at the bottom center when a panel opens or the window changes size.
+    connect(m_pages, &PageView::resized, this, [this] {
+        if (m_backChip->isVisible()) placeBackChip();
+    });
     connect(m_pages, &PageView::selectionMade, this, [this] {
         // A slip of the mouse that selects a letter or two, or only punctuation, isn't worth a lookup.
         const QString t = m_pages->selectedText();
@@ -454,7 +474,7 @@ QString ReaderView::languageName() const
     const QString code = languageCode();
     if (code.isEmpty()) return {};
     const QLocale loc(code);
-    return loc.language() == QLocale::C ? QString() : QLocale::languageToString(loc.language());
+    return loc.language() == QLocale::C ? QString() : core::languages::displayName(code);
 }
 
 Appearance ReaderView::effectiveAppearance() const
@@ -579,9 +599,30 @@ void ReaderView::closeBook()
 
 bool ReaderView::contentsVisible() const { return m_toc->isVisible(); }
 
+void ReaderView::makeRoom(bool right, int width)
+{
+    // A panel on each side and the page (at least 360 px) must fit; when they don't, the side opened last stays.
+    // Both at once in a narrow window made the window wider than the screen (2026-11-24).
+    const int page = 360;
+    if (right) {
+        if ((m_toc->isVisible() || m_search->isVisible()) && 320 + width + page > this->width()) {
+            if (m_search->isVisible()) closeSearch();
+            if (m_toc->isVisible()) setContentsVisible(false);
+        }
+        return;
+    }
+    const int other = m_notebook->isVisible() ? 340 : m_bilingual->isVisible() ? 380 : m_practicePanel->isVisible() ? 480 : 0;
+    if (other && width + other + page > this->width()) {
+        if (m_notebook->isVisible()) setNotebookVisible(false);
+        if (m_bilingual->isVisible()) setBilingualVisible(false);
+        if (m_practicePanel->isVisible()) setPracticeVisible(false);
+    }
+}
+
 void ReaderView::setContentsVisible(bool on)
 {
     if (on && m_search->isVisible()) closeSearch();
+    if (on) makeRoom(false, 320);
     m_toc->setVisible(on);
     QSignalBlocker block(m_tocButton);
     m_tocButton->setChecked(on);
@@ -639,7 +680,7 @@ void ReaderView::updateHeaderAndFooter()
     if (!chapter.isEmpty()) sub << chapter;
     if (!book->metadata.language.isEmpty()) {
         const QLocale loc(book->metadata.language);
-        if (loc.language() != QLocale::C) sub << QLocale::languageToString(loc.language());
+        if (loc.language() != QLocale::C) sub << core::languages::displayTitle(book->metadata.language);
     }
     m_subtitle->setText(sub.join(QStringLiteral(" · ")));
     m_subtitle->setVisible(!sub.isEmpty());
@@ -1062,14 +1103,16 @@ void ReaderView::onTranslated(int id, const core::TranslationResult& r, const QS
         // Nothing answered, and a free download would have: say where to get it (the dictionary for a word, the
         // offline translator for Spanish sentences).
         const bool lookup = m_lookupKind == core::TranslationRequest::Kind::Lookup;
-        if (!allOff && lookup && m_lookupIsWord && m_translator && !m_translator->hasOfflineDictionary(languageCode()) &&
-            (languageCode() == QLatin1String("es") || languageCode() == QLatin1String("en")))
-            text += QLatin1Char('\n') + tr("Tip: the offline dictionary answers words without the internet. Download it in "
-                                           "Settings > Translation > Translation Settings….");
-        else if (!allOff && lookup && !m_lookupIsWord && languageCode() == QLatin1String("es") && m_offlineTranslator &&
-                 !m_offlineTranslator->isInstalled())
-            text += QLatin1Char('\n') + tr("Tip: the offline translator translates sentences without the internet. Download it "
-                                           "in Settings > Translation > Translation Settings….");
+        const QString mine = core::languages::readerLanguage();
+        // A pack exists for this book's language: its dictionary and its translator are a download away.
+        const bool packed = core::languages::packFor(mine, languageCode()).has_value();
+        if (!allOff && lookup && m_lookupIsWord && m_translator && !m_translator->hasOfflineDictionary(languageCode()) && packed)
+            text += QLatin1Char('\n') + tr("Tip: the offline dictionary answers words without the internet. Download the "
+                                           "%1 pack in Settings > General.").arg(core::languages::displayName(languageCode()));
+        else if (!allOff && lookup && !m_lookupIsWord && packed && languageCode() != mine && m_offlineTranslator &&
+                 !(m_offlineTranslator->hasProgram() && m_offlineTranslator->hasPair(languageCode(), mine)))
+            text += QLatin1Char('\n') + tr("Tip: the offline translator translates sentences without the internet. Download "
+                                           "the %1 pack in Settings > General.").arg(core::languages::displayName(languageCode()));
         if (m_lookupKind == core::TranslationRequest::Kind::Explain && !allOff)
             text = tr("Explanations come from Gemini or LM Studio, and neither could answer.") + QLatin1Char('\n') + text;
         m_translate->showNothing(text);
@@ -1176,7 +1219,8 @@ QMenu* ReaderView::buildSelectionMenu()
     translate->setProperty("testId", "menuTranslate");
     QAction* explain = menu->addAction(tr("Explain This Sentence"), this, [this] { explainSelection(); });
     explain->setProperty("testId", "menuExplain");
-    explain->setToolTip(tr("The sentence in English, with notes on its grammar and idioms (Gemini or LM Studio)."));
+    explain->setToolTip(tr("The sentence in %1, with notes on its grammar and idioms (Gemini or LM Studio).")
+                            .arg(core::languages::displayName(core::languages::readerLanguage())));
     QAction* dict = menu->addAction(tr("Dictionary"), this, [this] { showDictionary(); });
     dict->setProperty("testId", "menuDictionary");
     dict->setEnabled(words >= 1 && words <= 4);
@@ -1264,7 +1308,7 @@ QString ReaderView::speechProblem(const QString& language, bool* canOpenSettings
     for (const QLocale& l : locales)
         if (l.language() == want.language()) return {};
     if (!m_interactive && !m_speechLocalesForTests) return {};
-    const QString name = QLocale::languageToString(want.language());
+    const QString name = core::languages::displayName(want.name().section(QLatin1Char('_'), 0, 0));
 #ifdef Q_OS_WIN
     if (canOpenSettings) *canOpenSettings = true;
     // Another language's voice would read the word wrongly: nothing is said, and the fix is a free voice pack.
@@ -1314,19 +1358,84 @@ void ReaderView::speak(const QString& text, const QString& language)
         m_translate->showSpeechProblem(problem, canOpenSettings);
         return;
     }
+    // Settings > Audio: the speed and volume, and the voice chosen for this language.
+    m_lastSpoken = SpokenWith{text, language, chosenVoice(language), m_settings.speechRatePct / 100.0, m_settings.speechVolumePct / 100.0};
 #ifdef HAVE_TEXT_TO_SPEECH
     if (!m_interactive || text.isEmpty()) return;
     if (!m_speech) m_speech = new QTextToSpeech(this);
     const QLocale want(language.isEmpty() ? QStringLiteral("en") : language);
-    // The book's language, and its country when there is a voice for it (es-ES before es-MX for a book in es-ES).
-    QLocale best;
-    for (const QLocale& l : m_speech->availableLocales())
-        if (l.language() == want.language() && (best.language() != want.language() || l.territory() == want.territory())) best = l;
-    if (best.language() == want.language()) m_speech->setLocale(best);
+    bool voiceSet = false;
+    if (!m_lastSpoken.voice.isEmpty()) {
+        for (const QVoice& v : m_speech->findVoices())
+            if (v.name() == m_lastSpoken.voice && v.locale().language() == want.language()) {
+                m_speech->setLocale(v.locale());
+                m_speech->setVoice(v);
+                voiceSet = true;
+                break;
+            }
+    }
+    if (!voiceSet) {
+        // The book's language, and its country when there is a voice for it (es-ES before es-MX for a book in es-ES).
+        QLocale best;
+        for (const QLocale& l : m_speech->availableLocales())
+            if (l.language() == want.language() && (best.language() != want.language() || l.territory() == want.territory())) best = l;
+        if (best.language() == want.language()) m_speech->setLocale(best);
+    }
+    m_speech->setRate(m_lastSpoken.rate);
+    m_speech->setVolume(m_lastSpoken.volume);
     m_speech->say(text);
 #else
     Q_UNUSED(text);
 #endif
+}
+
+namespace {
+QString languageKey(const QString& language)
+{
+    const QString l = language.isEmpty() ? QStringLiteral("en") : language;
+    return QLocale::languageToCode(QLocale(l).language(), QLocale::ISO639Part1);
+}
+}  // namespace
+
+QList<ReaderView::SpeechVoice> ReaderView::speechVoices()
+{
+    if (m_speechVoicesForTests) return *m_speechVoicesForTests;
+#ifdef HAVE_TEXT_TO_SPEECH
+    if (!m_interactive) return {};   // tests and screenshots never start the system's speech engine
+    if (!m_speech) m_speech = new QTextToSpeech(this);
+    if (m_speech->state() == QTextToSpeech::Error) return {};
+    QList<SpeechVoice> out;
+    for (const QVoice& v : m_speech->findVoices()) out << SpeechVoice{v.name(), v.locale()};
+    return out;
+#else
+    return {};
+#endif
+}
+
+QString ReaderView::chosenVoice(const QString& language) const
+{
+    const QString prefix = languageKey(language) + QLatin1Char('=');
+    for (const QString& s : m_settings.speechVoices)
+        if (s.startsWith(prefix)) return s.mid(prefix.size());
+    return {};
+}
+
+QString ReaderView::playVoiceSample(const QString& language)
+{
+    const QString problem = speechProblem(language);
+    if (!problem.isEmpty()) return problem;
+    // A sentence in the language itself, so the voice is heard as it reads books.
+    static const QHash<QString, QString> samples = {
+        {QStringLiteral("en"), QStringLiteral("This is how this voice reads your books.")},
+        {QStringLiteral("es"), QStringLiteral("Así lee esta voz tus libros.")},
+        {QStringLiteral("fr"), QStringLiteral("Voici comment cette voix lit vos livres.")},
+        {QStringLiteral("de"), QStringLiteral("So liest diese Stimme Ihre Bücher vor.")},
+        {QStringLiteral("it"), QStringLiteral("Ecco come questa voce legge i tuoi libri.")},
+        {QStringLiteral("pt"), QStringLiteral("É assim que esta voz lê os seus livros.")},
+    };
+    const QString key = languageKey(language);
+    speak(samples.value(key, QLocale::languageToString(QLocale(key).language())), key);
+    return {};
 }
 
 // ---------------------------------------------------------------- highlights, notes, bookmarks
@@ -1460,9 +1569,13 @@ ReaderView::KindleResult ReaderView::importKindle(const core::KindlePlan& plan, 
                     a.start = p.start;
                     a.end = p.end;
                     a.text = bookWords;
-                    a.color = p.found ? QStringLiteral("yellow") : QStringLiteral("orange");
+                    // Its own color from a FreeReader export; yellow from a Kindle; orange on an equivalent.
+                    a.color = !p.found                                          ? QStringLiteral("orange")
+                              : core::Annotations::colors().contains(it.color) ? it.color
+                                                                                : QStringLiteral("yellow");
                     a.note = p.found ? it.note
-                                     : tr("Kindle: «%1»").arg(it.text.simplified()) + (it.note.isEmpty() ? QString() : QStringLiteral("\n\n") + it.note);
+                                     : (plan.notebook ? tr("Imported: «%1»") : tr("Kindle: «%1»")).arg(it.text.simplified()) +
+                                           (it.note.isEmpty() ? QString() : QStringLiteral("\n\n") + it.note);
                     a.cfi = core::makeCfi(p.spine, *flow, p.start);
                     a.chapter = chapterTitleAt({p.spine, p.start});
                     if (const auto ix = m_engine->index()) a.pageLabel = ix->pageLabel({p.spine, p.start});
@@ -1696,8 +1809,12 @@ bool ReaderView::exportNotebook(const QString& path, QString* error)
         return false;
     }
     const QString title = b.title.isEmpty() ? m_title->text() : b.title;
-    // The file name chooses the format: .json for other tools, anything else Markdown.
-    if (path.endsWith(QLatin1String(".json"), Qt::CaseInsensitive)) f.write(m_notes->json(m_bookId, title, b.author, b.path));
+    // The file name chooses the format: JSON, CSV, TSV, plain text, anything else Markdown.
+    const QString suffix = QFileInfo(path).suffix().toLower();
+    if (suffix == QLatin1String("json")) f.write(m_notes->json(m_bookId, title, b.author, b.path));
+    else if (suffix == QLatin1String("csv")) f.write(QByteArray("\xEF\xBB\xBF") + m_notes->csv(m_bookId, title).toUtf8());   // a BOM: Excel reads it as UTF-8
+    else if (suffix == QLatin1String("tsv")) f.write(m_notes->tsv(m_bookId, title).toUtf8());
+    else if (suffix == QLatin1String("txt")) f.write(m_notes->plainText(m_bookId, title, b.author).toUtf8());
     else f.write(m_notes->markdown(m_bookId, title, b.author).toUtf8());
     if (!f.commit()) {
         if (error) *error = f.errorString();
@@ -1713,6 +1830,8 @@ void ReaderView::setNotebookVisible(bool on)
     // One panel on the right at a time.
     if (on && m_bilingual->isVisible()) setBilingualVisible(false);
     if (on && m_practicePanel->isVisible()) setPracticeVisible(false);
+    if (on) emit rightPanelOpened();   // the window's Getting Started guide makes room
+    if (on) makeRoom(true, 340);
     m_notebook->setVisible(on);
     const QSignalBlocker b(m_notebookButton);
     m_notebookButton->setChecked(on);
@@ -1729,6 +1848,8 @@ void ReaderView::setBilingualVisible(bool on)
 {
     if (on && m_notebook->isVisible()) setNotebookVisible(false);
     if (on && m_practicePanel->isVisible()) setPracticeVisible(false);
+    if (on) emit rightPanelOpened();
+    if (on) makeRoom(true, 380);
     m_bilingual->setVisible(on);
     if (m_settings.showBilingual != on) {
         m_settings.showBilingual = on;
@@ -1749,6 +1870,8 @@ void ReaderView::setPracticeVisible(bool on)
     if (!v) on = false;
     if (on && m_notebook->isVisible()) setNotebookVisible(false);
     if (on && m_bilingual->isVisible()) setBilingualVisible(false);
+    if (on) emit rightPanelOpened();
+    if (on) makeRoom(true, 480);
     const bool was = m_practicePanel->isVisible();
     m_practicePanel->setVisible(on);
     {
@@ -1793,7 +1916,7 @@ QList<ReaderView::ParagraphRef> ReaderView::visibleParagraphs() const
 {
     QList<ParagraphRef> out;
     if (!m_engine->isOpen()) return out;
-    const core::Position a = m_pages->position(), e = m_pages->screenEnd();
+    const core::Position a = m_pages->screenStart(), e = m_pages->screenEnd();   // not position(): that can sit lower down the screen
     const auto cl = m_engine->layout(a.spine);
     if (!cl) return out;
     for (const layout::Block& b : cl->flow->blocks) {
@@ -1814,7 +1937,8 @@ QList<ReaderView::ParagraphRef> ReaderView::visibleParagraphs() const
 
 QString ReaderView::paragraphKey(const QString& text) const
 {
-    const QByteArray raw = (QStringLiteral("paragraph|") + languageCode() + QStringLiteral("|en|") + text).toUtf8();
+    const QByteArray raw = (QStringLiteral("paragraph|") + languageCode() + QLatin1Char('|') + core::languages::readerLanguage() +
+                            QLatin1Char('|') + text).toUtf8();
     return QString::fromLatin1(QCryptographicHash::hash(raw, QCryptographicHash::Sha256).toHex());
 }
 
@@ -1879,15 +2003,16 @@ void ReaderView::onBilingualTranslated(int id, const core::TranslationResult& r,
                 const QString saved = m_library ? m_library->cachedTranslation(paragraphKey(p.text)).value(QLatin1String("translation")).toString() : QString();
                 english << (!saved.isEmpty() ? saved : at >= 0 ? r.paragraphs[at].trimmed() : QString());
             }
-            m_bilingual->setParagraphs(english, tr("Translated offline (Bergamot); the online English replaces it when Gemini or LM Studio can answer."));
+            m_bilingual->setParagraphs(english, tr("Translated offline (Bergamot); the online translation replaces it when Gemini or LM Studio can answer."));
         }
         return;
     }
     if (!m_bilingual->isVisible()) return;
     // Nothing could translate the page: keep what is there and say why.
     const bool allOff = !m_settings.useGemini && !m_settings.useLmStudio && !m_settings.useOfflineTranslator;
-    QString text = allOff ? tr("Turn on Gemini, LM Studio or the offline translator (Settings > Translation) to see the English of whole paragraphs.")
-                          : tr("The English for this page couldn't be fetched.") + (why.isEmpty() ? QString() : QLatin1Char('\n') + why);
+    const QString mine = core::languages::displayName(core::languages::readerLanguage());
+    QString text = allOff ? tr("Turn on Gemini, LM Studio or the offline translator (Settings > Translation) to see the %1 of whole paragraphs.").arg(mine)
+                          : tr("The %1 for this page couldn't be fetched.").arg(mine) + (why.isEmpty() ? QString() : QLatin1Char('\n') + why);
     if (bookIsOffline() && m_settings.useGemini) text += QLatin1Char('\n') + tr("This book is kept offline, so Gemini isn't asked.");
     m_bilingual->setParagraphs(m_bilingual->paragraphs(), text);
 }
@@ -1902,6 +2027,7 @@ void ReaderView::openSearch(const QString& query)
         const QSignalBlocker b(m_tocButton);
         m_tocButton->setChecked(false);
     }
+    makeRoom(false, 320);
     m_search->show();
     {
         const QSignalBlocker b(m_searchButton);

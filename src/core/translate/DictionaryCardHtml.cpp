@@ -1,5 +1,7 @@
 #include "DictionaryCardHtml.h"
 
+#include "LanguagePacks.h"
+
 #include <QLocale>
 #include <QObject>
 
@@ -90,7 +92,8 @@ FoundCard findDictionaryCard(const QList<OfflineDictionary*>& dictionaries, cons
     for (const bool monolingual : {true, false}) {
         if ((kind == DictionaryKind::Definitions && !monolingual) || (kind == DictionaryKind::Translating && monolingual)) continue;
         for (const OfflineDictionary* d : dictionaries)
-            if (d && d->isSetUp() && d->info().language == language && d->isMonolingual() == monolingual) {
+            if (d && d->isSetUp() && d->info().language == language && d->isMonolingual() == monolingual &&
+                (monolingual || d->info().target == languages::readerLanguage())) {   // translations into the reader's language
                 DictionaryCard c = d->card(text);
                 if (!c.isEmpty()) {
                     f.dictionary = d;
@@ -104,10 +107,10 @@ FoundCard findDictionaryCard(const QList<OfflineDictionary*>& dictionaries, cons
     const DictionaryInfo& info = f.dictionary->info();
     f.title = info.title;
     if (f.title.isEmpty()) {
-        const QString name = QLocale::languageToString(QLocale(info.language).language());
+        const QString name = languages::displayName(info.language);
         f.title = f.dictionary->isMonolingual()
                       ? QObject::tr("%1 Dictionary").arg(name)
-                      : QObject::tr("%1–%2 Dictionary").arg(name, QLocale::languageToString(QLocale(info.target).language()));
+                      : QObject::tr("%1–%2 Dictionary").arg(name, languages::displayName(info.target));
     }
     // "Wiktionary (Spanish edition) via wiktextract / kaikki.org": the source itself, not how it was extracted.
     QString origin = info.source;
@@ -119,7 +122,7 @@ FoundCard findDictionaryCard(const QList<OfflineDictionary*>& dictionaries, cons
     f.fullDefinition = QUrl(QStringLiteral("https://%1.wiktionary.org/wiki/").arg(edition) +
                             QString(f.card.headwords.first().word).replace(QLatin1Char(' '), QLatin1Char('_')));
     if (edition != info.language) f.fullDefinition.setFragment(QLocale::languageToString(QLocale(info.language).language()));
-    f.offerDefinitions = !f.dictionary->isMonolingual() && language == QLatin1String("es");
+    f.offerDefinitions = !f.dictionary->isMonolingual() && (language == QLatin1String("es") || language == QLatin1String("en"));
     return f;
 }
 

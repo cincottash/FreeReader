@@ -38,6 +38,14 @@
 #include <QActionGroup>
 #include <QMenu>
 #include <QMenuBar>
+#include <QHBoxLayout>
+#include <QGraphicsDropShadowEffect>
+#include "HelpPanel.h"
+#include "WelcomeDialog.h"
+#include "InterfaceLanguage.h"
+#include "core/translate/LanguagePacks.h"
+
+#include <utility>
 #include <QMessageBox>
 #include <QStandardPaths>
 #include <QGuiApplication>
@@ -53,6 +61,11 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
 {
     setWindowTitle(QStringLiteral(APP_NAME));
     setAcceptDrops(true);
+    core::languages::setReaderLanguage(m_settings.readerLanguage);   // the engines answer in it
+    m_builtLanguage = interfaceLanguage();
+    // The first start (and once for anyone who updated): the welcome, with the language and its packs. Never in
+    // the tests or a screenshot run.
+    if (interactive && !m_settings.welcomeShown) QTimer::singleShot(600, this, &MainWindow::showWelcome);
     m_engine = new core::BookEngine(this);
     // Translation: Gemini first, then LM Studio (the offline ones join the list when they are installed).
     m_net = new QNetworkAccessManager(this);
@@ -68,14 +81,19 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     // Spanish definitions (Spanish -> Spanish), for the Dictionary card only: never a translation.
     m_definitionsEs = new core::OfflineDictionary(this);
     m_definitionsEs->open(dictionaryFile(QStringLiteral("es-es")));
+    // English -> Spanish, for readers whose language is Spanish.
+    m_dictionaryEnEs = new core::OfflineDictionary(this);
+    m_dictionaryEnEs->open(dictionaryFile(QStringLiteral("en-es")));
     // When Gemini and LM Studio can't answer: the meaning saved in the Word List from an earlier lookup, the
-    // offline dictionaries (words), then the offline translator (sentences and passages).
+    // offline dictionaries (words), then the offline translator (sentences and passages). Each dictionary answers
+    // only in its own language pair, so the reader's language picks them (a Spanish reader: English -> Spanish, and
+    // Spanish definitions for Spanish books).
     m_savedWords = new core::SavedWords(this);
-    m_savedWords->setDictionaries({m_dictionary, m_dictionaryEn});
+    m_savedWords->setDictionaries({m_dictionary, m_dictionaryEn, m_dictionaryEnEs, m_definitionsEs});
     m_offline = new core::OfflineTranslator(this);
     m_offline->setFolder(translatorFolder());
-    m_translator->setProviders({m_gemini, m_lmStudio, m_savedWords, m_dictionary, m_dictionaryEn, m_offline});
-    m_translator->setInstant({m_dictionary, m_dictionaryEn});
+    m_translator->setProviders({m_gemini, m_lmStudio, m_savedWords, m_dictionary, m_dictionaryEn, m_dictionaryEnEs, m_definitionsEs, m_offline});
+    m_translator->setInstant({m_dictionary, m_dictionaryEn, m_dictionaryEnEs, m_definitionsEs});
     m_gemini->setKey(core::secrets::read(QStringLiteral("gemini-api-key")));
     m_stack = new QStackedWidget;
     m_start = new LibraryView(m_library, m_settings);
@@ -85,7 +103,7 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     m_words = std::make_unique<core::WordLog>(m_library);
     m_reader->setWordLog(m_words.get());
     m_reader->setOfflineTranslator(m_offline);
-    m_reader->setDictionaries({m_definitionsEs, m_dictionaryEn, m_dictionary});
+    m_reader->setDictionaries({m_definitionsEs, m_dictionaryEn, m_dictionary, m_dictionaryEnEs});
     m_savedWords->setWordLog(m_words.get());
     m_annotations = std::make_unique<core::Annotations>(m_library);
     m_reader->setAnnotations(m_annotations.get());
@@ -106,7 +124,26 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     m_statistics = new StatisticsView(m_library);
     m_stack->addWidget(m_statistics);
     m_stack->setCurrentWidget(m_start);   // the library first, whatever order the screens were added in
-    setCentralWidget(m_stack);
+    // The screens, and the Getting Started guide beside them on the right when it is open.
+    m_body = new QWidget;
+    m_bodyLay = new QHBoxLayout(m_body);
+    m_bodyLay->setContentsMargins(0, 0, 0, 0);
+    m_bodyLay->setSpacing(0);
+    m_bodyLay->addWidget(m_stack, 1);
+    m_help = new HelpPanel;
+    m_help->setMinimumWidth(0);
+    m_help->setMaximumWidth(420);
+    m_help->hide();
+    m_bodyLay->addWidget(m_help);
+    setCentralWidget(m_body);   // its size decides where the guide goes (placeHelp, from eventFilter: the app's filter)
+    connect(m_help, &HelpPanel::closeRequested, this, [this] { setHelpVisible(false); });
+    connect(m_stack, &QStackedWidget::currentChanged, this, [this] {
+        if (helpVisible()) QTimer::singleShot(0, this, &MainWindow::placeHelp);   // below the new screen's top bar
+    });
+    connect(m_reader, &ReaderView::rightPanelOpened, this, [this] {
+        if (helpVisible()) setHelpVisible(false);
+    });
+    connect(m_help, &HelpPanel::commandRequested, this, [this](const QString& id) { runCommand(id); });
     m_palette = new CommandPalette(m_stack);
     m_imageViewer = new ImageViewer(m_stack);
     // The theme list belongs to the window, not to its body: previews restyle the body only, never the list.
@@ -229,6 +266,11 @@ MainWindow::~MainWindow() = default;
 
 bool MainWindow::eventFilter(QObject* o, QEvent* e)
 {
+    // The window's body changed size: the guide beside the screen or over it (placeHelp).
+    if (o == m_body && e->type() == QEvent::Resize && m_help && m_help->isVisible()) {
+        QTimer::singleShot(0, this, &MainWindow::placeHelp);
+        return false;
+    }
     // A mouse button set as a shortcut (Settings > Keyboard Shortcuts > Mouse), pressed anywhere in this window.
     if (e->type() != QEvent::MouseButtonPress && e->type() != QEvent::MouseButtonDblClick) return false;
     auto* w = qobject_cast<QWidget*>(o);
@@ -335,13 +377,17 @@ void MainWindow::buildCommands()
     addCommand(QStringLiteral("data-folder"), tr("Change App Data Folder…"), QKeySequence(), [this] { changeDataFolder(); });
     addCommand(QStringLiteral("about"), tr("About FreeReader"), QKeySequence(), [this] { about(); });
     addCommand(QStringLiteral("quit"), tr("Quit"), QKeySequence(Qt::CTRL | Qt::Key_Q), [this] { close(); });
-    addCommand(QStringLiteral("settings"), tr("Settings…"), QKeySequence(Qt::CTRL | Qt::Key_Comma), [this] { showSettings(); }, nullptr,
-               tr("App data folder, keyboard shortcuts, resets."));
+    // The Settings menu opens the Settings window at each of its tabs (no "Settings…" inside Settings).
+    addCommand(QStringLiteral("settings"), tr("General…"), QKeySequence(Qt::CTRL | Qt::Key_Comma),
+               [this] { showSettings(SettingsDialog::GeneralTab); }, nullptr,
+               tr("The app data folder, the library's folders, and resetting text and layout."));
+    addCommand(QStringLiteral("audio-settings"), tr("Audio…"), QKeySequence(), [this] { showSettings(SettingsDialog::AudioTab); },
+               nullptr, tr("The speed, volume and voice for Hear Pronunciation and Read Aloud."));
     addCommand(QStringLiteral("translate"), tr("Translate Selection"), QKeySequence(Qt::CTRL | Qt::Key_E), [this] { m_reader->translateSelection(); },
                [this] { return isReading() && m_reader->pages()->hasSelection(); }, tr("Shows the translation pop-up for the selected text."));
     addCommand(QStringLiteral("explain"), tr("Explain This Sentence"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_E), [this] { m_reader->explainSelection(); },
                [this] { return isReading() && m_reader->pages()->hasSelection(); },
-               tr("The selected sentence in English, with notes on its grammar and idioms."));
+               tr("The selected sentence in %1, with notes on its grammar and idioms.").arg(core::languages::displayName(core::languages::readerLanguage())));
     addCommand(QStringLiteral("book-offline"), tr("Keep This Book Offline"), QKeySequence(), [this] {
         m_reader->setBookOffline(!m_reader->bookIsOffline());
         if (m_settingsDialog) m_settingsDialog->refreshOfflineBooks();
@@ -354,8 +400,9 @@ void MainWindow::buildCommands()
         saveSettingsSoon();
     }, reading, tr("For manga: the left edge and the Left key turn to the next page."));
     if (Command* c = command(QStringLiteral("pages-right-to-left"))) c->action->setCheckable(true);
-    addCommand(QStringLiteral("import-kindle"), tr("Import Kindle Highlights…"), QKeySequence(), [this] { importKindle(); }, reading,
-               tr("Highlights, notes and bookmarks from a Kindle export (Bookcision's JSON or My Clippings.txt) into this book."));
+    addCommand(QStringLiteral("import-kindle"), tr("Import Highlights…"), QKeySequence(), [this] { importKindle(); }, reading,
+               tr("Highlights, notes and bookmarks into this book: from a Kindle (Bookcision's JSON or My Clippings.txt), or "
+                  "from a Notebook export (Markdown, plain text, CSV, TSV or JSON)."));
     addCommand(QStringLiteral("search-book"), tr("Search This Book…"), QKeySequence(Qt::CTRL | Qt::Key_F), [this] {
         m_reader->openSearch(m_reader->pages()->hasSelection() ? m_reader->pages()->selectedText() : QString());
     }, reading, tr("Every place a word or phrase appears, with its page."));
@@ -377,17 +424,19 @@ void MainWindow::buildCommands()
         else showPractice();
     }, nullptr,
                tr("Flashcards of the words you looked up. While reading, they open beside the page."));
-    addCommand(QStringLiteral("bilingual"), tr("Show English Alongside"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_B), [this] {
+    // Named for the reader's language ("Show English Alongside"; for a Spanish reader, Spanish).
+    const QString mine = core::languages::displayName(core::languages::readerLanguage());
+    addCommand(QStringLiteral("bilingual"), tr("Show %1 Alongside").arg(mine), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_B), [this] {
         m_reader->setBilingualVisible(!m_reader->bilingualVisible());
         syncChecks();
         saveSettingsSoon();
-    }, [this] { return isReading(); }, tr("The English of every paragraph on the page, in a panel beside it (Gemini or LM Studio)."));
+    }, [this] { return isReading(); }, tr("The %1 of every paragraph on the page, in a panel beside it (Gemini or LM Studio).").arg(mine));
     command(QStringLiteral("bilingual"))->action->setCheckable(true);
     addCommand(QStringLiteral("statistics"), tr("Statistics"), QKeySequence(), [this] { showStatistics(); }, nullptr,
                tr("Time read, days in a row, books finished, words and reviews."));
     addCommand(QStringLiteral("word-list"), tr("Word List"), QKeySequence(), [this] { showPractice(true); }, nullptr,
                tr("Every word you looked up, with its meaning."));
-    addCommand(QStringLiteral("translation-settings"), tr("Translation Settings…"), QKeySequence(),
+    addCommand(QStringLiteral("translation-settings"), tr("All Translation Options…"), QKeySequence(),
                [this] { showSettings(SettingsDialog::TranslationTab); }, nullptr, tr("Gemini key, LM Studio model, offline dictionary."));
     // The translation switches, also in Settings > Translation: each engine on its own, and offline only.
     auto toggle = [this](const char* id, const QString& label, bool Settings::*field, const QString& hint) {
@@ -405,7 +454,11 @@ void MainWindow::buildCommands()
     toggle("use-dictionary", tr("Use the Offline Dictionary"), &Settings::useDictionary, tr("Single words, when nothing before it in the list answers."));
     toggle("use-offline-translator", tr("Use the Offline Translator"), &Settings::useOfflineTranslator,
            tr("Sentences and pages with no internet, when Gemini and LM Studio can't answer (a download in Settings)."));
-    addCommand(QStringLiteral("keyboard-shortcuts"), tr("Keyboard Shortcuts"), QKeySequence(), [this] { showSettings(SettingsDialog::ShortcutsTab); },
+    addCommand(QStringLiteral("getting-started"), tr("Getting Started"), QKeySequence(Qt::SHIFT | Qt::Key_F1),
+               [this] { setHelpVisible(!helpVisible()); }, nullptr,
+               tr("A guide beside the page: every feature and how to use it, common settings, questions and answers."));
+    command(QStringLiteral("getting-started"))->action->setCheckable(true);
+    addCommand(QStringLiteral("keyboard-shortcuts"), tr("Keyboard Shortcuts…"), QKeySequence(), [this] { showSettings(SettingsDialog::ShortcutsTab); },
                nullptr, tr("Every shortcut, and changing them."));
     applyShortcuts();
     qApp->installEventFilter(this);   // mouse-button shortcuts
@@ -508,14 +561,17 @@ void MainWindow::buildMenus()
     connect(m_themeMenu, &QMenu::aboutToShow, this, &MainWindow::fillThemeMenu);
     // Pointing at a theme previews it on the window; leaving the menu without choosing puts the saved one back.
     connect(m_themeMenu, &QMenu::aboutToHide, this, [this] { previewTheme(QString()); });
+    // The Settings window's tabs, in its order (General, Translation's quick switches above, Audio, Keyboard
+    // Shortcuts). Change App Data Folder is in General.
     settings->addSeparator();
     add(settings, "settings");
-    add(settings, "data-folder");
+    add(settings, "audio-settings");
+    add(settings, "keyboard-shortcuts");
     watch(settings);
 
     QMenu* help = bar->addMenu(tr("&Help"));
     help->setProperty("testId", "menuHelp");
-    add(help, "keyboard-shortcuts");
+    add(help, "getting-started");
     add(help, "commands");
     help->addSeparator();
     add(help, "about");
@@ -590,8 +646,9 @@ void MainWindow::importKindle(const QString& fileArg)
     QString file = fileArg;
     if (file.isEmpty()) {
         if (!m_interactive) return;
-        file = QFileDialog::getOpenFileName(this, tr("Import Kindle Highlights"), QStandardPaths::writableLocation(QStandardPaths::DownloadLocation),
-                                            tr("Kindle highlights (*.json *.txt);;All files (*)"));
+        file = QFileDialog::getOpenFileName(this, tr("Import Highlights"), QStandardPaths::writableLocation(QStandardPaths::DownloadLocation),
+                                            tr("Highlights (*.json *.txt *.md *.csv *.tsv);;Kindle (*.json *.txt);;"
+                                               "FreeReader Notebook (*.md *.txt *.csv *.tsv *.json);;All files (*)"));
         if (file.isEmpty()) return;
     }
     QFile f(file);
@@ -602,7 +659,7 @@ void MainWindow::importKindle(const QString& fileArg)
     if (error.isEmpty()) error = ex.error;
     if (!error.isEmpty()) {
         m_lastError = error;
-        if (m_interactive) QMessageBox::information(this, tr("Import Kindle Highlights"), error);
+        if (m_interactive) QMessageBox::information(this, tr("Import Highlights"), error);
         return;
     }
     QGuiApplication::setOverrideCursor(Qt::WaitCursor);
@@ -631,6 +688,8 @@ void MainWindow::applyTranslationSettings()
     if (!m_dictionaryEn->info().ok) m_dictionaryEn->open(dictionaryFile(QStringLiteral("en")));
     m_definitionsEs->setEnabled(m_settings.useDictionary);
     if (!m_definitionsEs->info().ok) m_definitionsEs->open(dictionaryFile(QStringLiteral("es-es")));
+    m_dictionaryEnEs->setEnabled(m_settings.useDictionary);
+    if (!m_dictionaryEnEs->info().ok) m_dictionaryEnEs->open(dictionaryFile(QStringLiteral("en-es")));
     m_offline->setEnabled(m_settings.useOfflineTranslator);
     m_offline->setFolder(translatorFolder());
     m_gemini->setEnabled(m_settings.useGemini);
@@ -664,7 +723,62 @@ void MainWindow::syncChecks()
     set("pages-right-to-left", m_reader && isReading() && m_reader->pagesRightToLeft());
 }
 
+WelcomeDialog* MainWindow::welcome() const { return m_welcome; }
+
+void MainWindow::showWelcome()
+{
+    ensureSettingsDialog();   // it knows which packs are installed, and downloads them
+    if (m_welcome) m_welcome->deleteLater();
+    m_welcomePacks.clear();
+    m_welcome = new WelcomeDialog(
+        m_settings, [this](const QString& language) { return m_settingsDialog->isPackInstalled(language); }, appdata::folder(), this);
+    m_welcome->setAttribute(Qt::WA_DeleteOnClose);
+    connect(m_welcome, &WelcomeDialog::downloadRequested, this, [this](const QStringList& languages) { m_welcomePacks = languages; });
+    connect(m_welcome, &QDialog::finished, this, [this] {
+        saveSettingsNow();
+        // After the welcome has closed (its download request comes right after): in another language the window is
+        // rebuilt in it, and the new one downloads; otherwise this one does.
+        QTimer::singleShot(0, this, [this] {
+            const QStringList packs = std::exchange(m_welcomePacks, {});
+            if (interfaceLanguage() != m_builtLanguage) emit interfaceLanguageChanged(currentBookPath(), packs);
+            else if (!packs.isEmpty()) downloadPacks(packs);
+        });
+    });
+    if (m_interactive) m_welcome->open();
+}
+
+void MainWindow::downloadPacks(const QStringList& languages)
+{
+    // The downloads run in Settings > General, where their progress shows (and Cancel Download).
+    showSettings(SettingsDialog::GeneralTab);
+    m_settingsDialog->downloadPacks(languages);
+}
+
+QString MainWindow::currentBookPath() const
+{
+    if (!isReading() || !m_library || !m_reader->bookId()) return {};
+    return m_library->book(m_reader->bookId()).path;
+}
+
+void MainWindow::prepareToClose()
+{
+    m_reader->closeBook();   // keeps the place in the book
+    saveSettingsNow();
+}
+
 void MainWindow::showSettings(int tab)
+{
+    ensureSettingsDialog();
+    if (!m_settingsDialog->isVisible()) m_settingsDialog->begin();
+    m_settingsDialog->setDataFolder(appdata::folder(), appdata::isTemporary());
+    m_settingsDialog->refreshTranslation();
+    m_settingsDialog->fillLibraryFolders();
+    m_settingsDialog->showTab(SettingsDialog::Tab(tab));
+    m_settingsDialog->show();
+    m_settingsDialog->raise();
+}
+
+void MainWindow::ensureSettingsDialog()
 {
     if (!m_settingsDialog) {
         std::vector<Command*> list;
@@ -673,12 +787,27 @@ void MainWindow::showSettings(int tab)
         m_settingsDialog->setDictionary(m_dictionary, dictionaryFile(QStringLiteral("es")));
         m_settingsDialog->setEnglishDictionary(m_dictionaryEn, dictionaryFile(QStringLiteral("en")));
         m_settingsDialog->setDictionaryFor(QStringLiteral("es-es"), m_definitionsEs, dictionaryFile(QStringLiteral("es-es")));
+        m_settingsDialog->setDictionaryFor(QStringLiteral("en-es"), m_dictionaryEnEs, dictionaryFile(QStringLiteral("en-es")));
+        m_settingsDialog->setInterfaceLanguage(m_builtLanguage);
+        // Settings > General > Language > Restart Now: the window again, in the language chosen.
+        connect(m_settingsDialog, &SettingsDialog::restartRequested, this, [this] {
+            saveSettingsNow();
+            emit interfaceLanguageChanged(currentBookPath(), {});
+        });
         m_settingsDialog->setOfflineTranslator(m_offline);
         // The book open now, for Keep This Book Offline in the window (0: none).
         m_settingsDialog->setOpenBook([this]() -> std::pair<int, QString> {
             if (!isReading() || !m_reader->bookId()) return {0, QString()};
             return {m_reader->bookId(), m_library->book(m_reader->bookId()).title};
         });
+        m_settingsDialog->setVoiceSource(
+            [this] {
+                QList<SettingsDialog::Voice> out;
+                for (const ReaderView::SpeechVoice& v : m_reader->speechVoices()) out << SettingsDialog::Voice{v.name, v.locale};
+                return out;
+            },
+            [this](const QString& language) { return m_reader->playVoiceSample(language); });
+        connect(m_settingsDialog, &SettingsDialog::audioChanged, this, [this] { saveSettingsSoon(); });
         connect(m_settingsDialog, &SettingsDialog::translationChanged, this, [this] {
             applyTranslationSettings();
             saveSettingsSoon();
@@ -709,14 +838,12 @@ void MainWindow::showSettings(int tab)
             if (isReading()) m_reader->applyReadingOptions();
             saveSettingsSoon();
         });
+        connect(m_settingsDialog, &SettingsDialog::languageChanged, this, &MainWindow::saveSettingsSoon);
+        connect(m_settingsDialog, &SettingsDialog::packFinished, this, [this] {
+            applyTranslationSettings();
+            saveSettingsSoon();
+        });
     }
-    if (!m_settingsDialog->isVisible()) m_settingsDialog->begin();
-    m_settingsDialog->setDataFolder(appdata::folder(), appdata::isTemporary());
-    m_settingsDialog->refreshTranslation();
-    m_settingsDialog->fillLibraryFolders();
-    m_settingsDialog->showTab(SettingsDialog::Tab(tab));
-    m_settingsDialog->show();
-    m_settingsDialog->raise();
 }
 
 Command* MainWindow::command(const QString& id) const
@@ -725,6 +852,63 @@ Command* MainWindow::command(const QString& id) const
         if (c->id == id) return c.get();
     return nullptr;
 }
+
+bool MainWindow::helpVisible() const { return m_help && !m_help->isHidden(); }
+
+void MainWindow::setHelpVisible(bool on)
+{
+    if (!m_help) return;
+    // One panel on the right at a time, as in the reader: the guide takes the place of the Notebook, English
+    // alongside or the practice workspace (both at once left the page a narrow column and widened the window).
+    if (on && m_reader) {
+        if (m_reader->notebookVisible()) m_reader->setNotebookVisible(false);
+        if (m_reader->bilingualVisible()) m_reader->setBilingualVisible(false);
+        if (m_reader->practiceVisible()) m_reader->setPracticeVisible(false);
+        syncChecks();
+    }
+    if (on) placeHelp();   // beside or over the screen, decided before it shows (shown beside it first, the window grew)
+    m_help->setVisible(on);
+    if (on) placeHelp();
+    if (Command* c = command(QStringLiteral("getting-started"))) c->action->setChecked(on);
+}
+
+void MainWindow::placeHelp()
+{
+    if (!m_help || !m_body) return;
+    // Beside the screen when there is room for both; otherwise over the screen's right side, like a drawer (the
+    // reader and the library need about 800 px: in a 1024 px window the guide beside them made the window wider).
+    const int want = 420;
+    const bool room = m_body->width() - want >= m_stack->minimumSizeHint().width();
+    const bool docked = m_bodyLay->indexOf(m_help) >= 0;
+    if (room) {
+        // Beside: 420 px while there is room, able to shrink so the window can still be made smaller (then it
+        // goes over the screen at the next resize).
+        m_help->setGraphicsEffect(nullptr);
+        m_help->setMinimumWidth(0);
+        m_help->setMaximumWidth(want);
+        if (!docked) m_bodyLay->addWidget(m_help);
+    } else {
+        if (docked) m_bodyLay->removeWidget(m_help);
+        const int w = qMin(want, qMax(280, m_body->width() - 80));
+        // Below the screen's top bar, so its buttons (Practice, Search, Add Books…) stay in reach.
+        int top = 0;
+        if (QWidget* screen = m_stack->currentWidget())
+            if (auto* bar = screen->findChild<QWidget*>(QStringLiteral("Bar"), Qt::FindDirectChildrenOnly); bar && bar->isVisible() && bar->y() < 80)
+                top = bar->mapTo(m_body, QPoint(0, bar->height())).y();
+        m_help->setFixedWidth(w);
+        m_help->setGeometry(m_body->width() - w, top, w, m_body->height() - top);
+        if (!m_help->graphicsEffect()) {
+            auto* shadow = new QGraphicsDropShadowEffect(m_help);
+            shadow->setBlurRadius(28);
+            shadow->setOffset(-6, 0);
+            shadow->setColor(QColor(0, 0, 0, 90));
+            m_help->setGraphicsEffect(shadow);
+        }
+        if (m_help->isVisible()) m_help->raise();
+    }
+}
+
+bool MainWindow::helpOverlays() const { return m_help && m_bodyLay && m_bodyLay->indexOf(m_help) < 0; }
 
 void MainWindow::runCommand(const QString& id)
 {
@@ -925,6 +1109,7 @@ void MainWindow::showTheme(const Theme& t, bool preview)
     endPreview();
     applyTheme(*qApp, t);
     m_theme = t;
+    m_help->setTheme(t);
     m_reader->setTheme(t);
     m_start->setTheme(t);
     m_practice->setTheme(t);

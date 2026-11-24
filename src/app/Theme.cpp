@@ -53,7 +53,7 @@ QPushButton#Chip:checked { background: @hl; border-color: @accent; }
 QToolButton#Practice { background: transparent; color: @fg; border: 1px solid @accent; border-radius: 10px; padding: 4px 12px 4px 8px; font-weight: 600; }
 QToolButton#Practice:hover { background: @hover; }
 QToolButton#Practice:checked { background: @hl; }
-QPushButton#BigPractice { background: @accent; color: @accentFg; border: 0; border-radius: 12px; padding: 0; text-align: left; }
+QPushButton#BigPractice { background: @accent; color: @accentFg; border: 0; border-radius: 8px; padding: 0 12px; text-align: left; font-weight: 600; }
 QPushButton#BigPractice:hover { background: @accentHover; }
 QPushButton#BigPractice QLabel { color: @accentFg; background: transparent; }
 QPushButton#Link { background: transparent; color: @accent; border: 0; padding: 4px 0; text-align: left; }

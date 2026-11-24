@@ -20,7 +20,8 @@ public:
     QStringList stats() const { return m_stats; }
     // One of the stats can be clicked (the time or the pages left in the chapter); -1: none.
     void setClickableStat(int index, const QString& tooltip);
-    QRect statRect(int index) const;   // tests
+    QRect statRect(int index) const;   // tests; empty when that stat doesn't fit and isn't shown
+    QStringList shownStats() const;    // what fits the width, as drawn
 
 signals:
     void jumpRequested(double fraction);
@@ -41,4 +42,5 @@ private:
     int m_clickable = -1;
     QString m_clickableTip;
     int statAt(const QPointF& pos) const;
+    QList<QPair<int, QString>> shown() const;   // (index in stats, text as drawn)
 };

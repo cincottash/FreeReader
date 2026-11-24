@@ -5,6 +5,7 @@
 
 #include "core/format/FormatPlugin.h"
 #include "core/services/Importer.h"
+#include "core/translate/LanguagePacks.h"
 
 #include <QAction>
 #include <QApplication>
@@ -74,7 +75,7 @@ QString languageName(const QString& code)
     const QString c = code.section(QLatin1Char('-'), 0, 0).section(QLatin1Char('_'), 0, 0).toLower();
     if (c.isEmpty()) return QObject::tr("Unknown Language");
     const QLocale loc(c);
-    return loc.language() == QLocale::C ? c : QLocale::languageToString(loc.language());
+    return loc.language() == QLocale::C ? c : core::languages::displayTitle(c);   // in the app's language
 }
 
 // "1 book", "1,180 books": the system's number format, a real singular.
@@ -152,13 +153,12 @@ public:
     QSize sizeHint(const QStyleOptionViewItem& o, const QModelIndex& i) const override
     {
         QSize s = QStyledItemDelegate::sizeHint(o, i);
-        // The Practice button's row (a widget of its own), a heading, or a filter.
-        s.setHeight(i.data(Qt::UserRole + 4).toBool() ? 88 : i.data(Qt::UserRole + 2).toBool() ? 34 : 32);
+        // A heading or a filter.
+        s.setHeight(i.data(Qt::UserRole + 2).toBool() ? 34 : 32);
         return s;
     }
     void paint(QPainter* p, const QStyleOptionViewItem& opt, const QModelIndex& i) const override
     {
-        if (i.data(Qt::UserRole + 4).toBool()) return;   // the Practice button draws itself
         const bool header = i.data(Qt::UserRole + 2).toBool();
         QStyleOptionViewItem o(opt);
         initStyleOption(&o, i);
@@ -179,7 +179,10 @@ public:
         }
         p->setFont(f);
         const QRect r = opt.rect.adjusted(header ? 12 : 14, header ? 8 : 0, -12, 0);
-        p->drawText(r, Qt::AlignVCenter | Qt::AlignLeft, text);
+        // A long name (a collection's) is shortened with "…" before it reaches the count.
+        const QFontMetrics nameFm(f), countFm(opt.font);
+        const int room = r.width() - (count.isEmpty() ? 0 : countFm.horizontalAdvance(count) + 10);
+        p->drawText(r, Qt::AlignVCenter | Qt::AlignLeft, nameFm.elidedText(text, Qt::ElideRight, qMax(20, room)));
         if (!count.isEmpty()) {
             p->setPen(theme->muted);
             p->drawText(r, Qt::AlignVCenter | Qt::AlignRight, count);
@@ -422,17 +425,51 @@ LibraryView::LibraryView(core::Library* library, Settings& settings, QWidget* pa
     auto* body = new QHBoxLayout;
     body->setContentsMargins(0, 0, 0, 0);
     body->setSpacing(0);
+    // The left column: the filters, and Practice at its bottom, below Collections (the owner's request, 2026-11-24).
+    auto* side = new QWidget;
+    side->setObjectName(QStringLiteral("Panel"));
+    side->setAttribute(Qt::WA_StyledBackground);
+    side->setFixedWidth(240);
+    auto* sideLay = new QVBoxLayout(side);
+    sideLay->setContentsMargins(0, 0, 0, 0);
+    sideLay->setSpacing(0);
     auto* filters = new FilterList;
     m_filters = filters;
-    m_filters->setObjectName(QStringLiteral("Panel"));
-    m_filters->setAttribute(Qt::WA_StyledBackground);
-    m_filters->setFixedWidth(240);
+    m_filters->setObjectName(QStringLiteral("Filters"));
     m_filters->setItemDelegate(new FilterDelegate(&m_theme, m_filters));
     m_filters->setContextMenuPolicy(Qt::CustomContextMenu);
     m_filters->setProperty("testId", "filters");
-    m_filters->setStyleSheet(QStringLiteral("QListWidget#Panel { padding-top: 8px; } QListWidget::item { padding: 0; }"));
+    m_filters->setFrameShape(QFrame::NoFrame);
+    m_filters->setStyleSheet(QStringLiteral("QListWidget#Filters { background: transparent; border: 0; padding-top: 8px; } "
+                                            "QListWidget::item { padding: 0; }"));
     filters->onDrop = [this](int c, const QList<int>& ids) { addToCollection(c, ids); };
-    body->addWidget(m_filters);
+    sideLay->addWidget(m_filters, 1);
+    {
+        auto* practiceTitle = new QLabel(tr("PRACTICE"));
+        practiceTitle->setObjectName(QStringLiteral("PanelTitle"));
+        practiceTitle->setStyleSheet(QStringLiteral("padding: 10px 12px 6px 12px;"));
+        sideLay->addWidget(practiceTitle);
+        auto* box = new QVBoxLayout;
+        box->setContentsMargins(12, 0, 12, 14);
+        box->setSpacing(6);
+        m_practice = new QPushButton(tr("Practice Words"));
+        m_practice->setObjectName(QStringLiteral("BigPractice"));
+        m_practice->setCursor(Qt::PointingHandCursor);
+        m_practice->setToolTip(tr("Flashcards of the words you looked up or highlighted (Ctrl+P). While reading, the "
+                                  "Practice button opens them beside the page."));
+        m_practice->setProperty("testId", "libraryPractice");
+        m_practice->setFixedHeight(36);
+        m_practice->setIconSize(QSize(18, 18));
+        box->addWidget(m_practice);
+        m_practiceCountLabel = new QLabel;
+        m_practiceCountLabel->setObjectName(QStringLiteral("Muted"));
+        m_practiceCountLabel->setStyleSheet(QStringLiteral("font-size: 12px; padding-left: 2px;"));
+        m_practiceCountLabel->setProperty("testId", "libraryPracticeCount");
+        box->addWidget(m_practiceCountLabel);
+        sideLay->addLayout(box);
+        connect(m_practice, &QPushButton::clicked, this, &LibraryView::practiceRequested);
+    }
+    body->addWidget(side);
 
     auto* main = new QVBoxLayout;
     main->setContentsMargins(24, 16, 24, 0);
@@ -512,12 +549,13 @@ LibraryView::LibraryView(core::Library* library, Settings& settings, QWidget* pa
     m_list->setContextMenuPolicy(Qt::CustomContextMenu);
     m_list->setSortingEnabled(false);
     m_list->header()->setStretchLastSection(false);
+    // The title takes the room; the author a fixed share; language, progress and the dates as wide as they need,
+    // so a small window still shows titles (before 2026-11-24 the fixed columns left a title "Una …" at 1024 px).
     m_list->header()->setSectionResizeMode(0, QHeaderView::Stretch);
-    const int widths[] = {0, 220, 120, 100, 120, 120};
-    for (int c = 1; c < 6; ++c) {
-        m_list->header()->setSectionResizeMode(c, QHeaderView::Interactive);
-        m_list->header()->resizeSection(c, widths[c]);
-    }
+    m_list->header()->setSectionResizeMode(1, QHeaderView::Interactive);
+    m_list->header()->resizeSection(1, 170);
+    for (int c = 2; c < 6; ++c) m_list->header()->setSectionResizeMode(c, QHeaderView::ResizeToContents);
+    m_list->header()->setMinimumSectionSize(60);
     m_list->setStyleSheet(QStringLiteral("QHeaderView::section { padding: 6px 6px 6px 10px; border: 0; } QTreeView::item { padding: 6px 4px; }"));
     m_list->header()->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     m_list->setProperty("testId", "list");
@@ -542,6 +580,7 @@ LibraryView::LibraryView(core::Library* library, Settings& settings, QWidget* pa
     m_continueText = new QLabel;
     m_continueText->setTextFormat(Qt::RichText);
     m_continueText->setProperty("testId", "continueText");
+    m_continueText->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);   // a long title never widens the window
     cb->addWidget(m_continueText, 1);
     m_continue = new QPushButton(tr("Continue"));
     m_continue->setObjectName(QStringLiteral("Primary"));
@@ -636,9 +675,15 @@ void LibraryView::setTheme(const Theme& t)
     if (auto* d = dynamic_cast<CoverDelegate*>(m_grid->itemDelegate())) d->covers.clear();
     m_grid->viewport()->update();
     m_filters->viewport()->update();
-    if (m_practice)
-        if (auto* icon = m_practice->findChild<QLabel*>())
-            icon->setPixmap(icons::icon("cards", t.accentFg, 26).pixmap(26, 26));
+    m_practice->setIcon(icons::icon("cards", t.accentFg, 18));
+}
+
+void LibraryView::updatePracticeCount()
+{
+    const int words = m_practiceCount ? m_practiceCount() : 0;
+    m_practiceCountLabel->setText(words == 0   ? tr("No Words Yet")
+                                  : words == 1 ? tr("1 Word in the Word List")
+                                               : tr("%1 Words in the Word List").arg(QLocale().toString(words)));
 }
 
 void LibraryView::setSettingsNotKept(bool on) { m_notKept->setVisible(on); }
@@ -719,47 +764,7 @@ void LibraryView::rebuildFilters()
     entry(tr("Reading"), QStringLiteral("reading"), reading);
     entry(tr("Finished"), QStringLiteral("finished"), finished);
     entry(tr("Not Started"), QStringLiteral("notstarted"), notStarted);
-    // Practice: a big button right under Library, easy to find (the owner's request, 2026-11-23).
-    {
-        auto* it = new QListWidgetItem(m_filters);
-        it->setFlags(Qt::NoItemFlags);
-        it->setData(Qt::UserRole + 4, true);
-        auto* holder = new QWidget;
-        auto* hl = new QVBoxLayout(holder);
-        hl->setContentsMargins(12, 12, 12, 8);
-        m_practice = new QPushButton;
-        m_practice->setObjectName(QStringLiteral("BigPractice"));
-        m_practice->setAccessibleName(tr("Practice Words"));
-        m_practice->setCursor(Qt::PointingHandCursor);
-        m_practice->setToolTip(tr("Flashcards of the words you looked up or highlighted (Ctrl+P). While reading, the "
-                                  "Practice button opens them beside the page."));
-        m_practice->setProperty("testId", "libraryPractice");
-        m_practice->setFixedHeight(64);
-        auto* row = new QHBoxLayout(m_practice);
-        row->setContentsMargins(14, 8, 14, 8);
-        row->setSpacing(12);
-        auto* icon = new QLabel;
-        icon->setPixmap(icons::icon("cards", m_theme.accentFg, 26).pixmap(26, 26));
-        icon->setProperty("testId", "libraryPracticeIcon");
-        row->addWidget(icon);
-        auto* texts = new QVBoxLayout;
-        texts->setSpacing(1);
-        auto* name = new QLabel(tr("Practice Words"));
-        name->setStyleSheet(QStringLiteral("font-size: 15px; font-weight: 700;"));
-        texts->addWidget(name);
-        const int words = m_practiceCount ? m_practiceCount() : 0;
-        auto* sub = new QLabel(words == 0   ? tr("No Words Yet")
-                               : words == 1 ? tr("1 Word in the Word List")
-                                            : tr("%1 Words in the Word List").arg(QLocale().toString(words)));
-        sub->setStyleSheet(QStringLiteral("font-size: 12px;"));
-        sub->setProperty("testId", "libraryPracticeCount");
-        texts->addWidget(sub);
-        row->addLayout(texts, 1);
-        for (QLabel* l : {icon, name, sub}) l->setAttribute(Qt::WA_TransparentForMouseEvents);
-        hl->addWidget(m_practice);
-        m_filters->setItemWidget(it, holder);
-        connect(m_practice, &QPushButton::clicked, this, &LibraryView::practiceRequested);
-    }
+    updatePracticeCount();
     if (!langs.isEmpty()) {
         header(tr("LANGUAGES"));
         QList<QPair<QString, QString>> sorted;
@@ -771,7 +776,7 @@ void LibraryView::rebuildFilters()
     if (m_library)
         for (const core::Collection& c : m_library->collections()) {
             QListWidgetItem* it = entry(c.name, QStringLiteral("collection:%1").arg(c.id), c.count);
-            it->setToolTip(tr("Drag books here to add them. Right-click to rename or delete."));
+            it->setToolTip(c.name + QLatin1Char('\n') + tr("Drag books here to add them. Right-click to rename or delete."));
         }
     QListWidgetItem* add = entry(tr("+ New Collection"), QStringLiteral("new-collection"), -1);
     add->setToolTip(tr("Make a collection, then drag books onto it."));
@@ -805,7 +810,9 @@ void LibraryView::updateContinue()
     m_continueBar->setVisible(best != nullptr);
     if (!best) return;
     m_continueId = best->id;
-    QStringList parts{tr("Continue Reading: <b>%1</b>").arg(best->title.toHtmlEscaped())};
+    const QString title = best->title.size() > 60 ? best->title.left(58).trimmed() + QStringLiteral("…") : best->title;
+    QStringList parts{tr("Continue Reading: <b>%1</b>").arg(title.toHtmlEscaped())};
+    m_continueText->setToolTip(best->title);
     if (!best->pageLabel.isEmpty() && !best->pageCount.isEmpty()) parts << tr("Page %1 of %2").arg(best->pageLabel, best->pageCount);
     parts << QLocale().toString(int(std::floor(best->progress * 100 + 1e-6))) + QStringLiteral("%");
     m_continueText->setText(parts.join(QStringLiteral(" · ")));

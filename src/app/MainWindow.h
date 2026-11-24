@@ -24,6 +24,7 @@ class QStackedWidget;
 class ReaderView;
 class LibraryView;
 class PracticeView;
+class HelpPanel;
 class LibrarySearchView;
 class StatisticsView;
 
@@ -56,6 +57,22 @@ public:
     LibraryView* library() const { return m_start; }
     PracticeView* practice() const { return m_practice; }
     PracticeView* practiceSide() const { return m_practiceSide; }
+    // Help > Getting Started: the guide in a panel on the window's right, in the library and while reading.
+    HelpPanel* helpPanel() const { return m_help; }
+    // The welcome on the first start: the reader's language and the language packs to download.
+    void showWelcome();
+    class WelcomeDialog* welcome() const;
+    // Downloads these languages' packs in Settings > General, where their progress shows.
+    void downloadPacks(const QStringList& languages);
+    // The file of the book open now (empty in the library), for reopening it in a rebuilt window.
+    QString currentBookPath() const;
+    // Before the window is replaced by one in another language: the book's place and the settings saved.
+    void prepareToClose();
+    // The language this window's text was built in (its menus and labels don't change after).
+    QString builtLanguage() const { return m_builtLanguage; }
+    bool helpVisible() const;
+    void setHelpVisible(bool on);
+    bool helpOverlays() const;   // over the screen's right side (no room beside it), not beside it
     LibrarySearchView* librarySearch() const { return m_librarySearch; }
     StatisticsView* statistics() const { return m_statistics; }
     void showStatistics();
@@ -77,6 +94,9 @@ public:
 signals:
     void bookShown();
     void bookFailed(const QString& message);
+    // The reader chose another language for the app's text (the welcome, or Settings > General > Restart Now): the
+    // window is rebuilt in it (main.cpp), the book reopened and the packs asked for downloaded.
+    void interfaceLanguageChanged(const QString& bookPath, const QStringList& packs);
 
 protected:
     bool eventFilter(QObject* o, QEvent* e) override;   // mouse-button shortcuts
@@ -116,7 +136,8 @@ public:
     core::OfflineDictionary* dictionary() const { return m_dictionary; }
     core::OfflineDictionary* englishDictionary() const { return m_dictionaryEn; }
     core::OfflineDictionary* spanishDefinitions() const { return m_definitionsEs; }
-    // <data folder>/dictionaries/: "es" es-en.sqlite, "en" en-en.sqlite, "es-es" es-es.sqlite
+    core::OfflineDictionary* englishSpanishDictionary() const { return m_dictionaryEnEs; }
+    // <data folder>/dictionaries/: "es" es-en.sqlite, "en" en-en.sqlite, "es-es" es-es.sqlite, "en-es" en-es.sqlite
     static QString dictionaryFile(const QString& key);
     static QString translatorFolder();   // <data folder>/translator: the program and one folder per language
     core::OfflineTranslator* offlineTranslator() const { return m_offline; }
@@ -138,6 +159,12 @@ private:
     ReaderView* m_reader;
     PracticeView* m_practice;
     PracticeView* m_practiceSide;   // the practice workspace beside the page (in the reader)
+    HelpPanel* m_help = nullptr;
+    QWidget* m_body = nullptr;            // the central widget: the screens and the guide
+    class QHBoxLayout* m_bodyLay = nullptr;
+    void placeHelp();
+    QPointer<class WelcomeDialog> m_welcome;
+    void ensureSettingsDialog();
     std::unique_ptr<core::WordLog> m_words;
     std::unique_ptr<core::Annotations> m_annotations;
     QWidget* m_beforePractice = nullptr;
@@ -162,6 +189,9 @@ private:
     core::OfflineDictionary* m_dictionary;
     core::OfflineDictionary* m_dictionaryEn;
     core::OfflineDictionary* m_definitionsEs;
+    core::OfflineDictionary* m_dictionaryEnEs;   // English -> Spanish, for Spanish readers
+    QString m_builtLanguage;
+    QStringList m_welcomePacks;                  // the packs the welcome asked for, until it has closed
     core::SavedWords* m_savedWords = nullptr;
     core::OfflineTranslator* m_offline = nullptr;
     std::vector<std::unique_ptr<Command>> m_commands;

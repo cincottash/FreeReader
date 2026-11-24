@@ -6,6 +6,7 @@
 
 #include "Theme.h"
 
+#include "core/translate/LanguagePacks.h"
 #include "core/translate/Translation.h"
 
 #include <QFrame>
@@ -33,7 +34,7 @@ public:
     bool showingBookSide() const { return m_twoSides && m_bookSide; }
     void flipSide();
     // The reader's own language (English for now: the translations are English).
-    static QString readerLanguage() { return QStringLiteral("en"); }
+    static QString readerLanguage() { return core::languages::readerLanguage(); }   // Settings > General > Your Language
     void showNothing(const QString& why);
     // Explain This Sentence: the sentence in English, then the notes on how it works.
     void showExplanation(const core::TranslationResult& r);

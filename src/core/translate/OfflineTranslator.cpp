@@ -38,22 +38,50 @@ QString OfflineTranslator::program() const
 #endif
 }
 
-bool OfflineTranslator::isInstalled() const
+bool OfflineTranslator::hasProgram() const { return !m_folder.isEmpty() && QFileInfo(program()).isFile(); }
+
+bool OfflineTranslator::hasPair(const QString& from, const QString& to) const
 {
-    return !m_folder.isEmpty() && QFileInfo(program()).isFile() && !configFor(QStringLiteral("es")).isEmpty();
+    if (m_folder.isEmpty() || from.isEmpty() || to.isEmpty() || from == to) return false;
+    const QDir dir(QDir(m_folder).absoluteFilePath(from + QLatin1Char('-') + to));
+    return !findFile(dir, QStringLiteral("model.*.bin")).isEmpty() && !findFile(dir, QStringLiteral("vocab.*.spm")).isEmpty();
 }
+
+QStringList OfflineTranslator::pairs() const
+{
+    QStringList out;
+    if (m_folder.isEmpty()) return out;
+    for (const QString& d : QDir(m_folder).entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name)) {
+        const QStringList two = d.split(QLatin1Char('-'));
+        if (two.size() == 2 && hasPair(two[0], two[1])) out << d;
+    }
+    return out;
+}
+
+bool OfflineTranslator::isInstalled() const { return hasProgram() && !pairs().isEmpty(); }
+
+namespace {
+// The pair a request asks for: the book's language (Spanish when not known, for an English reader; English for a
+// Spanish one) into the reader's.
+std::pair<QString, QString> pairOf(const TranslationRequest& request)
+{
+    const QString to = request.to.isEmpty() ? QStringLiteral("en") : request.to;
+    const QString from = !request.from.isEmpty() ? request.from : to == QLatin1String("en") ? QStringLiteral("es") : QStringLiteral("en");
+    return {from, to};
+}
+}  // namespace
 
 bool OfflineTranslator::handles(const TranslationRequest& request) const
 {
     if (request.kind == TranslationRequest::Kind::Explain) return false;
-    if (!request.from.isEmpty() && request.from != QLatin1String("es")) return false;   // the pairs installed: es -> en
-    return request.to.isEmpty() || request.to == QLatin1String("en");
+    const auto [from, to] = pairOf(request);
+    return hasPair(from, to);
 }
 
-QString OfflineTranslator::configFor(const QString& from) const
+QString OfflineTranslator::configFor(const QString& from, const QString& to) const
 {
     if (m_folder.isEmpty()) return {};
-    const QDir dir(QDir(m_folder).absoluteFilePath(from + QStringLiteral("-en")));
+    const QDir dir(QDir(m_folder).absoluteFilePath(from + QLatin1Char('-') + to));
     const QString model = findFile(dir, QStringLiteral("model.*.bin"));
     const QString lex = findFile(dir, QStringLiteral("lex.*.bin"));
     const QString vocab = findFile(dir, QStringLiteral("vocab.*.spm"));
@@ -79,7 +107,8 @@ QString OfflineTranslator::configFor(const QString& from) const
 
 void OfflineTranslator::translate(const TranslationRequest& request, Done done)
 {
-    const QString config = isSetUp() ? configFor(request.from.isEmpty() ? QStringLiteral("es") : request.from) : QString();
+    const auto [from, to] = pairOf(request);
+    const QString config = isSetUp() ? configFor(from, to) : QString();
     if (config.isEmpty()) {
         QTimer::singleShot(0, this, [done] { done({}, TranslationFailure::NotSetUp, {}); });
         return;

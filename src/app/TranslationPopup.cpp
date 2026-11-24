@@ -73,8 +73,17 @@ TranslationPopup::TranslationPopup(QWidget* parent) : QFrame(parent)
 #ifndef HAVE_TEXT_TO_SPEECH
     m_speak->hide();
 #endif
+    // Highlight at the top right, beside Hear Pronunciation (the owner's request, 2026-11-24).
+    m_highlight = new QPushButton(tr("Highlight"));
+    m_highlight->setFocusPolicy(Qt::NoFocus);
+    m_highlight->setCursor(Qt::PointingHandCursor);
+    m_highlight->setProperty("testId", "tpHighlight");
+    m_highlight->setFixedHeight(30);
+    m_highlight->setStyleSheet(QStringLiteral("QPushButton { padding: 2px 10px; font-size: 12px; }"));
+    m_highlight->hide();
     head->addWidget(m_word, 0, Qt::AlignBaseline);
     head->addWidget(m_detail, 1, Qt::AlignBaseline);
+    head->addWidget(m_highlight, 0, Qt::AlignTop);
     head->addWidget(m_speak, 0, Qt::AlignTop);
     m_lay->addLayout(head);
     m_speechNote = label("tpSpeechNote", "Muted");
@@ -128,11 +137,6 @@ TranslationPopup::TranslationPopup(QWidget* parent) : QFrame(parent)
     m_copy->setCursor(Qt::PointingHandCursor);
     m_copy->setToolTip(tr("Copy the translation"));
     m_copy->setProperty("testId", "tpCopy");
-    m_highlight = new QPushButton(tr("Highlight"));
-    m_highlight->setFocusPolicy(Qt::NoFocus);
-    m_highlight->setCursor(Qt::PointingHandCursor);
-    m_highlight->setProperty("testId", "tpHighlight");
-    m_highlight->hide();
     m_settings = new QPushButton(tr("Translation Settings…"));
     m_settings->setObjectName(QStringLiteral("Link"));
     m_settings->setFocusPolicy(Qt::NoFocus);
@@ -145,7 +149,6 @@ TranslationPopup::TranslationPopup(QWidget* parent) : QFrame(parent)
     m_flip->setProperty("testId", "tpFlip");
     m_flip->hide();
     actions->addWidget(m_copy);
-    actions->addWidget(m_highlight);
     actions->addWidget(m_settings);
     actions->addStretch(1);
     actions->addWidget(m_flip);
@@ -343,12 +346,14 @@ void TranslationPopup::applySide()
     const core::TranslationResult& r = m_result;
     const QString lang = m_language.section(QLatin1Char('-'), 0, 0).toLower();
     const bool word = !m_text.contains(QLatin1Char(' ')) && m_text.size() <= 40;
-    const QString bookName = QLocale::languageToString(QLocale(lang).language());
-    const QString readerName = QLocale::languageToString(QLocale(readerLanguage()).language());
+    const QString bookName = core::languages::displayName(lang);
+    const QString readerName = core::languages::displayName(readerLanguage());
     if (m_bookSide) {
         // All in the book's language: the word, its part of speech, the definition, the sentence as the book has it.
-        QString detail = lang == QLatin1String("es") ? spanishPartOfSpeech(r.partOfSpeech) : QString();
-        if (!r.lemma.isEmpty() && lang == QLatin1String("es")) detail += (detail.isEmpty() ? QString() : QStringLiteral(" · ")) + QStringLiteral("de ") + r.lemma;
+        // (The part of speech comes in the reader's language: put into Spanish for an English reader's Spanish book.)
+        QString detail = lang == QLatin1String("es") && readerLanguage() == QLatin1String("en") ? spanishPartOfSpeech(r.partOfSpeech) : QString();
+        if (!r.lemma.isEmpty() && (lang == QLatin1String("es") || lang == QLatin1String("en")))
+            detail += (detail.isEmpty() ? QString() : QStringLiteral(" · ")) + (lang == QLatin1String("es") ? QStringLiteral("de ") : QStringLiteral("from ")) + r.lemma;
         setHead(word ? m_text : QString(), detail);
         for (QWidget* w : {static_cast<QWidget*>(m_translation), static_cast<QWidget*>(m_alternatives), static_cast<QWidget*>(m_note)}) w->hide();
         m_definitionTitle->setText(languageTitle(m_language));
@@ -493,8 +498,24 @@ void TranslationPopup::place()
 {
     QWidget* p = parentWidget();
     if (!p) return;
-    const int w = qMin(420, p->width() - 32);
+    int w = qMin(420, p->width() - 32);
     setFixedWidth(w);
+    // A long answer in a short window: wider (up to 640 px) before it is cut at the window's bottom (an explanation
+    // in a 640 px tall window lost its last line, 2026-11-24).
+    {
+        ensurePolished();
+        for (QWidget* c : findChildren<QWidget*>()) c->ensurePolished();
+        m_lay->invalidate();
+        m_lay->activate();
+        const int room = p->height() - 32;
+        for (int wider = w + 110; m_lay->heightForWidth(w - 2 * frameWidth()) + 2 * frameWidth() > room && wider <= qMin(640, p->width() - 32);
+             wider += 110) {
+            w = wider;
+            setFixedWidth(w);
+            m_lay->invalidate();
+            m_lay->activate();
+        }
+    }
     // Labels wrap to the width; ask the layout how tall that makes the pop-up. Their style sheets (font sizes) are
     // applied first: measured before that, a wrapped meaning came out a line short (the owner's report, 2026-11-23).
     ensurePolished();

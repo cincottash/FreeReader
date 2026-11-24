@@ -12,7 +12,9 @@ KindleImportDialog::KindleImportDialog(const core::KindleExport& ex, const core:
                                        QWidget* parent)
     : QDialog(parent), m_apply(std::move(apply))
 {
-    setWindowTitle(tr("Import Kindle Highlights"));
+    // A FreeReader Notebook export or a Kindle's: the same choices, worded for where they come from.
+    const bool nb = plan.notebook;
+    setWindowTitle(nb ? tr("Import Highlights") : tr("Import Kindle Highlights"));
     const QLocale loc;
     auto* lay = new QVBoxLayout(this);
     lay->setContentsMargins(18, 14, 18, 14);
@@ -32,7 +34,9 @@ KindleImportDialog::KindleImportDialog(const core::KindleExport& ex, const core:
     if (plan.notes) s += tr(" (%1 with notes)").arg(loc.toString(plan.notes));
     s += QStringLiteral("</li>");
     if (plan.notFound)
-        s += QStringLiteral("<li>") + tr("%1 not in this book's text: your Kindle edition words them differently").arg(loc.toString(plan.notFound)) +
+        s += QStringLiteral("<li>") +
+             (nb ? tr("%1 not in this book's text: the file's edition words them differently")
+                 : tr("%1 not in this book's text: your Kindle edition words them differently")).arg(loc.toString(plan.notFound)) +
              QStringLiteral("</li>");
     const int equivalents = plan.byForm + plan.byPosition;
     if (plan.bookmarks) s += QStringLiteral("<li>") + tr("%1 bookmarks").arg(loc.toString(plan.bookmarks)) + QStringLiteral("</li>");
@@ -61,7 +65,8 @@ KindleImportDialog::KindleImportDialog(const core::KindleExport& ex, const core:
         if (notesAffected) w += notesAffected == 1 ? tr(" (1 with a note)") : tr(" (%1 with notes)").arg(loc.toString(notesAffected));
         w += QStringLiteral(". ");
         w += equivalents
-                 ? tr("They'll go on the closest equivalent in orange, with the Kindle words as a note: %1 the same word in another form, %2 at the matching spot. Check the list below before importing.")
+                 ? (nb ? tr("They'll go on the closest equivalent in orange, with the file's words as a note: %1 the same word in another form, %2 at the matching spot. Check the list below before importing.")
+                       : tr("They'll go on the closest equivalent in orange, with the Kindle words as a note: %1 the same word in another form, %2 at the matching spot. Check the list below before importing."))
                        .arg(loc.toString(plan.byForm), loc.toString(plan.byPosition))
                  : tr("Check the list below before importing.");
         m_warning->setText(w);
@@ -78,10 +83,14 @@ KindleImportDialog::KindleImportDialog(const core::KindleExport& ex, const core:
         return c;
     };
     m_highlights = check(tr("Highlight Them in the Book (With Their Notes)"), "kindleHighlights", true, plan.found > 0);
-    m_equivalents = check(tr("Highlight the Equivalent Words for the Others, in Orange, With the Kindle Words as a Note (%1)").arg(loc.toString(equivalents)),
+    m_equivalents = check((nb ? tr("Highlight the Equivalent Words for the Others, in Orange, With the File's Words as a Note (%1)")
+                              : tr("Highlight the Equivalent Words for the Others, in Orange, With the Kindle Words as a Note (%1)"))
+                              .arg(loc.toString(equivalents)),
                           "kindleEquivalents", true, equivalents > 0);
     m_words = check(tr("Add the Words and Short Phrases to the Word List (%1)").arg(loc.toString(words)), "kindleWords", true, words > 0);
-    m_missing = check(tr("Also Add the Kindle Words This Edition Says Differently (%1), Marked as From Kindle").arg(loc.toString(missingWords)),
+    m_missing = check((nb ? tr("Also Add the Words This Edition Says Differently (%1)")
+                          : tr("Also Add the Kindle Words This Edition Says Differently (%1), Marked as From Kindle"))
+                          .arg(loc.toString(missingWords)),
                       "kindleMissing", true, missingWords > 0);
     m_passages = check(tr("Keep the Passages and Notes This Edition Doesn't Have (%1) as Bookmarks at About Their Place").arg(loc.toString(missingPassages)),
                        "kindlePassages", true, missingPassages > 0);
@@ -89,9 +98,12 @@ KindleImportDialog::KindleImportDialog(const core::KindleExport& ex, const core:
     m_bookmarks = check(tr("Add the Bookmarks (%1)").arg(loc.toString(plan.bookmarks)), "kindleBookmarks", true, plan.bookmarks > 0);
     m_move = check(tr("Continue Reading From My Kindle Place (About %1 %)").arg(loc.toString(qRound(plan.lastFraction * 100))), "kindleMove",
                    true, plan.lastLocation > 0);
-    m_missing->setToolTip(tr("They go to the Word List as highlighted on the Kindle, with this edition's sentence around their equivalent."));
+    m_move->setVisible(!nb);   // a Notebook export has no reading place
+    m_missing->setToolTip(nb ? tr("They go to the Word List as the file has them, with this edition's sentence around their equivalent.")
+                             : tr("They go to the Word List as highlighted on the Kindle, with this edition's sentence around their equivalent."));
 
-    m_showMissing = new QPushButton(tr("Show the Kindle Words and Their Equivalents (%1)").arg(loc.toString(plan.notFound)));
+    m_showMissing = new QPushButton((nb ? tr("Show the File's Words and Their Equivalents (%1)") : tr("Show the Kindle Words and Their Equivalents (%1)"))
+                                        .arg(loc.toString(plan.notFound)));
     m_showMissing->setObjectName(QStringLiteral("Link"));
     m_showMissing->setCursor(Qt::PointingHandCursor);
     m_showMissing->setVisible(plan.notFound > 0);
@@ -104,8 +116,11 @@ KindleImportDialog::KindleImportDialog(const core::KindleExport& ex, const core:
             const QString how = p.match == core::KindlePlaced::ByForm       ? tr("another form")
                               : p.match == core::KindlePlaced::ByPosition ? tr("matching spot")
                                                                           : QString();
-            m_missingList->addItem(how.isEmpty() ? tr("Location %1: %2 (no equivalent)").arg(p.item.location).arg(p.item.text)
-                                                 : tr("Location %1: %2 → %3 (%4)").arg(p.item.location).arg(p.item.text, p.equivalent, how));
+            if (nb)
+                m_missingList->addItem(how.isEmpty() ? tr("%1 (no equivalent)").arg(p.item.text) : tr("%1 → %2 (%3)").arg(p.item.text, p.equivalent, how));
+            else
+                m_missingList->addItem(how.isEmpty() ? tr("Location %1: %2 (no equivalent)").arg(p.item.location).arg(p.item.text)
+                                                     : tr("Location %1: %2 → %3 (%4)").arg(p.item.location).arg(p.item.text, p.equivalent, how));
         }
     m_missingList->setMinimumHeight(180);
     m_missingList->hide();
@@ -161,7 +176,7 @@ void KindleImportDialog::runImport()
     m_done = true;
     const QLocale loc;
     QStringList lines;
-    lines << tr("Imported: %1 highlights, %2 equivalent highlights (orange), %3 words to the Word List, %4 Kindle words this edition says differently, %5 bookmarks.")
+    lines << tr("Imported: %1 highlights, %2 equivalent highlights (orange), %3 words to the Word List, %4 words this edition says differently, %5 bookmarks.")
                  .arg(loc.toString(r.highlights), loc.toString(r.equivalents), loc.toString(r.words), loc.toString(r.missingWords), loc.toString(r.bookmarks));
     if (r.passages) lines << tr("%1 passages and notes this edition doesn't have are bookmarks at about their place.").arg(loc.toString(r.passages));
     if (r.skipped) lines << tr("%1 were already there and were left as they are.").arg(loc.toString(r.skipped));

@@ -76,8 +76,8 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 - **Right-click** a word (it's selected for you) or a selection and choose **Translate** (or select and press
   Ctrl+E): a pop-up shows what it means in that sentence, other meanings, its dictionary form ("tenía" → tener),
   a definition in Spanish and the whole sentence in English. **Copy** and **Hear Pronunciation** are in the pop-up,
-  and **Highlight** highlights the word in the color you used last without another right-click (again: Remove
-  Highlight). The same menu has Dictionary, Copy, Search the Web and Search Wikipedia; Translate is always first.
+  and **Highlight** at its top right highlights the word in the color you used last without another right-click
+  (again: Remove Highlight). The Dictionary card has it in the same place. The same menu has Dictionary, Copy, Search the Web and Search Wikipedia; Translate is always first.
 - **Dictionary** (right-click a word) opens the word's whole entry, laid out like a printed dictionary: its forms
   and origin, each part of speech, numbered senses with their labels (colloquial, Mexico…) and examples. A verb
   form opens its verb ("dijo" → decir). **Full Definition** opens the entry on Wiktionary; **Translate** switches to
@@ -91,10 +91,10 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
   ![The Dictionary card's Spanish side](.github/readme/dictionary-flip.png)
 
   ![The Dictionary card for "ingenioso"](.github/readme/dictionary.png)
-- **Explain This Sentence** (right-click, or Ctrl+Shift+E): the sentence in English with short notes on how it
-  works (verb forms, pronouns, idioms, old words).
-- **Show English Alongside** (View menu, Ctrl+Shift+B): the English of every paragraph on the page in a panel
-  beside it, a page at a time; pages you've seen stay translated.
+- **Explain This Sentence** (right-click, or Ctrl+Shift+E): the sentence in your language with short notes on how
+  it works (verb forms, pronouns, idioms, old words).
+- **Show English Alongside** (View menu, Ctrl+Shift+B; for a Spanish speaker, Spanish): your language for every
+  paragraph on the page in a panel beside it, a page at a time; pages you've seen stay translated.
 - Prefer the pop-up as soon as you select? Turn on **Settings ▸ Translation ▸ Translate When Text Is Selected**.
 - Answers come from one engine at a time, always in this order: **Google's Gemini** (free tier, no card needed),
   then **LM Studio** on your own computer (optional), then what your **Word List** already says, then the **offline
@@ -102,13 +102,23 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
   switched off (**Settings ▸ Translation**). Every Gemini and LM Studio answer is kept, so looking up the same words
   again costs nothing and works offline; a kept answer follows the same order (Gemini's is used while Gemini is on).
 - **Set it up once:** get a free key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey), then
-  paste it in **Settings ▸ Translation ▸ Translation Settings…**. The key is kept in Windows Credential Manager
+  paste it in **Settings ▸ Translation ▸ All Translation Options…**. The key is kept in Windows Credential Manager
   (or the system's key store on Linux), never in a file. **Test** looks up one word to check it works.
 - **Keeping text offline:** Gemini is the only engine that sends text over the internet, so turning off **Use
   Gemini** keeps every book offline. **Keep This Book Offline** does it for the open book only. Both are in
   **Settings ▸ Translation**, and in the translation settings window, which also counts the books kept offline.
-- **Offline dictionaries** (optional downloads in the translation settings) answer single words with no internet,
-  when the engines before them can't:
+- **Your language: English or Spanish.** FreeReader's menus, buttons and messages, its translations and its
+  explanations are all in the language you choose. A Spanish speaker reads English books with Spanish meanings, the
+  same way an English speaker reads Spanish ones.
+- **Language packs:** the first start asks for your language and the languages you read. The app switches to your
+  language at once, and every pack is ticked, so one click (**Download and Start**) gets everything. Nothing is
+  downloaded before that click, so the app itself stays small. A pack holds a language's dictionary, its definitions
+  and the offline translator. **Settings ▸ General…** changes them later (Download, Remove) and changes your language
+  (**Restart Now** reopens the window in it). Only languages with every part are offered, in both directions:
+  English and Spanish, so far.
+  ![The welcome in Spanish: your language, and the language packs ticked](.github/readme/welcome-es.png)
+- **Offline dictionaries** (in the language packs, or one by one in the translation settings) answer single words
+  with no internet, when the engines before them can't:
   - **Spanish → English** (31 MB): 120,000 words from [Wiktionary](https://en.wiktionary.org) (CC BY-SA 4.0),
     with verb forms ("tenía" → tener). [Release](https://github.com/cincottash/FreeReader/releases/tag/dictionary-es-en-1).
   - **English definitions** (11 MB), for English books: 160,000 words and names from
@@ -116,15 +126,21 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
     ("ran" → run, "studies" → study). [Release](https://github.com/cincottash/FreeReader/releases/tag/dictionary-en-1).
   - **Spanish definitions** (46 MB), for the Dictionary card: 148,000 Spanish words defined in Spanish, from the
     [Spanish Wiktionary](https://es.wiktionary.org) (CC BY-SA 4.0). [Release](https://github.com/cincottash/FreeReader/releases/tag/dictionary-es-es-1).
-- **Offline translator** (30 MB, optional download in the same place): translates Spanish sentences and pages
-  with no internet, in a fraction of a second, when Gemini and LM Studio can't. It's
+  - **English → Spanish** (6 MB), for Spanish speakers: 74,000 English words with their Spanish meanings and 84,000
+    forms ("went" → go), from the English Wiktionary's translation tables and the Spanish Wiktionary's English
+    entries (CC BY-SA 4.0). [Release](https://github.com/cincottash/FreeReader/releases/tag/dictionary-en-es-1).
+- **Offline translator** (30 MB, optional download in the same place): translates sentences and pages with no
+  internet, in a fraction of a second, when Gemini and LM Studio can't. It's
   [Bergamot](https://github.com/browsermt/bergamot-translator), the engine Firefox translates with, and Mozilla's
-  Spanish → English model (both MPL 2.0). Its English is plainer than Gemini's and weaker on old Spanish, so it isn't
-  kept: Gemini's answer replaces it once online. [Release](https://github.com/cincottash/FreeReader/releases/tag/offline-translator-1).
+  models (MPL 2.0): Spanish → English comes with it, and English → Spanish (25 MB) with the English pack for Spanish
+  speakers. Its translations are plainer than Gemini's and weaker on old Spanish, so they aren't kept: Gemini's
+  answer replaces them once online. [Release](https://github.com/cincottash/FreeReader/releases/tag/offline-translator-1),
+  [English → Spanish model](https://github.com/cincottash/FreeReader/releases/tag/translator-en-es-1).
 - <img src=".github/readme/selection-menu.png" align="right" width="200" alt="The right-click menu of a selection, with Read Aloud">
   **Read Aloud** (right-click a selection, or the command list) reads the selected words in the book's language;
   **Stop Reading Aloud** in the same menu stops it.
-- **Hear Pronunciation** and Read Aloud use the computer's own voices. Windows: add a voice for the book's
+- **Hear Pronunciation** and Read Aloud use the computer's own voices. **Settings ▸ Audio…** sets the speed, the
+  volume and a voice for each language, with **Play Sample** to hear it. Windows: add a voice for the book's
   language (free) in Settings ▸ Time & Language ▸ Speech; the pop-up says when one is missing. Linux:
   speech-dispatcher with espeak-ng.
 
@@ -139,7 +155,7 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
   **Word List** of **This Page** (the words you looked up or highlighted on the pages showing), this book or all
   books, with their meanings. It stays open as you turn pages, and new words show in it at once. The button at
   its top right opens Practice in the whole window.
-- **Practice Words** (the big button under Library on the home page, or Ctrl+P there) turns the words you looked up or
+- **Practice Words** (at the bottom of the library's left column, or Ctrl+P there) turns the words you looked up or
   highlighted into flashcards (a highlighted word is never looked up for this: the offline dictionary fills in its
   meaning, or its card has a **Look Up Meaning** button). Each session goes through all your cards in the **Order**
   you choose: Random, Alphabetical, Newest First, Oldest First, or Book Order. A card you mark **Again** comes back
@@ -170,9 +186,11 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 - **Bookmark This Page** (Ctrl+D, or the bookmark button), or **Bookmark Here** (right-click a word): a bookmark on
   that word, marked with a small ribbon. Going to it from the Notebook selects the word.
 - **Notebook** (Ctrl+Shift+N): the book's highlights, notes and bookmarks in reading order, filtered by kind or
-  color. Click one to go there; **Export…** saves them as Markdown, or as JSON for other tools.
-- **File ▸ Import Kindle Highlights…** brings highlights, notes and bookmarks from a Kindle (a Bookcision JSON
-  export or a Kindle's My Clippings.txt) into the open book, and can continue from your Kindle place. Each highlight
+  color. Click one to go there; **Export…** saves them as Markdown, plain text, CSV or TSV (for spreadsheets), or
+  JSON (for other tools).
+- **File ▸ Import Highlights…** reads any of those exports back into a book, with their colors and notes, or brings
+  highlights, notes and bookmarks from a Kindle (a Bookcision JSON export or a Kindle's My Clippings.txt) and can
+  continue from your Kindle place. Each highlight
   is found by its text, so another edition of the book works too; words that edition says differently still go to the
   Word List, and passages and notes it doesn't have become bookmarks at about their place.
 - **Search This Book** (Ctrl+F): every place a word or phrase appears, with its page. Accents and capitals don't
@@ -196,8 +214,11 @@ FreeReader never changes your book files: highlights and notes live in its own d
   from your reading speed (learned as you turn pages), and again to switch back.
 - **Footnotes** open in a small pop-up next to the reference. **Pictures** open full size when clicked.
 - **Menus:** File, View, Go, Settings and Help at the top left. Ctrl+K lists every command with a search box.
-- **Settings** (Ctrl+,): Translation, Keyboard Shortcuts and General (the app data folder, the library folders,
-  resetting text and layout). Changes show at once; **OK** keeps them and **Cancel** puts back what you changed.
+- **Help ▸ Getting Started** (Shift+F1) opens a guide beside the page or the library: every feature and how to use
+  it, the common settings (one click opens each), and questions and answers.
+- **Settings** window, in tabs: **General** (Ctrl+,: the app data folder, the library folders, resetting text and
+  layout), **Translation**, **Audio** and **Keyboard Shortcuts**; the Settings menu opens each. Changes show at
+  once; **OK** keeps them and **Cancel** puts back what you changed.
 
 Page numbers stay the same whatever the text size or the window: one page is 1,800 characters of the book, or
 the publisher's own page numbers when the book has them.
@@ -228,7 +249,7 @@ FreeReader only opens books without DRM. It never removes or works around DRM.
 <details>
 <summary>Keyboard shortcuts</summary>
 
-Every shortcut can be changed in **Settings** (Ctrl+,). A command can also have a mouse button: the middle, back
+Every shortcut can be changed in **Settings ▸ Keyboard Shortcuts…**. A command can also have a mouse button: the middle, back
 or forward button, with Ctrl, Shift or Alt if you like (**Next Page** and **Previous Page** are there for that).
 
 | Command | Shortcut |
@@ -254,7 +275,8 @@ or forward button, with Ctrl, Shift or Alt if you like (**Next Page** and **Prev
 | Wider Margins / Narrower Margins | Ctrl+] / Ctrl+[, Ctrl+Shift+wheel |
 | Full Screen | F11 |
 | Copy | Ctrl+C |
-| Settings… | Ctrl+, |
+| General… (Settings) | Ctrl+, |
+| Getting Started | Shift+F1 |
 | Quit | Ctrl+Q |
 
 </details>

@@ -6,6 +6,7 @@
 #include "Settings.h"
 
 #include "core/practice/Answer.h"
+#include "core/translate/LanguagePacks.h"
 #include "core/translate/TranslationService.h"
 
 #include <QButtonGroup>
@@ -37,6 +38,18 @@ using core::practice::Rating;
 namespace {
 
 const char* kDirections[4] = {"recognize", "recall", "definition", "cloze"};
+
+// Pages whose size is the page shown, not the largest page: the card (tall in the narrow workspace beside the book)
+// made the whole workspace, and so the window, taller than a 700 px screen while the start page showed.
+class CurrentPageStack : public QStackedWidget {
+public:
+    CurrentPageStack()
+    {
+        connect(this, &QStackedWidget::currentChanged, this, [this] { updateGeometry(); });
+    }
+    QSize minimumSizeHint() const override { return currentWidget() ? currentWidget()->minimumSizeHint() : QSize(); }
+    QSize sizeHint() const override { return currentWidget() ? currentWidget()->sizeHint() : QStackedWidget::sizeHint(); }
+};
 
 QLabel* wrapLabel(const char* testId, const char* object = nullptr)
 {
@@ -100,9 +113,20 @@ PracticeView::PracticeView(core::WordLog* log, Settings& settings, QWidget* pare
     m_tabList->setProperty("testId", "tabWordList");
     lay->addWidget(bar);
 
-    m_pages = new QStackedWidget;
+    m_pages = new CurrentPageStack;
     m_pages->addWidget(buildStart());
-    m_pages->addWidget(buildCard());
+    // The card scrolls when the window is short (beside the book, 700 px tall, it didn't fit). The scroll area never
+    // takes the focus, so Space and 1 to 4 still reach the card.
+    {
+        auto* cardScroll = new QScrollArea;
+        cardScroll->setWidgetResizable(true);
+        cardScroll->setFrameShape(QFrame::NoFrame);
+        cardScroll->setFocusPolicy(Qt::NoFocus);
+        cardScroll->viewport()->setAutoFillBackground(false);
+        cardScroll->setWidget(buildCard());
+        cardScroll->widget()->setAutoFillBackground(false);
+        m_pages->addWidget(cardScroll);
+    }
     m_pages->addWidget(buildDone());
     m_pages->addWidget(buildList());
     lay->addWidget(m_pages, 1);
@@ -133,22 +157,32 @@ QString PracticeView::languageName() const
 {
     QHash<QString, int> n;
     for (const core::WordEntry& w : m_log->words()) ++n[w.language];
+    // The commonest language read, other than the reader's own (its words have definitions, not translations).
     QString best;
     int most = 0;
-    for (auto it = n.cbegin(); it != n.cend(); ++it)
-        if (it.value() > most && it.key() != QLatin1String("und")) {
-            most = it.value();
-            best = it.key();
-        }
+    for (const bool skipOwn : {true, false}) {
+        for (auto it = n.cbegin(); it != n.cend(); ++it)
+            if (it.value() > most && it.key() != QLatin1String("und") && !(skipOwn && it.key() == core::languages::readerLanguage())) {
+                most = it.value();
+                best = it.key();
+            }
+        if (!best.isEmpty()) break;
+    }
     if (best.isEmpty()) return tr("Book Language");
-    return QLocale::languageToString(QLocale(best).language());
+    return core::languages::displayTitle(best);
 }
 
 QString PracticeView::directionLabel(const QString& d) const
 {
+    // "Spanish → English"; in Spanish "Español → inglés" (a capital only to start the label).
     const QString lang = languageName();
-    if (d == QLatin1String("recognize")) return tr("%1 → English").arg(lang);
-    if (d == QLatin1String("recall")) return tr("English → %1").arg(lang);
+    const QString mine = core::languages::readerLanguage();
+    if (d == QLatin1String("recognize")) return tr("%1 → %2").arg(lang, core::languages::displayName(mine));
+    if (d == QLatin1String("recall")) {
+        QString bookLang = lang;
+        if (!bookLang.isEmpty() && core::languages::displayName(mine) != core::languages::displayTitle(mine)) bookLang[0] = bookLang[0].toLower();
+        return tr("%1 → %2").arg(core::languages::displayTitle(mine), bookLang);
+    }
     if (d == QLatin1String("definition")) return tr("Definition → Word");
     return tr("Sentence With a Gap → Word");
 }
@@ -886,12 +920,18 @@ void PracticeView::fillBookChoices(QComboBox* box, bool thisPage)
     if (thisPage && m_openBook) box->addItem(tr("This Page"), kThisPage);
     box->addItem(tr("All Books"), 0);
     bool listed = false;
+    // A long title is shortened in the list (the whole title is its tooltip), so the box beside the book shows it.
+    auto addBook = [box](const QString& title, int id) {
+        const QString shown = title.size() > 40 ? title.left(38).trimmed() + QStringLiteral("…") : title;
+        box->addItem(shown, id);
+        box->setItemData(box->count() - 1, title, Qt::ToolTipRole);
+    };
     for (const auto& [id, title] : m_log->booksWithWords()) {
-        box->addItem(title, id);
+        addBook(title, id);
         if (id == m_openBook) listed = true;
     }
     // The book being read, even before it has words.
-    if (m_openBook && !listed) box->addItem(m_openTitle.isEmpty() ? tr("This Book") : m_openTitle, m_openBook);
+    if (m_openBook && !listed) addBook(m_openTitle.isEmpty() ? tr("This Book") : m_openTitle, m_openBook);
     int want = keep;
     if (box->property("chooseOpen").toBool()) {
         want = m_openBook;

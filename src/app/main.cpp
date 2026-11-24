@@ -1,5 +1,6 @@
 #include "AppData.h"
 #include "Appearance.h"
+#include "InterfaceLanguage.h"
 #include "Commands.h"
 #include "LibraryView.h"
 #include "MainWindow.h"
@@ -13,6 +14,7 @@
 #include "core/services/Library.h"
 #include "core/services/Secrets.h"
 #include "core/translate/AiProviders.h"
+#include "core/translate/LanguagePacks.h"
 
 #include <QFile>
 #include <QJsonDocument>
@@ -36,6 +38,7 @@
 
 #include <cstdio>
 #include <functional>
+#include <memory>
 
 #ifdef Q_OS_LINUX
 // An AppImage carries only the X11 ("xcb") and offscreen display plug-ins. Many Wayland desktops tell every Qt
@@ -151,6 +154,15 @@ static int screenshot(QCommandLineParser& cli, const QString& out)
     if (cli.isSet(QStringLiteral("font"))) settings.look.font = cli.value(QStringLiteral("font"));
     settings.showContents = cli.isSet(QStringLiteral("contents"));
     if (cli.isSet(QStringLiteral("theme"))) settings.theme = cli.value(QStringLiteral("theme"));
+    if (cli.isSet(QStringLiteral("language"))) {
+        settings.readerLanguage = cli.value(QStringLiteral("language"));
+        if (!core::languages::readerLanguages().contains(settings.readerLanguage)) {
+            fprintf(stderr, "Unknown language %s (one of: %s).\n", qPrintable(settings.readerLanguage),
+                    qPrintable(core::languages::readerLanguages().join(QStringLiteral(", "))));
+            return 2;
+        }
+        installInterfaceLanguage(settings.readerLanguage, QString());
+    }
     core::Library library;
     QString err;
     if (!library.open(QDir(appdata::folder()).filePath(QStringLiteral("library.sqlite")), &err)) {
@@ -268,6 +280,7 @@ int main(int argc, char* argv[])
     cli.addOption({QStringLiteral("appearance"), QStringLiteral("With --screenshot: show the text and layout panel.")});
     cli.addOption({QStringLiteral("practice"), QStringLiteral("With --screenshot: show the practice workspace beside the page (or Practice, in the library).")});
     cli.addOption({QStringLiteral("font"), QStringLiteral("With --screenshot: use this font for the text."), QStringLiteral("family")});
+    cli.addOption({QStringLiteral("language"), QStringLiteral("With --screenshot: the app in this language (en or es)."), QStringLiteral("code")});
     cli.addOption({QStringLiteral("check-speech"), QStringLiteral("Write the speech engines, languages and voices to this file and exit."), QStringLiteral("file")});
     cli.addOption({QStringLiteral("check-translation"), QStringLiteral("Look up one word with Gemini (the saved key), write the answer to this file and exit."), QStringLiteral("file")});
     cli.process(app);
@@ -279,11 +292,33 @@ int main(int argc, char* argv[])
     if (appdata::resolve(cli.value(QStringLiteral("data-folder")), nullptr).isEmpty()) return 0;
     Settings settings;
     settings.load(appdata::settingsFile());
+    // The app's own text in the reader's language (nothing to do for English).
+    installInterfaceLanguage(settings.readerLanguage, appdata::folder());
     core::Library library;
     QString err;
     library.open(QDir(appdata::folder()).filePath(QStringLiteral("library.sqlite")), &err);
-    MainWindow w(settings, &library, true);
-    w.show();
-    if (!cli.positionalArguments().isEmpty()) w.openBook(cli.positionalArguments().first());
+    auto w = std::make_unique<MainWindow>(settings, &library, true);
+    // Another language for the app's text (the welcome, or Settings > General > Restart Now): a new window in it, with
+    // the book that was open, then the old one goes (after the new one shows, so the app never has no window).
+    std::function<void(MainWindow*)> watch;
+    watch = [&](MainWindow* win) {
+        QObject::connect(win, &MainWindow::interfaceLanguageChanged, &app, [&](const QString& book, const QStringList& packs) {
+            QTimer::singleShot(0, &app, [&, book, packs] {
+                std::unique_ptr<MainWindow> old = std::move(w);
+                old->prepareToClose();
+                installInterfaceLanguage(settings.readerLanguage, appdata::folder());
+                w = std::make_unique<MainWindow>(settings, &library, true);
+                watch(w.get());
+                w->show();
+                old->hide();
+                old.reset();
+                if (!book.isEmpty()) w->openBook(book);
+                if (!packs.isEmpty()) w->downloadPacks(packs);
+            });
+        });
+    };
+    watch(w.get());
+    w->show();
+    if (!cli.positionalArguments().isEmpty()) w->openBook(cli.positionalArguments().first());
     return app.exec();
 }

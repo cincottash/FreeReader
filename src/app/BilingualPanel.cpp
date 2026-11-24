@@ -1,5 +1,7 @@
 #include "BilingualPanel.h"
 
+#include "core/translate/LanguagePacks.h"
+
 #include <QLabel>
 #include <QScrollArea>
 #include <QToolButton>
@@ -14,7 +16,8 @@ BilingualPanel::BilingualPanel(QWidget* parent) : QFrame(parent)
     auto* lay = new QVBoxLayout(this);
     lay->setContentsMargins(0, 0, 0, 8);
     lay->setSpacing(4);
-    auto* title = new QLabel(tr("ENGLISH"));
+    // The reader's language ("ENGLISH"; "ESPAÑOL" for a Spanish reader).
+    auto* title = new QLabel(core::languages::displayName(core::languages::readerLanguage()).toUpper());
     title->setObjectName(QStringLiteral("PanelTitle"));
     lay->addWidget(title);
     m_status = new QLabel;

@@ -1,5 +1,7 @@
 #include "Settings.h"
 
+#include "core/translate/LanguagePacks.h"
+
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -47,6 +49,12 @@ void fields(Settings& s, F&& f)
     f("lm_studio_model", s.lmStudioModel);
     f("use_dictionary", s.useDictionary);
     f("use_offline_translator", s.useOfflineTranslator);
+    f("reader_language", s.readerLanguage);
+    f("practice_languages", s.practiceLanguages);
+    f("welcome_shown", s.welcomeShown);
+    f("speech_rate_pct", s.speechRatePct);
+    f("speech_volume_pct", s.speechVolumePct);
+    f("speech_voices", s.speechVoices);
     f("practice_directions", s.practiceDirections);
     f("practice_typed", s.practiceTyped);
     f("practice_sentence_front", s.practiceSentenceFront);
@@ -96,6 +104,9 @@ bool Settings::load(const QString& path)
     practiceNewPerDay = qBound(0, practiceNewPerDay, 500);
     libraryZoomPct = qBound(50, libraryZoomPct, 250);
     pageTurnMs = qBound(100, pageTurnMs, 1000);
+    if (!core::languages::readerLanguages().contains(readerLanguage)) readerLanguage = QStringLiteral("en");
+    speechRatePct = qBound(-100, speechRatePct, 100);
+    speechVolumePct = qBound(0, speechVolumePct, 100);
     if (!QStringList{"none", "slide", "cover", "fade", "curl"}.contains(pageTurn)) pageTurn = QStringLiteral("none");
     if (!QStringList{"smooth", "even", "gentle"}.contains(pageTurnMotion)) pageTurnMotion = QStringLiteral("smooth");
     {

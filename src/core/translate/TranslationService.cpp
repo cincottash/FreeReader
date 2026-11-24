@@ -81,7 +81,9 @@ TranslationResult TranslationService::offlineMeaning(const QString& text, const 
 bool TranslationService::hasOfflineDictionary(const QString& language) const
 {
     for (OfflineDictionary* d : m_instant)
-        if (d && d->info().ok && (language.isEmpty() || d->info().language == language)) return true;
+        if (d && d->info().ok && (language.isEmpty() || d->info().language == language) &&
+            (d->info().target.isEmpty() || d->info().target == languages::readerLanguage()))
+            return true;
     return false;
 }
 

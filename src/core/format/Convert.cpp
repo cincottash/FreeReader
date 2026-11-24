@@ -197,14 +197,17 @@ QString guessLanguage(const QString& text)
         for (const QString& w : QString::fromUtf8(list).split(QLatin1Char(' '), Qt::SkipEmptyParts)) s.insert(w);
         return s;
     };
-    // Common words that tell the languages apart (words shared by several are left out).
+    // Common words that tell the languages apart: each word in one list only. Words common in two of them ("un",
+    // "una", "con", "era", "del", "il", "para", "es") are left out: before 2026-11-24 the Italian list had several
+    // Spanish ones, and "En un lugar de la Mancha…" came out Italian.
     static const std::vector<Lang> langs = {
-        {"es", set("el los las del y por con una su sus es para como pero más muy sin sobre cuando también porque está ya ni hasta donde había fue era señor ella ellos")},
+        {"es", set("el los las y por su sus pero más muy sin cuando también ya ni hasta donde había fue señor ella ellos "
+                   "después aunque entonces él esto eso estaba tiene")},
         {"en", set("the of and to is that it was he for with as his on be at by you had not but from they this have which she her were there")},
-        {"fr", set("le les et des du un une est pour qui dans pas ne au il elle je vous avec sur ce cette sont mais ou plus être tout fait")},
-        {"pt", set("o os do da dos das em um uma não com para é ao à seu sua mas ele ela foi era muito também quando isso pelo pela")},
-        {"it", set("il di e che è per un una non del della si sono ma lo gli con nel alla anche come più questo ha era")},
-        {"de", set("der die und den von zu das mit sich des auf für ist im dem nicht ein eine als auch es an er so dass sie nach wie ich")},
+        {"fr", set("le les et des du une est pour qui dans pas ne au elle je vous avec sur ce cette sont mais ou plus être tout fait")},
+        {"pt", set("o os do da dos das em um uma não com é ao à seu sua ele ela foi muito também quando isso pelo pela")},
+        {"it", set("di che è per non della sono ma gli nel alla anche come più questo perché questa molto essere stato")},
+        {"de", set("der die und den von zu das mit sich des auf für ist im dem nicht ein eine als auch er dass sie nach wie ich")},
     };
     QHash<QString, int> score;
     int n = 0;

@@ -12,6 +12,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
+#include <memory>
 #include <vector>
 
 namespace core {
@@ -217,7 +219,315 @@ std::vector<int> occurrences(const QString& hay, const QString& key)
     return out;
 }
 
+// ---- FreeReader's own Notebook exports (Markdown, JSON, CSV, TSV, plain text), read back.
+
+const QStringList kColumns = {QStringLiteral("kind"), QStringLiteral("color"), QStringLiteral("text"), QStringLiteral("note"),
+                              QStringLiteral("page"), QStringLiteral("chapter"), QStringLiteral("cfi"), QStringLiteral("created"),
+                              QStringLiteral("book")};
+
+KindleItem itemFrom(const NotebookRow& r)
+{
+    KindleItem it;
+    it.bookmark = r.bookmark;
+    it.text = r.text.trimmed();
+    it.note = r.note.trimmed();
+    it.color = r.color.trimmed().toLower();
+    it.cfi = r.cfi.trimmed();
+    // A bookmark keeps the first words of its page, cut at a length: without the last (perhaps cut) word, they're
+    // found again in the book.
+    if (it.bookmark) {
+        QStringList words = it.text.simplified().split(QLatin1Char(' '), Qt::SkipEmptyParts);
+        if (words.size() > 3) words.removeLast();
+        it.text = words.join(QLatin1Char(' '));
+    }
+    return it;
+}
+
+KindleExport finishNotebook(KindleExport ex)
+{
+    ex.notebook = true;
+    // In the file's order (reading order): the order stands in for a place until the CFIs are read with the book.
+    for (int i = 0; i < int(ex.items.size()); ++i) ex.items[i].location = i + 1;
+    if (ex.items.isEmpty()) ex.error = QStringLiteral("The file has no highlights, notes or bookmarks.");
+    return ex;
+}
+
+KindleExport parseNotebookJson(const QJsonObject& o)
+{
+    KindleExport ex;
+    const QJsonObject book = o.value(QLatin1String("book")).toObject();
+    ex.title = book.value(QLatin1String("title")).toString();
+    ex.authors = book.value(QLatin1String("author")).toString();
+    for (const QJsonValue& v : o.value(QLatin1String("annotations")).toArray()) {
+        const QJsonObject a = v.toObject();
+        NotebookRow r;
+        r.bookmark = a.value(QLatin1String("kind")).toString() == QLatin1String("bookmark");
+        r.text = a.value(QLatin1String("text")).toString();
+        r.note = a.value(QLatin1String("note")).toString();
+        r.color = a.value(QLatin1String("color")).toString();
+        r.cfi = a.value(QLatin1String("cfi")).toString();
+        if (r.text.trimmed().isEmpty() && !r.bookmark) continue;
+        ex.items << itemFrom(r);
+    }
+    return finishNotebook(ex);
+}
+
+// RFC 4180: fields in double quotes when they hold the separator, a quote or a line break; a quote doubled. The
+// separator is a comma, or a semicolon (Excel in many European languages saves CSV so).
+QList<QStringList> readCsv(const QString& s, QChar sep = QLatin1Char(','))
+{
+    QList<QStringList> rows;
+    QStringList row;
+    QString field;
+    bool quoted = false, any = false;
+    for (int i = 0; i < int(s.size()); ++i) {
+        const QChar c = s[i];
+        if (quoted) {
+            if (c == QLatin1Char('"')) {
+                if (i + 1 < s.size() && s[i + 1] == QLatin1Char('"')) {
+                    field += c;
+                    ++i;
+                } else {
+                    quoted = false;
+                }
+            } else {
+                field += c;
+            }
+            continue;
+        }
+        if (c == QLatin1Char('"')) {
+            quoted = true;
+            any = true;
+        } else if (c == sep) {
+            row << field;
+            field.clear();
+            any = true;
+        } else if (c == QLatin1Char('\n') || c == QLatin1Char('\r')) {
+            if (c == QLatin1Char('\r') && i + 1 < s.size() && s[i + 1] == QLatin1Char('\n')) ++i;
+            if (any || !field.isEmpty()) rows << (row << field);
+            row.clear();
+            field.clear();
+            any = false;
+        } else {
+            field += c;
+            any = true;
+        }
+    }
+    if (any || !field.isEmpty()) rows << (row << field);
+    return rows;
+}
+
+QString unescapeTsv(const QString& f)
+{
+    QString out;
+    for (int i = 0; i < int(f.size()); ++i) {
+        if (f[i] == QLatin1Char('\\') && i + 1 < f.size()) {
+            const QChar n = f[++i];
+            out += n == QLatin1Char('t') ? QChar('\t') : n == QLatin1Char('n') ? QChar('\n') : n == QLatin1Char('r') ? QChar('\r') : n;
+        } else {
+            out += f[i];
+        }
+    }
+    return out;
+}
+
+KindleExport parseNotebookTable(const QList<QStringList>& rows)
+{
+    KindleExport ex;
+    if (rows.isEmpty()) return finishNotebook(ex);
+    QHash<QString, int> col;
+    for (int i = 0; i < int(rows[0].size()); ++i) col.insert(rows[0][i].trimmed().toLower(), i);
+    auto get = [&](const QStringList& r, const char* name) {
+        const int i = col.value(QLatin1String(name), -1);
+        return i >= 0 && i < r.size() ? r[i] : QString();
+    };
+    for (int k = 1; k < int(rows.size()); ++k) {
+        const QStringList& r = rows[k];
+        NotebookRow n;
+        n.bookmark = get(r, "kind").trimmed().toLower() == QLatin1String("bookmark");
+        n.color = get(r, "color");
+        n.text = get(r, "text");
+        n.note = get(r, "note");
+        n.cfi = get(r, "cfi");
+        if (ex.title.isEmpty()) ex.title = get(r, "book");
+        if (n.text.trimmed().isEmpty() && !n.bookmark) continue;
+        ex.items << itemFrom(n);
+    }
+    return finishNotebook(ex);
+}
+
+// The plain text export (notebook::text below).
+KindleExport parseNotebookText(const QString& all)
+{
+    KindleExport ex;
+    const QStringList lines = all.split(QLatin1Char('\n'));
+    NotebookRow cur;
+    bool open = false, inNote = false, haveText = false;
+    auto flush = [&] {
+        if (open && (!cur.text.trimmed().isEmpty() || cur.bookmark)) ex.items << itemFrom(cur);
+        cur = NotebookRow();
+        open = inNote = haveText = false;
+    };
+    for (QString l : lines) {
+        if (l.endsWith(QLatin1Char('\r'))) l.chop(1);
+        if (l.startsWith(QLatin1String("Title: ")) && !open) ex.title = l.mid(7).trimmed();
+        else if (l.startsWith(QLatin1String("Author: ")) && !open) ex.authors = l.mid(8).trimmed();
+        else if (l.startsWith(QStringLiteral("Highlight · ")) || l.startsWith(QStringLiteral("Bookmark · "))) {
+            flush();
+            open = true;
+            const QStringList parts = l.split(QStringLiteral(" · "));
+            cur.bookmark = parts[0] == QLatin1String("Bookmark");
+            if (!cur.bookmark && parts.size() > 1) cur.color = parts[1];
+        } else if (!open) {
+            continue;
+        } else if (l.trimmed().isEmpty()) {
+            flush();
+        } else if (l.startsWith(QLatin1String("Note: "))) {
+            cur.note = l.mid(6);
+            inNote = true;
+        } else if (inNote && l.startsWith(QLatin1String("    "))) {
+            cur.note += QLatin1Char('\n') + l.mid(4);
+        } else if (!haveText) {
+            cur.text = l.trimmed();
+            haveText = true;
+        }
+    }
+    flush();
+    return finishNotebook(ex);
+}
+
+// The Markdown export (Annotations::markdown): "> quote", "*Page 12 · yellow*", the note's lines, and under
+// "## Bookmarks" lines like "- Page 30 (Chapter): «first words»".
+KindleExport parseNotebookMarkdown(const QString& all)
+{
+    KindleExport ex;
+    static const QRegularExpression pageRe(QStringLiteral("^\\*Page [^·]*·\\s*(\\w+)\\*$"));
+    static const QRegularExpression markRe(QStringLiteral("^- Page .*?«(.*)»\\s*$"));
+    NotebookRow cur;
+    bool open = false, bookmarks = false, afterMeta = false;
+    auto flush = [&] {
+        if (open && !cur.text.trimmed().isEmpty()) {
+            cur.note = cur.note.trimmed();
+            ex.items << itemFrom(cur);
+        }
+        cur = NotebookRow();
+        open = afterMeta = false;
+    };
+    bool first = true;
+    for (QString l : all.split(QLatin1Char('\n'))) {
+        if (l.endsWith(QLatin1Char('\r'))) l.chop(1);
+        if (first && l.startsWith(QLatin1String("# "))) {
+            ex.title = l.mid(2).trimmed();
+            first = false;
+            continue;
+        }
+        first = false;
+        if (l.startsWith(QLatin1String("## "))) {
+            flush();
+            bookmarks = l.mid(3).trimmed() == QLatin1String("Bookmarks");
+            continue;
+        }
+        if (bookmarks) {
+            const auto m = markRe.match(l);
+            if (m.hasMatch()) {
+                NotebookRow b;
+                b.bookmark = true;
+                b.text = m.captured(1);
+                ex.items << itemFrom(b);
+            }
+            continue;
+        }
+        if (l.startsWith(QLatin1String("> "))) {
+            flush();
+            open = true;
+            cur.text = l.mid(2);
+            continue;
+        }
+        if (!open) continue;
+        const auto m = pageRe.match(l.trimmed());
+        if (m.hasMatch() && !afterMeta) {
+            cur.color = m.captured(1);
+            afterMeta = true;
+        } else if (afterMeta) {
+            cur.note += l + QLatin1Char('\n');
+        }
+    }
+    flush();
+    return finishNotebook(ex);
+}
+
+QString csvField(const QString& f)
+{
+    if (!f.contains(QLatin1Char(',')) && !f.contains(QLatin1Char('"')) && !f.contains(QLatin1Char('\n')) && !f.contains(QLatin1Char('\r')))
+        return f;
+    QString q = f;
+    q.replace(QLatin1Char('"'), QStringLiteral("\"\""));
+    return QLatin1Char('"') + q + QLatin1Char('"');
+}
+
+QString tsvField(QString f)
+{
+    f.replace(QLatin1Char('\\'), QStringLiteral("\\\\"));
+    f.replace(QLatin1Char('\t'), QStringLiteral("\\t"));
+    f.replace(QLatin1Char('\n'), QStringLiteral("\\n"));
+    f.replace(QLatin1Char('\r'), QStringLiteral("\\r"));
+    return f;
+}
+
+QStringList rowFields(const QString& title, const NotebookRow& r)
+{
+    return {r.bookmark ? QStringLiteral("bookmark") : QStringLiteral("highlight"), r.bookmark ? QString() : r.color, r.text, r.note,
+            r.page, r.chapter, r.cfi, r.created, title};
+}
+
 }  // namespace
+
+namespace notebook {
+
+QString csv(const QString& title, const QList<NotebookRow>& rows)
+{
+    QString out = kColumns.join(QLatin1Char(',')) + QStringLiteral("\r\n");
+    for (const NotebookRow& r : rows) {
+        QStringList f;
+        for (const QString& x : rowFields(title, r)) f << csvField(x);
+        out += f.join(QLatin1Char(',')) + QStringLiteral("\r\n");
+    }
+    return out;
+}
+
+QString tsv(const QString& title, const QList<NotebookRow>& rows)
+{
+    QString out = kColumns.join(QLatin1Char('\t')) + QLatin1Char('\n');
+    for (const NotebookRow& r : rows) {
+        QStringList f;
+        for (const QString& x : rowFields(title, r)) f << tsvField(x);
+        out += f.join(QLatin1Char('\t')) + QLatin1Char('\n');
+    }
+    return out;
+}
+
+QString text(const QString& title, const QString& author, const QList<NotebookRow>& rows)
+{
+    QString out = QStringLiteral("FreeReader Notebook\n");
+    if (!title.isEmpty()) out += QStringLiteral("Title: %1\n").arg(title);
+    if (!author.isEmpty()) out += QStringLiteral("Author: %1\n").arg(author);
+    for (const NotebookRow& r : rows) {
+        QStringList head{r.bookmark ? QStringLiteral("Bookmark") : QStringLiteral("Highlight")};
+        if (!r.bookmark) head << r.color;
+        head << QStringLiteral("Page %1").arg(r.page);
+        if (!r.chapter.isEmpty()) head << r.chapter.simplified();
+        out += QLatin1Char('\n') + head.join(QStringLiteral(" · ")) + QLatin1Char('\n');
+        out += r.text.simplified() + QLatin1Char('\n');
+        const QStringList note = r.note.trimmed().split(QLatin1Char('\n'));
+        if (!r.note.trimmed().isEmpty()) {
+            out += QStringLiteral("Note: ") + note[0] + QLatin1Char('\n');
+            for (int i = 1; i < int(note.size()); ++i) out += QStringLiteral("    ") + note[i] + QLatin1Char('\n');
+        }
+    }
+    return out;
+}
+
+}  // namespace notebook
 
 KindleExport parseKindleExport(const QByteArray& data, const QString& titleHint)
 {
@@ -225,20 +535,83 @@ KindleExport parseKindleExport(const QByteArray& data, const QString& titleHint)
     const QJsonDocument doc = QJsonDocument::fromJson(data, &err);
     if (err.error == QJsonParseError::NoError && doc.isObject() && doc.object().contains(QLatin1String("highlights")))
         return parseBookcision(doc.object());
-    const QString text = QString::fromUtf8(data);
+    if (err.error == QJsonParseError::NoError && doc.isObject() && doc.object().contains(QLatin1String("annotations")))
+        return parseNotebookJson(doc.object());
+    QString text = QString::fromUtf8(data);
+    if (text.startsWith(QChar(0xFEFF))) text.remove(0, 1);
+    // A table: its first line names the columns, "kind" and "text" among them (in any order: a spreadsheet may move
+    // or add columns), with commas, semicolons or tabs between them.
+    const QString head = text.section(QLatin1Char('\n'), 0, 0).trimmed().toLower().remove(QLatin1Char('"'));
+    auto names = [&](QChar sep) {
+        QStringList cols;
+        for (const QString& c : head.split(sep)) cols << c.trimmed();
+        return cols.contains(QLatin1String("kind")) && cols.contains(QLatin1String("text"));
+    };
+    if (names(QLatin1Char(',')) && !head.contains(QLatin1Char('\t')))
+        return parseNotebookTable(readCsv(text));
+    if (names(QLatin1Char(';')) && !head.contains(QLatin1Char('\t')))
+        return parseNotebookTable(readCsv(text, QLatin1Char(';')));
+    if (names(QLatin1Char('\t'))) {
+        QList<QStringList> rows;
+        for (QString line : text.split(QLatin1Char('\n'))) {
+            if (line.endsWith(QLatin1Char('\r'))) line.chop(1);
+            if (line.isEmpty()) continue;
+            QStringList f;
+            for (const QString& x : line.split(QLatin1Char('\t'))) f << unescapeTsv(x);
+            rows << f;
+        }
+        return parseNotebookTable(rows);
+    }
+    if (text.startsWith(QLatin1String("FreeReader Notebook")))
+        return parseNotebookText(text);
     if (text.contains(QStringLiteral("==========")))
         return parseClippings(text, titleHint);
+    if (text.startsWith(QLatin1String("# ")) && text.contains(QLatin1String("\n> ")))
+        return parseNotebookMarkdown(text);
     KindleExport ex;
-    ex.error = QStringLiteral("That isn't a Kindle highlights export (Bookcision's JSON or My Clippings.txt).");
+    ex.error = QStringLiteral("That isn't a highlights export FreeReader knows: a Kindle's (Bookcision's JSON or My Clippings.txt) "
+                              "or a FreeReader Notebook export (Markdown, JSON, CSV, TSV or text).");
     return ex;
 }
 
-KindlePlan planKindleImport(const Book& book, const KindleExport& ex, const std::atomic<bool>* cancel, bool equivalents)
+KindlePlan planKindleImport(const Book& book, const KindleExport& exIn, const std::atomic<bool>* cancel, bool equivalents)
 {
     KindlePlan plan;
+    plan.notebook = exIn.notebook;
     const BookText bt = bookText(book, cancel);
     const int total = int(bt.text.size());
     if (total == 0) return plan;
+    // The place in the normalized text of a (chapter, offset): the first character at or after it.
+    auto indexOf = [&](int spine, int offset) {
+        int lo = 0, hi = total;
+        while (lo < hi) {
+            const int mid = (lo + hi) / 2;
+            if (bt.spine[size_t(mid)] < spine || (bt.spine[size_t(mid)] == spine && bt.offset[size_t(mid)] < offset)) lo = mid + 1;
+            else hi = mid;
+        }
+        return qMin(lo, total - 1);
+    };
+    // A FreeReader export of this edition carries each item's CFI: its place gives a location like a Kindle's (about
+    // 110 characters each), so repeated words are told apart. Only when every item has one (else the file's order).
+    KindleExport ex = exIn;
+    std::vector<int> cfiAt(size_t(ex.items.size()), -1);   // the exact place, when the CFI resolves in this book
+    if (ex.notebook) {
+        std::map<int, std::shared_ptr<const layout::ChapterFlow>> flows;
+        bool all = !ex.items.isEmpty();
+        for (int i = 0; i < int(ex.items.size()); ++i) {
+            int spine = -1, raw = 0;
+            QString path;
+            if (!ex.items[i].cfi.isEmpty() && parseCfi(ex.items[i].cfi, &spine, &path, &raw) && spine >= 0 && spine < int(book.spine.size())) {
+                auto it = flows.find(spine);
+                if (it == flows.end()) it = flows.emplace(spine, layout::buildFlow(book, spine, layout::FlowOptions())).first;
+                const int off = resolveCfiPath(*it->second, path, raw);
+                if (off >= 0) cfiAt[size_t(i)] = indexOf(spine, off);
+            }
+            if (cfiAt[size_t(i)] < 0) all = false;
+        }
+        if (all)
+            for (int i = 0; i < int(ex.items.size()); ++i) ex.items[i].location = cfiAt[size_t(i)] / 110 + 1;
+    }
     // Highlights are looked for across paragraph breaks too (a long highlight can span two paragraphs).
     QString searchText = bt.text;
     searchText.replace(QLatin1Char('\n'), QLatin1Char(' '));
@@ -334,6 +707,8 @@ KindlePlan planKindleImport(const Book& book, const KindleExport& ex, const std:
                 }
             }
         }
+        // A FreeReader bookmark goes back exactly where its CFI says, when it resolves in this book.
+        if (it.bookmark && ex.notebook && cfiAt[size_t(i)] >= 0 && !p.found) p.approx = posAt(cfiAt[size_t(i)]);
         if (it.bookmark) ++plan.bookmarks;
         else if (p.found) ++plan.found;
         else ++plan.notFound;
@@ -344,6 +719,10 @@ KindlePlan planKindleImport(const Book& book, const KindleExport& ex, const std:
             plan.lastFraction = qBound(0.0, expected / total, 1.0);
         }
         plan.items << p;
+    }
+    if (ex.notebook) {   // a Notebook export has no reading place to continue from
+        plan.lastLocation = 0;
+        plan.lastFraction = 0;
     }
     if (!equivalents || plan.notFound == 0) return plan;
 
