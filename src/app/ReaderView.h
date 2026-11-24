@@ -182,6 +182,7 @@ public:
     void setPagesRightToLeft(bool on);
 
 signals:
+    void rightPanelOpened();   // the Notebook, English alongside or the practice workspace (one panel on the right)
     void libraryRequested();
     void fullScreenRequested();
     void imageRequested(const QString& path);
@@ -251,6 +252,7 @@ public:
 
 private:
     QString paragraphKey(const QString& text) const;
+    void makeRoom(bool right, int width);   // closes the other side's panel when both won't fit beside the page
     void onBilingualTranslated(int id, const core::TranslationResult& r, const QString& why);
     BilingualPanel* m_bilingual = nullptr;
     QTimer m_bilingualTimer;

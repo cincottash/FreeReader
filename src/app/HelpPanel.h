@@ -16,6 +16,7 @@ class HelpPanel : public QFrame {
     Q_OBJECT
 public:
     explicit HelpPanel(QWidget* parent = nullptr);
+    QSize sizeHint() const override { return {420, QFrame::sizeHint().height()}; }   // its width beside the screen
     void setTheme(const Theme& t);
     void showSection(const QString& anchor);   // "reading", "translation", "faq"…; empty: the top
     QStringList sections() const;              // the anchors, in order

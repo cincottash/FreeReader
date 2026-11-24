@@ -599,9 +599,30 @@ void ReaderView::closeBook()
 
 bool ReaderView::contentsVisible() const { return m_toc->isVisible(); }
 
+void ReaderView::makeRoom(bool right, int width)
+{
+    // A panel on each side and the page (at least 360 px) must fit; when they don't, the side opened last stays.
+    // Both at once in a narrow window made the window wider than the screen (2026-11-24).
+    const int page = 360;
+    if (right) {
+        if ((m_toc->isVisible() || m_search->isVisible()) && 320 + width + page > this->width()) {
+            if (m_search->isVisible()) closeSearch();
+            if (m_toc->isVisible()) setContentsVisible(false);
+        }
+        return;
+    }
+    const int other = m_notebook->isVisible() ? 340 : m_bilingual->isVisible() ? 380 : m_practicePanel->isVisible() ? 480 : 0;
+    if (other && width + other + page > this->width()) {
+        if (m_notebook->isVisible()) setNotebookVisible(false);
+        if (m_bilingual->isVisible()) setBilingualVisible(false);
+        if (m_practicePanel->isVisible()) setPracticeVisible(false);
+    }
+}
+
 void ReaderView::setContentsVisible(bool on)
 {
     if (on && m_search->isVisible()) closeSearch();
+    if (on) makeRoom(false, 320);
     m_toc->setVisible(on);
     QSignalBlocker block(m_tocButton);
     m_tocButton->setChecked(on);
@@ -1806,6 +1827,8 @@ void ReaderView::setNotebookVisible(bool on)
     // One panel on the right at a time.
     if (on && m_bilingual->isVisible()) setBilingualVisible(false);
     if (on && m_practicePanel->isVisible()) setPracticeVisible(false);
+    if (on) emit rightPanelOpened();   // the window's Getting Started guide makes room
+    if (on) makeRoom(true, 340);
     m_notebook->setVisible(on);
     const QSignalBlocker b(m_notebookButton);
     m_notebookButton->setChecked(on);
@@ -1822,6 +1845,8 @@ void ReaderView::setBilingualVisible(bool on)
 {
     if (on && m_notebook->isVisible()) setNotebookVisible(false);
     if (on && m_practicePanel->isVisible()) setPracticeVisible(false);
+    if (on) emit rightPanelOpened();
+    if (on) makeRoom(true, 380);
     m_bilingual->setVisible(on);
     if (m_settings.showBilingual != on) {
         m_settings.showBilingual = on;
@@ -1842,6 +1867,8 @@ void ReaderView::setPracticeVisible(bool on)
     if (!v) on = false;
     if (on && m_notebook->isVisible()) setNotebookVisible(false);
     if (on && m_bilingual->isVisible()) setBilingualVisible(false);
+    if (on) emit rightPanelOpened();
+    if (on) makeRoom(true, 480);
     const bool was = m_practicePanel->isVisible();
     m_practicePanel->setVisible(on);
     {
@@ -1996,6 +2023,7 @@ void ReaderView::openSearch(const QString& query)
         const QSignalBlocker b(m_tocButton);
         m_tocButton->setChecked(false);
     }
+    makeRoom(false, 320);
     m_search->show();
     {
         const QSignalBlocker b(m_searchButton);

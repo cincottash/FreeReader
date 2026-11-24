@@ -39,6 +39,7 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QHBoxLayout>
+#include <QGraphicsDropShadowEffect>
 #include "HelpPanel.h"
 #include "WelcomeDialog.h"
 #include "core/translate/LanguagePacks.h"
@@ -115,17 +116,21 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     m_stack->addWidget(m_statistics);
     m_stack->setCurrentWidget(m_start);   // the library first, whatever order the screens were added in
     // The screens, and the Getting Started guide beside them on the right when it is open.
-    auto* body = new QWidget;
-    auto* bodyLay = new QHBoxLayout(body);
-    bodyLay->setContentsMargins(0, 0, 0, 0);
-    bodyLay->setSpacing(0);
-    bodyLay->addWidget(m_stack, 1);
+    m_body = new QWidget;
+    m_bodyLay = new QHBoxLayout(m_body);
+    m_bodyLay->setContentsMargins(0, 0, 0, 0);
+    m_bodyLay->setSpacing(0);
+    m_bodyLay->addWidget(m_stack, 1);
     m_help = new HelpPanel;
-    m_help->setFixedWidth(420);
+    m_help->setMinimumWidth(0);
+    m_help->setMaximumWidth(420);
     m_help->hide();
-    bodyLay->addWidget(m_help);
-    setCentralWidget(body);
+    m_bodyLay->addWidget(m_help);
+    setCentralWidget(m_body);   // its size decides where the guide goes (placeHelp, from eventFilter: the app's filter)
     connect(m_help, &HelpPanel::closeRequested, this, [this] { setHelpVisible(false); });
+    connect(m_reader, &ReaderView::rightPanelOpened, this, [this] {
+        if (helpVisible()) setHelpVisible(false);
+    });
     connect(m_help, &HelpPanel::commandRequested, this, [this](const QString& id) { runCommand(id); });
     m_palette = new CommandPalette(m_stack);
     m_imageViewer = new ImageViewer(m_stack);
@@ -249,6 +254,11 @@ MainWindow::~MainWindow() = default;
 
 bool MainWindow::eventFilter(QObject* o, QEvent* e)
 {
+    // The window's body changed size: the guide beside the screen or over it (placeHelp).
+    if (o == m_body && e->type() == QEvent::Resize && m_help && m_help->isVisible()) {
+        QTimer::singleShot(0, this, &MainWindow::placeHelp);
+        return false;
+    }
     // A mouse button set as a shortcut (Settings > Keyboard Shortcuts > Mouse), pressed anywhere in this window.
     if (e->type() != QEvent::MouseButtonPress && e->type() != QEvent::MouseButtonDblClick) return false;
     auto* w = qobject_cast<QWidget*>(o);
@@ -799,9 +809,52 @@ bool MainWindow::helpVisible() const { return m_help && !m_help->isHidden(); }
 void MainWindow::setHelpVisible(bool on)
 {
     if (!m_help) return;
+    // One panel on the right at a time, as in the reader: the guide takes the place of the Notebook, English
+    // alongside or the practice workspace (both at once left the page a narrow column and widened the window).
+    if (on && m_reader) {
+        if (m_reader->notebookVisible()) m_reader->setNotebookVisible(false);
+        if (m_reader->bilingualVisible()) m_reader->setBilingualVisible(false);
+        if (m_reader->practiceVisible()) m_reader->setPracticeVisible(false);
+        syncChecks();
+    }
+    if (on) placeHelp();   // beside or over the screen, decided before it shows (shown beside it first, the window grew)
     m_help->setVisible(on);
+    if (on) placeHelp();
     if (Command* c = command(QStringLiteral("getting-started"))) c->action->setChecked(on);
 }
+
+void MainWindow::placeHelp()
+{
+    if (!m_help || !m_body) return;
+    // Beside the screen when there is room for both; otherwise over the screen's right side, like a drawer (the
+    // reader and the library need about 800 px: in a 1024 px window the guide beside them made the window wider).
+    const int want = 420;
+    const bool room = m_body->width() - want >= m_stack->minimumSizeHint().width();
+    const bool docked = m_bodyLay->indexOf(m_help) >= 0;
+    if (room) {
+        // Beside: 420 px while there is room, able to shrink so the window can still be made smaller (then it
+        // goes over the screen at the next resize).
+        m_help->setGraphicsEffect(nullptr);
+        m_help->setMinimumWidth(0);
+        m_help->setMaximumWidth(want);
+        if (!docked) m_bodyLay->addWidget(m_help);
+    } else {
+        if (docked) m_bodyLay->removeWidget(m_help);
+        const int w = qMin(want, qMax(280, m_body->width() - 80));
+        m_help->setFixedWidth(w);
+        m_help->setGeometry(m_body->width() - w, 0, w, m_body->height());
+        if (!m_help->graphicsEffect()) {
+            auto* shadow = new QGraphicsDropShadowEffect(m_help);
+            shadow->setBlurRadius(28);
+            shadow->setOffset(-6, 0);
+            shadow->setColor(QColor(0, 0, 0, 90));
+            m_help->setGraphicsEffect(shadow);
+        }
+        if (m_help->isVisible()) m_help->raise();
+    }
+}
+
+bool MainWindow::helpOverlays() const { return m_help && m_bodyLay && m_bodyLay->indexOf(m_help) < 0; }
 
 void MainWindow::runCommand(const QString& id)
 {

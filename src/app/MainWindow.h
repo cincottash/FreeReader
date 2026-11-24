@@ -64,6 +64,7 @@ public:
     class WelcomeDialog* welcome() const;
     bool helpVisible() const;
     void setHelpVisible(bool on);
+    bool helpOverlays() const;   // over the screen's right side (no room beside it), not beside it
     LibrarySearchView* librarySearch() const { return m_librarySearch; }
     StatisticsView* statistics() const { return m_statistics; }
     void showStatistics();
@@ -147,6 +148,9 @@ private:
     PracticeView* m_practice;
     PracticeView* m_practiceSide;   // the practice workspace beside the page (in the reader)
     HelpPanel* m_help = nullptr;
+    QWidget* m_body = nullptr;            // the central widget: the screens and the guide
+    class QHBoxLayout* m_bodyLay = nullptr;
+    void placeHelp();
     QPointer<class WelcomeDialog> m_welcome;
     void ensureSettingsDialog();
     std::unique_ptr<core::WordLog> m_words;
