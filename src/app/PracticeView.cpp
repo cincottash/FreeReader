@@ -38,6 +38,18 @@ namespace {
 
 const char* kDirections[4] = {"recognize", "recall", "definition", "cloze"};
 
+// Pages whose size is the page shown, not the largest page: the card (tall in the narrow workspace beside the book)
+// made the whole workspace, and so the window, taller than a 700 px screen while the start page showed.
+class CurrentPageStack : public QStackedWidget {
+public:
+    CurrentPageStack()
+    {
+        connect(this, &QStackedWidget::currentChanged, this, [this] { updateGeometry(); });
+    }
+    QSize minimumSizeHint() const override { return currentWidget() ? currentWidget()->minimumSizeHint() : QSize(); }
+    QSize sizeHint() const override { return currentWidget() ? currentWidget()->sizeHint() : QStackedWidget::sizeHint(); }
+};
+
 QLabel* wrapLabel(const char* testId, const char* object = nullptr)
 {
     auto* l = new QLabel;
@@ -100,9 +112,20 @@ PracticeView::PracticeView(core::WordLog* log, Settings& settings, QWidget* pare
     m_tabList->setProperty("testId", "tabWordList");
     lay->addWidget(bar);
 
-    m_pages = new QStackedWidget;
+    m_pages = new CurrentPageStack;
     m_pages->addWidget(buildStart());
-    m_pages->addWidget(buildCard());
+    // The card scrolls when the window is short (beside the book, 700 px tall, it didn't fit). The scroll area never
+    // takes the focus, so Space and 1 to 4 still reach the card.
+    {
+        auto* cardScroll = new QScrollArea;
+        cardScroll->setWidgetResizable(true);
+        cardScroll->setFrameShape(QFrame::NoFrame);
+        cardScroll->setFocusPolicy(Qt::NoFocus);
+        cardScroll->viewport()->setAutoFillBackground(false);
+        cardScroll->setWidget(buildCard());
+        cardScroll->widget()->setAutoFillBackground(false);
+        m_pages->addWidget(cardScroll);
+    }
     m_pages->addWidget(buildDone());
     m_pages->addWidget(buildList());
     lay->addWidget(m_pages, 1);

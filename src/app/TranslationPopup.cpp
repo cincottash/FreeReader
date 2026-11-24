@@ -496,8 +496,24 @@ void TranslationPopup::place()
 {
     QWidget* p = parentWidget();
     if (!p) return;
-    const int w = qMin(420, p->width() - 32);
+    int w = qMin(420, p->width() - 32);
     setFixedWidth(w);
+    // A long answer in a short window: wider (up to 640 px) before it is cut at the window's bottom (an explanation
+    // in a 640 px tall window lost its last line, 2026-11-24).
+    {
+        ensurePolished();
+        for (QWidget* c : findChildren<QWidget*>()) c->ensurePolished();
+        m_lay->invalidate();
+        m_lay->activate();
+        const int room = p->height() - 32;
+        for (int wider = w + 110; m_lay->heightForWidth(w - 2 * frameWidth()) + 2 * frameWidth() > room && wider <= qMin(640, p->width() - 32);
+             wider += 110) {
+            w = wider;
+            setFixedWidth(w);
+            m_lay->invalidate();
+            m_lay->activate();
+        }
+    }
     // Labels wrap to the width; ask the layout how tall that makes the pop-up. Their style sheets (font sizes) are
     // applied first: measured before that, a wrapped meaning came out a line short (the owner's report, 2026-11-23).
     ensurePolished();

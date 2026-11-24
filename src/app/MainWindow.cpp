@@ -128,6 +128,9 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     m_bodyLay->addWidget(m_help);
     setCentralWidget(m_body);   // its size decides where the guide goes (placeHelp, from eventFilter: the app's filter)
     connect(m_help, &HelpPanel::closeRequested, this, [this] { setHelpVisible(false); });
+    connect(m_stack, &QStackedWidget::currentChanged, this, [this] {
+        if (helpVisible()) QTimer::singleShot(0, this, &MainWindow::placeHelp);   // below the new screen's top bar
+    });
     connect(m_reader, &ReaderView::rightPanelOpened, this, [this] {
         if (helpVisible()) setHelpVisible(false);
     });
@@ -841,8 +844,13 @@ void MainWindow::placeHelp()
     } else {
         if (docked) m_bodyLay->removeWidget(m_help);
         const int w = qMin(want, qMax(280, m_body->width() - 80));
+        // Below the screen's top bar, so its buttons (Practice, Search, Add Books…) stay in reach.
+        int top = 0;
+        if (QWidget* screen = m_stack->currentWidget())
+            if (auto* bar = screen->findChild<QWidget*>(QStringLiteral("Bar"), Qt::FindDirectChildrenOnly); bar && bar->isVisible() && bar->y() < 80)
+                top = bar->mapTo(m_body, QPoint(0, bar->height())).y();
         m_help->setFixedWidth(w);
-        m_help->setGeometry(m_body->width() - w, 0, w, m_body->height());
+        m_help->setGeometry(m_body->width() - w, top, w, m_body->height() - top);
         if (!m_help->graphicsEffect()) {
             auto* shadow = new QGraphicsDropShadowEffect(m_help);
             shadow->setBlurRadius(28);
