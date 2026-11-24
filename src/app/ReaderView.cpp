@@ -52,6 +52,7 @@
 #include <QStandardPaths>
 #include <QMenu>
 #include <QUrlQuery>
+#include <QHash>
 #ifdef HAVE_TEXT_TO_SPEECH
 #include <QTextToSpeech>
 #endif
@@ -333,10 +334,22 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     connect(m_notebook, &NotebookPanel::exportRequested, this, [this] {
         if (!m_interactive || !m_bookId) return;
         const QString name = m_title->text().isEmpty() ? tr("Notebook") : m_title->text();
-        const QString path = QFileDialog::getSaveFileName(this, tr("Export Notebook"),
-                                                          QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + QLatin1Char('/') + name + QStringLiteral(" notes.md"),
-                                                          tr("Markdown (*.md);;JSON (*.json)"));
+        // Every format here can be imported again (File > Import Highlights…).
+        const QStringList filters = {tr("Markdown (*.md)"), tr("Plain Text (*.txt)"), tr("CSV, Comma-Separated (*.csv)"),
+                                     tr("TSV, Tab-Separated (*.tsv)"), tr("JSON (*.json)")};
+        QString chosen = filters.first();
+        QString path = QFileDialog::getSaveFileName(this, tr("Export Notebook"),
+                                                    QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + QLatin1Char('/') + name + QStringLiteral(" notes.md"),
+                                                    filters.join(QStringLiteral(";;")), &chosen);
         if (path.isEmpty()) return;
+        // The format chosen in the list wins over the name's ending.
+        static const QRegularExpression extRe(QStringLiteral("\\*(\\.\\w+)\\)"));
+        const QString ext = extRe.match(chosen).captured(1);
+        const QFileInfo fi(path);
+        if (!ext.isEmpty() && QLatin1Char('.') + fi.suffix().toLower() != ext) {
+            static const QStringList known = {QStringLiteral("md"), QStringLiteral("txt"), QStringLiteral("csv"), QStringLiteral("tsv"), QStringLiteral("json")};
+            path = (known.contains(fi.suffix().toLower()) ? fi.path() + QLatin1Char('/') + fi.completeBaseName() : path) + ext;
+        }
         QString err;
         if (!exportNotebook(path, &err)) QMessageBox::warning(this, tr("Export Notebook"), tr("Couldn't save the file. %1").arg(err));
     });
@@ -1314,19 +1327,84 @@ void ReaderView::speak(const QString& text, const QString& language)
         m_translate->showSpeechProblem(problem, canOpenSettings);
         return;
     }
+    // Settings > Audio: the speed and volume, and the voice chosen for this language.
+    m_lastSpoken = SpokenWith{text, language, chosenVoice(language), m_settings.speechRatePct / 100.0, m_settings.speechVolumePct / 100.0};
 #ifdef HAVE_TEXT_TO_SPEECH
     if (!m_interactive || text.isEmpty()) return;
     if (!m_speech) m_speech = new QTextToSpeech(this);
     const QLocale want(language.isEmpty() ? QStringLiteral("en") : language);
-    // The book's language, and its country when there is a voice for it (es-ES before es-MX for a book in es-ES).
-    QLocale best;
-    for (const QLocale& l : m_speech->availableLocales())
-        if (l.language() == want.language() && (best.language() != want.language() || l.territory() == want.territory())) best = l;
-    if (best.language() == want.language()) m_speech->setLocale(best);
+    bool voiceSet = false;
+    if (!m_lastSpoken.voice.isEmpty()) {
+        for (const QVoice& v : m_speech->findVoices())
+            if (v.name() == m_lastSpoken.voice && v.locale().language() == want.language()) {
+                m_speech->setLocale(v.locale());
+                m_speech->setVoice(v);
+                voiceSet = true;
+                break;
+            }
+    }
+    if (!voiceSet) {
+        // The book's language, and its country when there is a voice for it (es-ES before es-MX for a book in es-ES).
+        QLocale best;
+        for (const QLocale& l : m_speech->availableLocales())
+            if (l.language() == want.language() && (best.language() != want.language() || l.territory() == want.territory())) best = l;
+        if (best.language() == want.language()) m_speech->setLocale(best);
+    }
+    m_speech->setRate(m_lastSpoken.rate);
+    m_speech->setVolume(m_lastSpoken.volume);
     m_speech->say(text);
 #else
     Q_UNUSED(text);
 #endif
+}
+
+namespace {
+QString languageKey(const QString& language)
+{
+    const QString l = language.isEmpty() ? QStringLiteral("en") : language;
+    return QLocale::languageToCode(QLocale(l).language(), QLocale::ISO639Part1);
+}
+}  // namespace
+
+QList<ReaderView::SpeechVoice> ReaderView::speechVoices()
+{
+    if (m_speechVoicesForTests) return *m_speechVoicesForTests;
+#ifdef HAVE_TEXT_TO_SPEECH
+    if (!m_interactive) return {};   // tests and screenshots never start the system's speech engine
+    if (!m_speech) m_speech = new QTextToSpeech(this);
+    if (m_speech->state() == QTextToSpeech::Error) return {};
+    QList<SpeechVoice> out;
+    for (const QVoice& v : m_speech->findVoices()) out << SpeechVoice{v.name(), v.locale()};
+    return out;
+#else
+    return {};
+#endif
+}
+
+QString ReaderView::chosenVoice(const QString& language) const
+{
+    const QString prefix = languageKey(language) + QLatin1Char('=');
+    for (const QString& s : m_settings.speechVoices)
+        if (s.startsWith(prefix)) return s.mid(prefix.size());
+    return {};
+}
+
+QString ReaderView::playVoiceSample(const QString& language)
+{
+    const QString problem = speechProblem(language);
+    if (!problem.isEmpty()) return problem;
+    // A sentence in the language itself, so the voice is heard as it reads books.
+    static const QHash<QString, QString> samples = {
+        {QStringLiteral("en"), QStringLiteral("This is how this voice reads your books.")},
+        {QStringLiteral("es"), QStringLiteral("Así lee esta voz tus libros.")},
+        {QStringLiteral("fr"), QStringLiteral("Voici comment cette voix lit vos livres.")},
+        {QStringLiteral("de"), QStringLiteral("So liest diese Stimme Ihre Bücher vor.")},
+        {QStringLiteral("it"), QStringLiteral("Ecco come questa voce legge i tuoi libri.")},
+        {QStringLiteral("pt"), QStringLiteral("É assim que esta voz lê os seus livros.")},
+    };
+    const QString key = languageKey(language);
+    speak(samples.value(key, QLocale::languageToString(QLocale(key).language())), key);
+    return {};
 }
 
 // ---------------------------------------------------------------- highlights, notes, bookmarks
@@ -1460,9 +1538,13 @@ ReaderView::KindleResult ReaderView::importKindle(const core::KindlePlan& plan, 
                     a.start = p.start;
                     a.end = p.end;
                     a.text = bookWords;
-                    a.color = p.found ? QStringLiteral("yellow") : QStringLiteral("orange");
+                    // Its own color from a FreeReader export; yellow from a Kindle; orange on an equivalent.
+                    a.color = !p.found                                          ? QStringLiteral("orange")
+                              : core::Annotations::colors().contains(it.color) ? it.color
+                                                                                : QStringLiteral("yellow");
                     a.note = p.found ? it.note
-                                     : tr("Kindle: «%1»").arg(it.text.simplified()) + (it.note.isEmpty() ? QString() : QStringLiteral("\n\n") + it.note);
+                                     : (plan.notebook ? tr("Imported: «%1»") : tr("Kindle: «%1»")).arg(it.text.simplified()) +
+                                           (it.note.isEmpty() ? QString() : QStringLiteral("\n\n") + it.note);
                     a.cfi = core::makeCfi(p.spine, *flow, p.start);
                     a.chapter = chapterTitleAt({p.spine, p.start});
                     if (const auto ix = m_engine->index()) a.pageLabel = ix->pageLabel({p.spine, p.start});
@@ -1696,8 +1778,12 @@ bool ReaderView::exportNotebook(const QString& path, QString* error)
         return false;
     }
     const QString title = b.title.isEmpty() ? m_title->text() : b.title;
-    // The file name chooses the format: .json for other tools, anything else Markdown.
-    if (path.endsWith(QLatin1String(".json"), Qt::CaseInsensitive)) f.write(m_notes->json(m_bookId, title, b.author, b.path));
+    // The file name chooses the format: JSON, CSV, TSV, plain text, anything else Markdown.
+    const QString suffix = QFileInfo(path).suffix().toLower();
+    if (suffix == QLatin1String("json")) f.write(m_notes->json(m_bookId, title, b.author, b.path));
+    else if (suffix == QLatin1String("csv")) f.write(QByteArray("\xEF\xBB\xBF") + m_notes->csv(m_bookId, title).toUtf8());   // a BOM: Excel reads it as UTF-8
+    else if (suffix == QLatin1String("tsv")) f.write(m_notes->tsv(m_bookId, title).toUtf8());
+    else if (suffix == QLatin1String("txt")) f.write(m_notes->plainText(m_bookId, title, b.author).toUtf8());
     else f.write(m_notes->markdown(m_bookId, title, b.author).toUtf8());
     if (!f.commit()) {
         if (error) *error = f.errorString();
@@ -1793,7 +1879,7 @@ QList<ReaderView::ParagraphRef> ReaderView::visibleParagraphs() const
 {
     QList<ParagraphRef> out;
     if (!m_engine->isOpen()) return out;
-    const core::Position a = m_pages->position(), e = m_pages->screenEnd();
+    const core::Position a = m_pages->screenStart(), e = m_pages->screenEnd();   // not position(): that can sit lower down the screen
     const auto cl = m_engine->layout(a.spine);
     if (!cl) return out;
     for (const layout::Block& b : cl->flow->blocks) {

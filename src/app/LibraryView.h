@@ -114,7 +114,9 @@ private:
 
     QLineEdit* m_search;
     QPushButton* m_add;
-    QPushButton* m_practice = nullptr;   // in the filter list, made again with it
+    QPushButton* m_practice = nullptr;   // at the bottom of the left column
+    class QLabel* m_practiceCountLabel = nullptr;
+    void updatePracticeCount();
     std::function<int()> m_practiceCount;
     QPushButton* m_searchInside;
     QPushButton* m_notKept;

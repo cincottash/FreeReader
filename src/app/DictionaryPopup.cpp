@@ -34,10 +34,22 @@ DictionaryPopup::DictionaryPopup(QWidget* parent) : QFrame(parent)
     m_lay->setContentsMargins(20, 14, 20, 12);
     m_lay->setSpacing(6);
 
+    // The title, and Highlight at the top right (the owner's request, 2026-11-24: as in the translation pop-up).
+    auto* head = new QHBoxLayout;
+    head->setSpacing(10);
     m_title = new QLabel;
     m_title->setProperty("testId", "dcTitle");
     m_title->setWordWrap(true);
-    m_lay->addWidget(m_title);
+    head->addWidget(m_title, 1);
+    m_highlight = new QPushButton(tr("Highlight"));
+    m_highlight->setFocusPolicy(Qt::NoFocus);
+    m_highlight->setCursor(Qt::PointingHandCursor);
+    m_highlight->setProperty("testId", "dcHighlight");
+    m_highlight->setFixedHeight(30);
+    m_highlight->setStyleSheet(QStringLiteral("QPushButton { padding: 2px 10px; font-size: 12px; }"));
+    m_highlight->hide();
+    head->addWidget(m_highlight, 0, Qt::AlignTop);
+    m_lay->addLayout(head);
 
     m_body = new QLabel;
     m_body->setProperty("testId", "dcBody");
@@ -70,13 +82,10 @@ DictionaryPopup::DictionaryPopup(QWidget* parent) : QFrame(parent)
     m_full->setToolTip(tr("The whole entry on Wiktionary, in your browser"));
     m_translate = link(tr("Translate"), "dcTranslate");
     m_translate->setToolTip(tr("The translation pop-up for this word"));
-    m_highlight = link(tr("Highlight"), "dcHighlight");
-    m_highlight->hide();
     m_getDefinitions = link(tr("Get Definitions…"), "dcGetDefinitions");
     m_getDefinitions->setToolTip(tr("A dictionary of definitions in the book's language is an optional download in Settings"));
     actions->addWidget(m_full);
     actions->addWidget(m_translate);
-    actions->addWidget(m_highlight);
     actions->addWidget(m_getDefinitions);
     actions->addStretch(1);
     m_flip = new QPushButton;

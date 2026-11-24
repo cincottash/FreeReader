@@ -12,6 +12,7 @@
 namespace core {
 
 class Library;
+struct NotebookRow;
 
 struct Annotation {
     enum Kind { Highlight = 0, Bookmark = 1 };
@@ -58,8 +59,14 @@ public:
     QString markdown(int bookId, const QString& title, const QString& author) const;
     // JSON for other tools: {"book": {...}, "annotations": [{kind, color, text, note, page, chapter, cfi, created}]}.
     QByteArray json(int bookId, const QString& title, const QString& author, const QString& path) const;
+    // Spreadsheets and plain text (the columns kind, color, text, note, page, chapter, cfi, created, book). Every
+    // format here can be read back by File > Import Highlights (core/services/KindleImport.h).
+    QString csv(int bookId, const QString& title) const;
+    QString tsv(int bookId, const QString& title) const;
+    QString plainText(int bookId, const QString& title, const QString& author) const;
 
 private:
+    QList<NotebookRow> rows(int bookId) const;
     QString m_connection;
 };
 

@@ -73,8 +73,17 @@ TranslationPopup::TranslationPopup(QWidget* parent) : QFrame(parent)
 #ifndef HAVE_TEXT_TO_SPEECH
     m_speak->hide();
 #endif
+    // Highlight at the top right, beside Hear Pronunciation (the owner's request, 2026-11-24).
+    m_highlight = new QPushButton(tr("Highlight"));
+    m_highlight->setFocusPolicy(Qt::NoFocus);
+    m_highlight->setCursor(Qt::PointingHandCursor);
+    m_highlight->setProperty("testId", "tpHighlight");
+    m_highlight->setFixedHeight(30);
+    m_highlight->setStyleSheet(QStringLiteral("QPushButton { padding: 2px 10px; font-size: 12px; }"));
+    m_highlight->hide();
     head->addWidget(m_word, 0, Qt::AlignBaseline);
     head->addWidget(m_detail, 1, Qt::AlignBaseline);
+    head->addWidget(m_highlight, 0, Qt::AlignTop);
     head->addWidget(m_speak, 0, Qt::AlignTop);
     m_lay->addLayout(head);
     m_speechNote = label("tpSpeechNote", "Muted");
@@ -128,11 +137,6 @@ TranslationPopup::TranslationPopup(QWidget* parent) : QFrame(parent)
     m_copy->setCursor(Qt::PointingHandCursor);
     m_copy->setToolTip(tr("Copy the translation"));
     m_copy->setProperty("testId", "tpCopy");
-    m_highlight = new QPushButton(tr("Highlight"));
-    m_highlight->setFocusPolicy(Qt::NoFocus);
-    m_highlight->setCursor(Qt::PointingHandCursor);
-    m_highlight->setProperty("testId", "tpHighlight");
-    m_highlight->hide();
     m_settings = new QPushButton(tr("Translation Settings…"));
     m_settings->setObjectName(QStringLiteral("Link"));
     m_settings->setFocusPolicy(Qt::NoFocus);
@@ -145,7 +149,6 @@ TranslationPopup::TranslationPopup(QWidget* parent) : QFrame(parent)
     m_flip->setProperty("testId", "tpFlip");
     m_flip->hide();
     actions->addWidget(m_copy);
-    actions->addWidget(m_highlight);
     actions->addWidget(m_settings);
     actions->addStretch(1);
     actions->addWidget(m_flip);

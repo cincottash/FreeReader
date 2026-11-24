@@ -30,7 +30,14 @@
 #include <QProgressBar>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QGridLayout>
+#include <QMap>
+#include <QSignalBlocker>
+#include <QSlider>
 #include <QTabWidget>
+
+#include <algorithm>
+#include <cmath>
 #include <QTreeWidget>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -81,10 +88,16 @@ SettingsDialog::SettingsDialog(Settings& settings, const std::vector<Command*>& 
     scroll->setWidget(buildTranslationTab());
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
-    m_tabs->addTab(scroll, tr("Translation"));
-    m_tabs->addTab(buildShortcutsTab(), tr("Keyboard Shortcuts"));
+    // General first, then Translation, Audio and Keyboard Shortcuts (the owner's order, 2026-11-23).
     m_tabs->addTab(buildGeneralTab(), tr("General"));
+    m_tabs->addTab(scroll, tr("Translation"));
+    m_tabs->addTab(buildAudioTab(), tr("Audio"));
+    m_tabs->addTab(buildShortcutsTab(), tr("Keyboard Shortcuts"));
     lay->addWidget(m_tabs, 1);
+    // The voices are listed when the Audio tab is shown: the system's speech engine starts only then.
+    connect(m_tabs, &QTabWidget::currentChanged, this, [this](int i) {
+        if (i == int(AudioTab)) fillVoices();
+    });
 
     m_message = new QLabel;
     m_message->setWordWrap(true);
@@ -115,7 +128,11 @@ SettingsDialog::SettingsDialog(Settings& settings, const std::vector<Command*>& 
     refreshTranslation();
 }
 
-void SettingsDialog::showTab(Tab tab) { m_tabs->setCurrentIndex(int(tab)); }
+void SettingsDialog::showTab(Tab tab)
+{
+    m_tabs->setCurrentIndex(int(tab));
+    if (tab == AudioTab) fillVoices();
+}
 
 void SettingsDialog::begin()
 {
@@ -141,10 +158,18 @@ void SettingsDialog::reject()
         s.shortcuts = b.shortcuts;
         s.mouseShortcuts = b.mouseShortcuts;
         s.libraryFolders = b.libraryFolders;
+        const bool audio = s.speechRatePct != b.speechRatePct || s.speechVolumePct != b.speechVolumePct || s.speechVoices != b.speechVoices;
+        s.speechRatePct = b.speechRatePct;
+        s.speechVolumePct = b.speechVolumePct;
+        s.speechVoices = b.speechVoices;
         if (m_lookReset) s.look = b.look;
         m_before.reset();
         m_lookReset = false;
         fill();
+        if (audio) {
+            fillVoices();
+            emit audioChanged();
+        }
         fillLibraryFolders();
         refreshTranslation();
         emit cancelled();
@@ -1140,6 +1165,180 @@ QWidget* SettingsDialog::buildGeneralTab()
         m_message->show();
     });
     return page;
+}
+
+// ---------------------------------------------------------------- Audio
+
+namespace {
+QString rateText(int pct)
+{
+    if (pct == 0) return SettingsDialog::tr("Normal");
+    return pct > 0 ? SettingsDialog::tr("%1% Faster").arg(pct) : SettingsDialog::tr("%1% Slower").arg(-pct);
+}
+QString languageKeyOf(const QLocale& l) { return QLocale::languageToCode(l.language(), QLocale::ISO639Part1); }
+}  // namespace
+
+QWidget* SettingsDialog::buildAudioTab()
+{
+    auto* page = new QWidget;
+    auto* lay = new QVBoxLayout(page);
+    lay->setContentsMargins(12, 4, 12, 8);
+    lay->setSpacing(8);
+    lay->addWidget(sectionTitle(tr("READ ALOUD AND PRONUNCIATION")));
+    lay->addWidget(muted(tr("Hear Pronunciation (the speaker in the translation pop-up) and Read Aloud (the right-click menu) "
+                            "use the voices installed on this computer.")));
+    auto* grid = new QGridLayout;
+    grid->setHorizontalSpacing(12);
+    grid->setVerticalSpacing(8);
+    auto slider = [&](int row, const QString& name, int min, int max, const char* id, QSlider*& s, QLabel*& value) {
+        grid->addWidget(new QLabel(name), row, 0);
+        s = new QSlider(Qt::Horizontal);
+        s->setRange(min, max);
+        s->setSingleStep(10);
+        s->setPageStep(10);
+        s->setProperty("testId", id);
+        grid->addWidget(s, row, 1);
+        value = new QLabel;
+        value->setMinimumWidth(90);
+        value->setProperty("testId", QByteArray(id) + "Label");
+        grid->addWidget(value, row, 2);
+    };
+    slider(0, tr("Speed"), -100, 100, "speechRate", m_rate, m_rateLabel);
+    slider(1, tr("Volume"), 0, 100, "speechVolume", m_volume, m_volumeLabel);
+    m_rate->setToolTip(tr("How fast words and passages are read. Normal is the voice's own speed."));
+    m_volume->setToolTip(tr("How loud FreeReader reads, next to the computer's own volume."));
+    grid->setColumnStretch(1, 1);
+    lay->addLayout(grid);
+    connect(m_rate, &QSlider::valueChanged, this, [this](int v) { setSpeechRate(v); });
+    connect(m_volume, &QSlider::valueChanged, this, [this](int v) { setSpeechVolume(v); });
+
+    lay->addWidget(sectionTitle(tr("VOICES")));
+    lay->addWidget(muted(tr("The voice for each language. The system's choice is the voice set as the default for that "
+                            "language on this computer.")));
+    m_voiceRows = new QWidget;
+    m_voiceRows->setLayout(new QGridLayout);
+    m_voiceRows->layout()->setContentsMargins(0, 0, 0, 0);
+    lay->addWidget(m_voiceRows);
+    m_voiceNote = muted(QString());
+    m_voiceNote->setProperty("testId", "voiceNote");
+    m_voiceNote->hide();
+    lay->addWidget(m_voiceNote);
+    m_sampleResult = muted(QString());
+    m_sampleResult->setProperty("testId", "sampleResult");
+    m_sampleResult->hide();
+    lay->addWidget(m_sampleResult);
+#ifdef Q_OS_WIN
+    auto* more = new QPushButton(tr("Add Voices…"));
+    more->setToolTip(tr("Opens Windows Settings > Time & Language > Speech, where more voices can be added (free)."));
+    more->setProperty("testId", "addVoices");
+    lay->addWidget(more, 0, Qt::AlignLeft);
+    connect(more, &QPushButton::clicked, this, [this] {
+        if (m_interactive) QDesktopServices::openUrl(QUrl(QStringLiteral("ms-settings:speech")));
+    });
+#endif
+    lay->addStretch(1);
+    fillAudio();
+    return page;
+}
+
+void SettingsDialog::fillAudio()
+{
+    if (!m_rate) return;
+    const QSignalBlocker b1(m_rate), b2(m_volume);
+    m_rate->setValue(m_settings.speechRatePct);
+    m_volume->setValue(m_settings.speechVolumePct);
+    m_rateLabel->setText(rateText(m_settings.speechRatePct));
+    m_volumeLabel->setText(QStringLiteral("%1%").arg(m_settings.speechVolumePct));
+}
+
+void SettingsDialog::setSpeechRate(int pct)
+{
+    pct = qBound(-100, int(std::lround(pct / 10.0)) * 10, 100);
+    if (pct == m_settings.speechRatePct && m_rate->value() == pct) return;
+    m_settings.speechRatePct = pct;
+    fillAudio();
+    emit audioChanged();
+}
+
+void SettingsDialog::setSpeechVolume(int pct)
+{
+    pct = qBound(0, int(std::lround(pct / 10.0)) * 10, 100);
+    if (pct == m_settings.speechVolumePct && m_volume->value() == pct) return;
+    m_settings.speechVolumePct = pct;
+    fillAudio();
+    emit audioChanged();
+}
+
+void SettingsDialog::chooseVoice(const QString& language, const QString& voice)
+{
+    QStringList keep;
+    for (const QString& s : m_settings.speechVoices)
+        if (!s.startsWith(language + QLatin1Char('='))) keep << s;
+    if (!voice.isEmpty()) keep << language + QLatin1Char('=') + voice;
+    keep.sort();
+    if (keep == m_settings.speechVoices) return;
+    m_settings.speechVoices = keep;
+    emit audioChanged();
+}
+
+QString SettingsDialog::playSample(const QString& language)
+{
+    const QString problem = m_playSample ? m_playSample(language) : tr("Speech isn't available.");
+    m_sampleResult->setText(problem);
+    m_sampleResult->setVisible(!problem.isEmpty());
+    return problem;
+}
+
+void SettingsDialog::fillVoices()
+{
+    fillAudio();
+    auto* grid = static_cast<QGridLayout*>(m_voiceRows->layout());
+    while (QLayoutItem* it = grid->takeAt(0)) {
+        if (QWidget* w = it->widget()) w->deleteLater();
+        delete it;
+    }
+    // The voices by language: each language once, its name in English.
+    const QList<Voice> voices = m_voiceSource ? m_voiceSource() : QList<Voice>();
+    QMap<QString, QList<Voice>> byLanguage;
+    for (const Voice& v : voices) byLanguage[languageKeyOf(v.locale)] << v;
+    QList<QPair<QString, QString>> languages;   // name, key
+    for (auto it = byLanguage.cbegin(); it != byLanguage.cend(); ++it)
+        languages << qMakePair(QLocale::languageToString(QLocale(it.key()).language()), it.key());
+    std::sort(languages.begin(), languages.end());
+    int row = 0;
+    for (const auto& [name, key] : languages) {
+        grid->addWidget(new QLabel(name), row, 0);
+        auto* box = new QComboBox;
+        box->setProperty("testId", QStringLiteral("voice-") + key);
+        box->addItem(tr("System's Choice"), QString());
+        QString chosen;
+        for (const QString& s : m_settings.speechVoices)
+            if (s.startsWith(key + QLatin1Char('='))) chosen = s.mid(key.size() + 1);
+        for (const Voice& v : byLanguage.value(key)) {
+            const QString territory = QLocale::territoryToString(v.locale.territory());
+            box->addItem(territory.isEmpty() ? v.name : QStringLiteral("%1 (%2)").arg(v.name, territory), v.name);
+        }
+        box->setCurrentIndex(qMax(0, box->findData(chosen)));
+        grid->addWidget(box, row, 1);
+        auto* play = new QPushButton(tr("Play Sample"));
+        play->setProperty("testId", QStringLiteral("playSample-") + key);
+        play->setToolTip(tr("A short sentence in %1, with this voice, speed and volume.").arg(name));
+        grid->addWidget(play, row, 2);
+        const QString k = key;
+        connect(box, &QComboBox::currentIndexChanged, this, [this, box, k] { chooseVoice(k, box->currentData().toString()); });
+        connect(play, &QPushButton::clicked, this, [this, k] { playSample(k); });
+        ++row;
+    }
+    grid->setColumnStretch(1, 1);
+#ifdef Q_OS_WIN
+    const QString none = tr("No voices were found on this computer. Add Voices… opens the Windows settings where free voices "
+                            "can be added.");
+#else
+    const QString none = tr("No voices were found. Install speech-dispatcher and espeak-ng (for example: sudo apt install "
+                            "speech-dispatcher espeak-ng), then start FreeReader again.");
+#endif
+    m_voiceNote->setText(none);
+    m_voiceNote->setVisible(languages.isEmpty());
 }
 
 void SettingsDialog::fillLibraryFolders()

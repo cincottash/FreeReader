@@ -38,6 +38,8 @@
 #include <QActionGroup>
 #include <QMenu>
 #include <QMenuBar>
+#include <QHBoxLayout>
+#include "HelpPanel.h"
 #include <QMessageBox>
 #include <QStandardPaths>
 #include <QGuiApplication>
@@ -106,7 +108,19 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     m_statistics = new StatisticsView(m_library);
     m_stack->addWidget(m_statistics);
     m_stack->setCurrentWidget(m_start);   // the library first, whatever order the screens were added in
-    setCentralWidget(m_stack);
+    // The screens, and the Getting Started guide beside them on the right when it is open.
+    auto* body = new QWidget;
+    auto* bodyLay = new QHBoxLayout(body);
+    bodyLay->setContentsMargins(0, 0, 0, 0);
+    bodyLay->setSpacing(0);
+    bodyLay->addWidget(m_stack, 1);
+    m_help = new HelpPanel;
+    m_help->setFixedWidth(420);
+    m_help->hide();
+    bodyLay->addWidget(m_help);
+    setCentralWidget(body);
+    connect(m_help, &HelpPanel::closeRequested, this, [this] { setHelpVisible(false); });
+    connect(m_help, &HelpPanel::commandRequested, this, [this](const QString& id) { runCommand(id); });
     m_palette = new CommandPalette(m_stack);
     m_imageViewer = new ImageViewer(m_stack);
     // The theme list belongs to the window, not to its body: previews restyle the body only, never the list.
@@ -335,8 +349,12 @@ void MainWindow::buildCommands()
     addCommand(QStringLiteral("data-folder"), tr("Change App Data Folder…"), QKeySequence(), [this] { changeDataFolder(); });
     addCommand(QStringLiteral("about"), tr("About FreeReader"), QKeySequence(), [this] { about(); });
     addCommand(QStringLiteral("quit"), tr("Quit"), QKeySequence(Qt::CTRL | Qt::Key_Q), [this] { close(); });
-    addCommand(QStringLiteral("settings"), tr("Settings…"), QKeySequence(Qt::CTRL | Qt::Key_Comma), [this] { showSettings(); }, nullptr,
-               tr("App data folder, keyboard shortcuts, resets."));
+    // The Settings menu opens the Settings window at each of its tabs (no "Settings…" inside Settings).
+    addCommand(QStringLiteral("settings"), tr("General…"), QKeySequence(Qt::CTRL | Qt::Key_Comma),
+               [this] { showSettings(SettingsDialog::GeneralTab); }, nullptr,
+               tr("The app data folder, the library's folders, and resetting text and layout."));
+    addCommand(QStringLiteral("audio-settings"), tr("Audio…"), QKeySequence(), [this] { showSettings(SettingsDialog::AudioTab); },
+               nullptr, tr("The speed, volume and voice for Hear Pronunciation and Read Aloud."));
     addCommand(QStringLiteral("translate"), tr("Translate Selection"), QKeySequence(Qt::CTRL | Qt::Key_E), [this] { m_reader->translateSelection(); },
                [this] { return isReading() && m_reader->pages()->hasSelection(); }, tr("Shows the translation pop-up for the selected text."));
     addCommand(QStringLiteral("explain"), tr("Explain This Sentence"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_E), [this] { m_reader->explainSelection(); },
@@ -354,8 +372,9 @@ void MainWindow::buildCommands()
         saveSettingsSoon();
     }, reading, tr("For manga: the left edge and the Left key turn to the next page."));
     if (Command* c = command(QStringLiteral("pages-right-to-left"))) c->action->setCheckable(true);
-    addCommand(QStringLiteral("import-kindle"), tr("Import Kindle Highlights…"), QKeySequence(), [this] { importKindle(); }, reading,
-               tr("Highlights, notes and bookmarks from a Kindle export (Bookcision's JSON or My Clippings.txt) into this book."));
+    addCommand(QStringLiteral("import-kindle"), tr("Import Highlights…"), QKeySequence(), [this] { importKindle(); }, reading,
+               tr("Highlights, notes and bookmarks into this book: from a Kindle (Bookcision's JSON or My Clippings.txt), or "
+                  "from a Notebook export (Markdown, plain text, CSV, TSV or JSON)."));
     addCommand(QStringLiteral("search-book"), tr("Search This Book…"), QKeySequence(Qt::CTRL | Qt::Key_F), [this] {
         m_reader->openSearch(m_reader->pages()->hasSelection() ? m_reader->pages()->selectedText() : QString());
     }, reading, tr("Every place a word or phrase appears, with its page."));
@@ -387,7 +406,7 @@ void MainWindow::buildCommands()
                tr("Time read, days in a row, books finished, words and reviews."));
     addCommand(QStringLiteral("word-list"), tr("Word List"), QKeySequence(), [this] { showPractice(true); }, nullptr,
                tr("Every word you looked up, with its meaning."));
-    addCommand(QStringLiteral("translation-settings"), tr("Translation Settings…"), QKeySequence(),
+    addCommand(QStringLiteral("translation-settings"), tr("All Translation Options…"), QKeySequence(),
                [this] { showSettings(SettingsDialog::TranslationTab); }, nullptr, tr("Gemini key, LM Studio model, offline dictionary."));
     // The translation switches, also in Settings > Translation: each engine on its own, and offline only.
     auto toggle = [this](const char* id, const QString& label, bool Settings::*field, const QString& hint) {
@@ -405,7 +424,11 @@ void MainWindow::buildCommands()
     toggle("use-dictionary", tr("Use the Offline Dictionary"), &Settings::useDictionary, tr("Single words, when nothing before it in the list answers."));
     toggle("use-offline-translator", tr("Use the Offline Translator"), &Settings::useOfflineTranslator,
            tr("Sentences and pages with no internet, when Gemini and LM Studio can't answer (a download in Settings)."));
-    addCommand(QStringLiteral("keyboard-shortcuts"), tr("Keyboard Shortcuts"), QKeySequence(), [this] { showSettings(SettingsDialog::ShortcutsTab); },
+    addCommand(QStringLiteral("getting-started"), tr("Getting Started"), QKeySequence(Qt::SHIFT | Qt::Key_F1),
+               [this] { setHelpVisible(!helpVisible()); }, nullptr,
+               tr("A guide beside the page: every feature and how to use it, common settings, questions and answers."));
+    command(QStringLiteral("getting-started"))->action->setCheckable(true);
+    addCommand(QStringLiteral("keyboard-shortcuts"), tr("Keyboard Shortcuts…"), QKeySequence(), [this] { showSettings(SettingsDialog::ShortcutsTab); },
                nullptr, tr("Every shortcut, and changing them."));
     applyShortcuts();
     qApp->installEventFilter(this);   // mouse-button shortcuts
@@ -508,14 +531,17 @@ void MainWindow::buildMenus()
     connect(m_themeMenu, &QMenu::aboutToShow, this, &MainWindow::fillThemeMenu);
     // Pointing at a theme previews it on the window; leaving the menu without choosing puts the saved one back.
     connect(m_themeMenu, &QMenu::aboutToHide, this, [this] { previewTheme(QString()); });
+    // The Settings window's tabs, in its order (General, Translation's quick switches above, Audio, Keyboard
+    // Shortcuts). Change App Data Folder is in General.
     settings->addSeparator();
     add(settings, "settings");
-    add(settings, "data-folder");
+    add(settings, "audio-settings");
+    add(settings, "keyboard-shortcuts");
     watch(settings);
 
     QMenu* help = bar->addMenu(tr("&Help"));
     help->setProperty("testId", "menuHelp");
-    add(help, "keyboard-shortcuts");
+    add(help, "getting-started");
     add(help, "commands");
     help->addSeparator();
     add(help, "about");
@@ -590,8 +616,9 @@ void MainWindow::importKindle(const QString& fileArg)
     QString file = fileArg;
     if (file.isEmpty()) {
         if (!m_interactive) return;
-        file = QFileDialog::getOpenFileName(this, tr("Import Kindle Highlights"), QStandardPaths::writableLocation(QStandardPaths::DownloadLocation),
-                                            tr("Kindle highlights (*.json *.txt);;All files (*)"));
+        file = QFileDialog::getOpenFileName(this, tr("Import Highlights"), QStandardPaths::writableLocation(QStandardPaths::DownloadLocation),
+                                            tr("Highlights (*.json *.txt *.md *.csv *.tsv);;Kindle (*.json *.txt);;"
+                                               "FreeReader Notebook (*.md *.txt *.csv *.tsv *.json);;All files (*)"));
         if (file.isEmpty()) return;
     }
     QFile f(file);
@@ -602,7 +629,7 @@ void MainWindow::importKindle(const QString& fileArg)
     if (error.isEmpty()) error = ex.error;
     if (!error.isEmpty()) {
         m_lastError = error;
-        if (m_interactive) QMessageBox::information(this, tr("Import Kindle Highlights"), error);
+        if (m_interactive) QMessageBox::information(this, tr("Import Highlights"), error);
         return;
     }
     QGuiApplication::setOverrideCursor(Qt::WaitCursor);
@@ -679,6 +706,14 @@ void MainWindow::showSettings(int tab)
             if (!isReading() || !m_reader->bookId()) return {0, QString()};
             return {m_reader->bookId(), m_library->book(m_reader->bookId()).title};
         });
+        m_settingsDialog->setVoiceSource(
+            [this] {
+                QList<SettingsDialog::Voice> out;
+                for (const ReaderView::SpeechVoice& v : m_reader->speechVoices()) out << SettingsDialog::Voice{v.name, v.locale};
+                return out;
+            },
+            [this](const QString& language) { return m_reader->playVoiceSample(language); });
+        connect(m_settingsDialog, &SettingsDialog::audioChanged, this, [this] { saveSettingsSoon(); });
         connect(m_settingsDialog, &SettingsDialog::translationChanged, this, [this] {
             applyTranslationSettings();
             saveSettingsSoon();
@@ -724,6 +759,15 @@ Command* MainWindow::command(const QString& id) const
     for (const auto& c : m_commands)
         if (c->id == id) return c.get();
     return nullptr;
+}
+
+bool MainWindow::helpVisible() const { return m_help && !m_help->isHidden(); }
+
+void MainWindow::setHelpVisible(bool on)
+{
+    if (!m_help) return;
+    m_help->setVisible(on);
+    if (Command* c = command(QStringLiteral("getting-started"))) c->action->setChecked(on);
 }
 
 void MainWindow::runCommand(const QString& id)
@@ -925,6 +969,7 @@ void MainWindow::showTheme(const Theme& t, bool preview)
     endPreview();
     applyTheme(*qApp, t);
     m_theme = t;
+    m_help->setTheme(t);
     m_reader->setTheme(t);
     m_start->setTheme(t);
     m_practice->setTheme(t);

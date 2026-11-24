@@ -80,7 +80,7 @@ struct Docx {
         const QString name = styleName.value(styleId, styleId).toLower();
         static const QRegularExpression h(QStringLiteral("^(?:heading|título|titulo|überschrift|titre)\\s*(\\d)$"));
         if (const auto m = h.match(name); m.hasMatch()) return m.captured(1).toInt();
-        if (name == QLatin1String("title") || name == QLatin1String("título") || name == QLatin1String("titulo")) return 1;
+        if (name == QLatin1String("title") || name == QStringLiteral("título") || name == QLatin1String("titulo")) return 1;
         return 0;
     }
 

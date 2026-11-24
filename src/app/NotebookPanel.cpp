@@ -63,7 +63,8 @@ NotebookPanel::NotebookPanel(QWidget* parent) : QFrame(parent)
     for (const QString& c : core::Annotations::colors()) m_filter->addItem(swatch(core::Annotations::colorValue(c)), colorName(c), c);
     top->addWidget(m_filter, 1);
     m_export = new QPushButton(tr("Export…"));
-    m_export->setToolTip(tr("Saves the highlights, notes and bookmarks as Markdown (or JSON, for other tools)."));
+    m_export->setToolTip(tr("Saves the highlights, notes and bookmarks as Markdown, plain text, CSV, TSV or JSON. File > "
+                            "Import Highlights… reads each of them back."));
     m_export->setProperty("testId", "notebookExport");
     top->addWidget(m_export);
     lay->addLayout(top);

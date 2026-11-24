@@ -221,16 +221,35 @@ public:
     // Why the word can't be read aloud in `language` (no voice for it, no speech engine), empty when it can.
     QString speechProblem(const QString& language, bool* canOpenSettings = nullptr);
     void setSpeechLocalesForTests(const QList<QLocale>& locales) { m_speechLocalesForTests = locales; }
+    // The voices installed on this computer (Settings > Audio lists them by language).
+    struct SpeechVoice {
+        QString name;
+        QLocale locale;
+    };
+    QList<SpeechVoice> speechVoices();
+    void setSpeechVoicesForTests(const QList<SpeechVoice>& voices) { m_speechVoicesForTests = voices; }
+    // The voice chosen in Settings > Audio for a language ("es", "en-US"); empty: the system's choice.
+    QString chosenVoice(const QString& language) const;
+    // Plays a short sentence in the language with the chosen voice, speed and volume. Why it can't, or empty.
+    QString playVoiceSample(const QString& language);
+    // Tests: what the last speech asked the engine for (also when the engine isn't started).
+    struct SpokenWith {
+        QString text, language, voice;
+        double rate = 0, volume = 1;
+    };
+    SpokenWith lastSpoken() const { return m_lastSpoken; }
     // Reading statistics: the clock (milliseconds) reading time is measured with (tests use their own).
     void setReadingClockForTests(std::function<qint64()> clock) { m_readingClock = std::move(clock); }
     void flushReading();   // writes the reading time and pages counted so far
 
-private:
+    // The paragraphs on screen, from the top of the screen (English alongside translates these).
     struct ParagraphRef {
         int spine = -1, start = 0;
         QString text;
     };
     QList<ParagraphRef> visibleParagraphs() const;
+
+private:
     QString paragraphKey(const QString& text) const;
     void onBilingualTranslated(int id, const core::TranslationResult& r, const QString& why);
     BilingualPanel* m_bilingual = nullptr;
@@ -246,6 +265,8 @@ private:
 
 private:
     std::optional<QList<QLocale>> m_speechLocalesForTests;
+    std::optional<QList<SpeechVoice>> m_speechVoicesForTests;
+    SpokenWith m_lastSpoken;
 
     core::BookEngine* m_engine;
     core::Library* m_library;

@@ -24,6 +24,7 @@ class QStackedWidget;
 class ReaderView;
 class LibraryView;
 class PracticeView;
+class HelpPanel;
 class LibrarySearchView;
 class StatisticsView;
 
@@ -56,6 +57,10 @@ public:
     LibraryView* library() const { return m_start; }
     PracticeView* practice() const { return m_practice; }
     PracticeView* practiceSide() const { return m_practiceSide; }
+    // Help > Getting Started: the guide in a panel on the window's right, in the library and while reading.
+    HelpPanel* helpPanel() const { return m_help; }
+    bool helpVisible() const;
+    void setHelpVisible(bool on);
     LibrarySearchView* librarySearch() const { return m_librarySearch; }
     StatisticsView* statistics() const { return m_statistics; }
     void showStatistics();
@@ -138,6 +143,7 @@ private:
     ReaderView* m_reader;
     PracticeView* m_practice;
     PracticeView* m_practiceSide;   // the practice workspace beside the page (in the reader)
+    HelpPanel* m_help = nullptr;
     std::unique_ptr<core::WordLog> m_words;
     std::unique_ptr<core::Annotations> m_annotations;
     QWidget* m_beforePractice = nullptr;

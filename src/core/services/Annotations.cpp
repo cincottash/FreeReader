@@ -1,5 +1,6 @@
 #include "Annotations.h"
 
+#include "KindleImport.h"
 #include "Library.h"
 
 #include <QJsonArray>
@@ -208,7 +209,10 @@ QString Annotations::markdown(int bookId, const QString& title, const QString& a
     QStringList bookmarks;
     for (const Annotation& a : forBook(bookId)) {
         if (a.kind == Annotation::Bookmark) {
-            bookmarks << QStringLiteral("- Page %1%2").arg(a.pageLabel, a.chapter.isEmpty() ? QString() : QStringLiteral(" (%1)").arg(a.chapter));
+            // With the words it's at, so Import Highlights can put it back.
+            bookmarks << QStringLiteral("- Page %1%2%3")
+                             .arg(a.pageLabel, a.chapter.isEmpty() ? QString() : QStringLiteral(" (%1)").arg(a.chapter),
+                                  a.text.simplified().isEmpty() ? QString() : QStringLiteral(": «%1»").arg(a.text.simplified()));
             continue;
         }
         if (a.chapter != chapter && !a.chapter.isEmpty()) {
@@ -225,6 +229,31 @@ QString Annotations::markdown(int bookId, const QString& title, const QString& a
     }
     if (!bookmarks.isEmpty()) md += QStringLiteral("\n## Bookmarks\n\n") + bookmarks.join(QLatin1Char('\n')) + QLatin1Char('\n');
     return md;
+}
+
+QList<NotebookRow> Annotations::rows(int bookId) const
+{
+    QList<NotebookRow> out;
+    for (const Annotation& a : forBook(bookId)) {
+        NotebookRow r;
+        r.bookmark = a.kind == Annotation::Bookmark;
+        r.color = r.bookmark ? QString() : a.color;
+        r.text = a.text;
+        r.note = a.note;
+        r.page = a.pageLabel;
+        r.chapter = a.chapter;
+        r.cfi = a.cfi;
+        r.created = a.created.toUTC().toString(Qt::ISODate);
+        out << r;
+    }
+    return out;
+}
+
+QString Annotations::csv(int bookId, const QString& title) const { return notebook::csv(title, rows(bookId)); }
+QString Annotations::tsv(int bookId, const QString& title) const { return notebook::tsv(title, rows(bookId)); }
+QString Annotations::plainText(int bookId, const QString& title, const QString& author) const
+{
+    return notebook::text(title, author, rows(bookId));
 }
 
 }  // namespace core

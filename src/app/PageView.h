@@ -52,6 +52,7 @@ public:
     bool canGoPrevious() const;
     bool nextScreen();
     bool previousScreen();
+    void flushResize();   // apply a resize still waiting in its short delay
 
     bool hasSelection() const { return m_selEnd != m_selStart; }
     QString selectedText() const;

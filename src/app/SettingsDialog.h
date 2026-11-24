@@ -14,6 +14,8 @@
 #include "core/translate/DictionaryDownload.h"
 
 #include <QDialog>
+#include <QList>
+#include <QLocale>
 
 #include <functional>
 #include <memory>
@@ -40,7 +42,7 @@ struct DictionaryInfo;
 class SettingsDialog : public QDialog {
     Q_OBJECT
 public:
-    enum Tab { TranslationTab = 0, ShortcutsTab = 1, GeneralTab = 2 };
+    enum Tab { GeneralTab = 0, TranslationTab = 1, AudioTab = 2, ShortcutsTab = 3 };
 
     SettingsDialog(Settings& settings, const std::vector<Command*>& commands, core::GeminiProvider* gemini,
                    core::LmStudioProvider* lmStudio, bool interactive, QWidget* parent);
@@ -93,6 +95,21 @@ public:
     bool isDownloadingTranslator() const;
     void setTranslatorSource(const core::DictionaryDownload::Source& s);
     QString lastMessage() const;
+    // Audio tab: the voices installed (by language) and a way to hear one; MainWindow gives both.
+    struct Voice {
+        QString name;
+        QLocale locale;
+    };
+    void setVoiceSource(std::function<QList<Voice>()> voices, std::function<QString(const QString&)> playSample)
+    {
+        m_voiceSource = std::move(voices);
+        m_playSample = std::move(playSample);
+    }
+    void fillVoices();   // lists the voices again (when the Audio tab is shown)
+    void setSpeechRate(int pct);
+    void setSpeechVolume(int pct);
+    void chooseVoice(const QString& language, const QString& voice);   // empty voice: the system's choice
+    QString playSample(const QString& language);
     // The library's folders (checked for new books at every start).
     void fillLibraryFolders();
     void removeLibraryFolder(const QString& folder);
@@ -105,6 +122,7 @@ signals:
     void shortcutsChanged();
     void resetTextAndLayoutRequested();
     void translationChanged();   // a translation option changed: apply it and save the settings
+    void audioChanged();         // the speed, volume or a voice changed: save the settings
     void libraryFoldersChanged();
     void addLibraryFolderRequested();
     void cancelled();   // the settings were put back: apply them again
@@ -113,6 +131,8 @@ private:
     QWidget* buildTranslationTab();
     QWidget* buildShortcutsTab();
     QWidget* buildGeneralTab();
+    QWidget* buildAudioTab();
+    void fillAudio();
     void fill();
     void fillLmModels(const QList<core::LmStudioProvider::Model>& models);
 
@@ -163,6 +183,16 @@ private:
     void installDownloaded(const QString& language, const QString& file, const QString& error);
     QCheckBox* m_useDict;
     QCheckBox* m_auto;
+
+    std::function<QList<Voice>()> m_voiceSource;
+    std::function<QString(const QString&)> m_playSample;
+    class QSlider* m_rate = nullptr;
+    class QSlider* m_volume = nullptr;
+    QLabel* m_rateLabel = nullptr;
+    QLabel* m_volumeLabel = nullptr;
+    QWidget* m_voiceRows = nullptr;
+    QLabel* m_voiceNote = nullptr;
+    QLabel* m_sampleResult = nullptr;
 
     core::OfflineTranslator* m_translatorEngine = nullptr;
     core::DictionaryDownload::Source m_translatorSource;

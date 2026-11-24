@@ -322,8 +322,18 @@ bool PageView::canGoPrevious() const
     return firstPage(*cl) > 0 || m_anchor.spine > 0;
 }
 
+void PageView::flushResize()
+{
+    // A turn right after a resize must count pages with the new size: with the old one (two pages
+    // shown, one now) it would skip a page.
+    if (!m_resizeTimer.isActive()) return;
+    m_resizeTimer.stop();
+    applyParams();
+}
+
 bool PageView::nextScreen()
 {
+    flushResize();
     const auto cl = current();
     if (!cl) return false;   // still laying out: ignore, the page appears in a moment
     const int next = firstPage(*cl) + m_geo.columns;
@@ -334,6 +344,7 @@ bool PageView::nextScreen()
 
 bool PageView::previousScreen()
 {
+    flushResize();
     const auto cl = current();
     if (!cl) return false;
     const int first = firstPage(*cl);

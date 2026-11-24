@@ -52,6 +52,11 @@ struct Settings {
     bool useDictionary = true;        // the offline dictionary, when one is installed
     bool useOfflineTranslator = true; // the offline sentence translator (Bergamot), when downloaded
 
+    // Audio: Hear Pronunciation and Read Aloud, with the voices installed on this computer.
+    int speechRatePct = 0;            // -100 (slowest) .. 100 (fastest); 0: the voice's normal speed
+    int speechVolumePct = 100;        // 0..100
+    QStringList speechVoices;         // "es=Microsoft Sabina Desktop": a language's voice; none: the system's choice
+
     // Practice (flashcards)
     QStringList practiceDirections = {QStringLiteral("recognize"), QStringLiteral("recall")};
     bool practiceTyped = false;       // type the answer instead of flipping the card
