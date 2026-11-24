@@ -515,14 +515,15 @@ void MainWindow::fillThemeMenu()
         connect(a, &QAction::triggered, this, [this, key] { chooseTheme(key); });
         connect(a, &QAction::hovered, this, [this, key] { previewTheme(key); });
     };
-    addTheme(m_themeMenu, QStringLiteral("system"), tr("Match Operating System"));
-    m_themeMenu->addSeparator();
+    // The theme groups (each a submenu), then the choices without a submenu, then the theme list.
     for (const QString& g : Theme::groups()) {
         QMenu* sub = m_themeMenu->addMenu(g);
         connect(sub, &QMenu::aboutToHide, this, [this] { previewTheme(QString()); });
         for (const ThemeDef& d : themeTable())
             if (d.group == g) addTheme(sub, d.key, d.name);
     }
+    m_themeMenu->addSeparator();
+    addTheme(m_themeMenu, QStringLiteral("system"), tr("Match Operating System"));
     m_themeMenu->addSeparator();
     if (Command* c = command(QStringLiteral("themes"))) {
         c->action->setText(tr("Theme List…"));
