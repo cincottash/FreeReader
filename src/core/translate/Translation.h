@@ -9,6 +9,10 @@
 
 #include <functional>
 
+namespace core::languages {
+QString readerLanguage();   // LanguagePacks.h
+}
+
 namespace core {
 
 struct TranslationRequest {
@@ -19,7 +23,7 @@ struct TranslationRequest {
     QString text;       // the selection (Explain: the sentence)
     QString sentence;   // the sentence it appears in (context)
     QString from;       // source language code ("es"), from the book
-    QString to = QStringLiteral("en");
+    QString to = languages::readerLanguage();   // the reader's language (Settings > General > Your Language)
     QStringList paragraphs;   // Paragraphs only
 
     bool isWord() const;     // one word (no spaces), so a dictionary entry fits

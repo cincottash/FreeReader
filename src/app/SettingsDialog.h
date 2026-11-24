@@ -95,6 +95,17 @@ public:
     bool isDownloadingTranslator() const;
     void setTranslatorSource(const core::DictionaryDownload::Source& s);
     QString lastMessage() const;
+    // General tab, Languages: the reader's own language, and a pack per language read (its dictionary, its
+    // definitions and the offline translator), downloaded part after part with one button.
+    void setReaderLanguage(const QString& code);
+    void downloadPack(const QString& language);
+    void downloadPacks(const QStringList& languages);   // one after another (the welcome's choice)
+    void cancelPackDownload();
+    void removePack(const QString& language);
+    bool isPackInstalled(const QString& language) const;
+    bool isDownloadingPack() const { return !m_packLanguage.isEmpty(); }
+    QString downloadingPack() const { return m_packLanguage; }
+
     // Audio tab: the voices installed (by language) and a way to hear one; MainWindow gives both.
     struct Voice {
         QString name;
@@ -123,6 +134,8 @@ signals:
     void resetTextAndLayoutRequested();
     void translationChanged();   // a translation option changed: apply it and save the settings
     void audioChanged();         // the speed, volume or a voice changed: save the settings
+    void languageChanged();      // the reader's language or the languages read changed: apply and save
+    void packFinished(const QString& language, const QString& error);   // error empty: the whole pack is installed
     void libraryFoldersChanged();
     void addLibraryFolderRequested();
     void cancelled();   // the settings were put back: apply them again
@@ -183,6 +196,27 @@ private:
     void installDownloaded(const QString& language, const QString& file, const QString& error);
     QCheckBox* m_useDict;
     QCheckBox* m_auto;
+
+    struct PackRow {
+        QString language;
+        QLabel* status = nullptr;
+        QPushButton* get = nullptr;
+        QPushButton* remove = nullptr;
+        class QProgressBar* progress = nullptr;
+    };
+    std::vector<PackRow> m_packRows;
+    QWidget* m_packBox = nullptr;
+    QComboBox* m_readerLanguage = nullptr;
+    QString m_packLanguage;            // the pack downloading now
+    QStringList m_packQueue;           // its parts still to get (keys), then the next packs (as "pack:<language>")
+    qint64 m_packDone = 0;             // bytes of its parts already downloaded
+    QString m_packPart;                // the part downloading now
+    void buildPackRows();
+    void refreshPacks();
+    void startNextPackPart();
+    void packPartDone(const QString& key);
+    void packProgress(qint64 got);
+    bool partInstalled(const QString& key) const;
 
     std::function<QList<Voice>()> m_voiceSource;
     std::function<QString(const QString&)> m_playSample;

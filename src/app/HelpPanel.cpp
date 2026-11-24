@@ -262,7 +262,9 @@ QString HelpPanel::html() const
           tr("No voice for the book's language? On Windows, add one (free) in Settings ▸ Time &amp; Language ▸ Speech.")});
 
     section("settings");
-    list({tr("%1: the app data folder, the library's folders, resetting text and layout.").arg(link(QStringLiteral("settings"), tr("General"))),
+    list({tr("%1: the language translations are given in, the language packs (a download per language read: its "
+             "dictionary, its definitions and the offline translator), the app data folder, the library's folders, resetting "
+             "text and layout.").arg(link(QStringLiteral("settings"), tr("General"))),
           tr("%1: the Gemini key, LM Studio, offline dictionaries and the offline translator.")
               .arg(link(QStringLiteral("translation-settings"), tr("Translation"))),
           tr("%1: speed, volume and the voice for each language.").arg(link(QStringLiteral("audio-settings"), tr("Audio"))),
@@ -276,8 +278,12 @@ QString HelpPanel::html() const
        tr("No. Gemini's free tier needs no card. Without a key, LM Studio, the offline dictionaries and the offline "
           "translator still answer."));
     qa(tr("Does it work without internet?"),
-       tr("Yes, with the offline dictionaries and the offline translator (downloads in Translation Settings). Answers "
-          "looked up before are kept and work offline too."));
+       tr("Yes, with a language's pack: its dictionary, its definitions and the offline translator (Settings > General). "
+          "Answers looked up before are kept and work offline too."));
+    qa(tr("Which languages can I read?"),
+       tr("Spanish, with everything offline as well, and English books with English definitions. More languages come as "
+          "their packs are made complete: every language offered has its dictionary, its definitions and the offline "
+          "translator."));
     qa(tr("Is my text sent anywhere?"),
        tr("Only to Gemini, and only the words and sentence you ask about. Turn off Use Gemini, or keep one book offline, "
           "to send nothing."));

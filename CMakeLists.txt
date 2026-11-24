@@ -140,6 +140,7 @@ add_library(freereader_core STATIC
     src/core/translate/DictionaryDownload.cpp
     src/core/translate/OfflineTranslator.cpp
     src/core/translate/SavedWords.cpp
+    src/core/translate/LanguagePacks.cpp
 )
 target_include_directories(freereader_core PUBLIC src)
 target_compile_definitions(freereader_core PUBLIC APP_NAME="${APP_NAME}" APP_ORG="${APP_ORG}" APP_VERSION="${APP_VERSION}")

@@ -4,6 +4,7 @@
 
 #include "core/services/Secrets.h"
 #include "core/translate/AiProviders.h"
+#include "core/translate/LanguagePacks.h"
 #include "core/translate/OfflineDictionary.h"
 #include "core/translate/OfflineTranslator.h"
 
@@ -89,7 +90,12 @@ SettingsDialog::SettingsDialog(Settings& settings, const std::vector<Command*>& 
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
     // General first, then Translation, Audio and Keyboard Shortcuts (the owner's order, 2026-11-23).
-    m_tabs->addTab(buildGeneralTab(), tr("General"));
+    // General scrolls too: it holds the languages and their packs.
+    auto* generalScroll = new QScrollArea;
+    generalScroll->setWidget(buildGeneralTab());
+    generalScroll->setWidgetResizable(true);
+    generalScroll->setFrameShape(QFrame::NoFrame);
+    m_tabs->addTab(generalScroll, tr("General"));
     m_tabs->addTab(scroll, tr("Translation"));
     m_tabs->addTab(buildAudioTab(), tr("Audio"));
     m_tabs->addTab(buildShortcutsTab(), tr("Keyboard Shortcuts"));
@@ -162,6 +168,10 @@ void SettingsDialog::reject()
         s.speechRatePct = b.speechRatePct;
         s.speechVolumePct = b.speechVolumePct;
         s.speechVoices = b.speechVoices;
+        const bool language = s.readerLanguage != b.readerLanguage;
+        s.readerLanguage = b.readerLanguage;
+        core::languages::setReaderLanguage(s.readerLanguage);
+        if (language) buildPackRows();
         if (m_lookReset) s.look = b.look;
         m_before.reset();
         m_lookReset = false;
@@ -503,6 +513,7 @@ void SettingsDialog::refreshTranslation()
     const bool has = m_gemini && m_gemini->hasKey();
     m_keyStatus->setText(has ? tr("A key is saved in %1.").arg(storeName()) : tr("No key yet."));
     m_removeKey->setEnabled(has);
+    refreshPacks();   // the language packs are made of these same dictionaries and the translator
 }
 
 void SettingsDialog::refreshOfflineBooks()
@@ -651,13 +662,16 @@ void SettingsDialog::downloadDictionary(const QString& language)
     if (!d->downloader) {
         d->downloader = new core::DictionaryDownload(this);
         QProgressBar* bar = d->progress;
-        connect(d->downloader, &core::DictionaryDownload::progress, this, [bar](qint64 got, qint64 total) {
+        connect(d->downloader, &core::DictionaryDownload::progress, this, [this, bar, language](qint64 got, qint64 total) {
             bar->setRange(0, 1000);
             bar->setValue(total > 0 ? int(qMin<qint64>(1000, got * 1000 / total)) : 0);
             bar->setFormat(tr("%1 of %2 MB").arg(QLocale().toString(double(got) / 1e6, 'f', 1), QLocale().toString(double(total) / 1e6, 'f', 1)));
+            if (m_packPart == language) packProgress(got);
         });
-        connect(d->downloader, &core::DictionaryDownload::finished, this,
-                [this, language](const QString& file, const QString& error) { installDownloaded(language, file, error); });
+        connect(d->downloader, &core::DictionaryDownload::finished, this, [this, language](const QString& file, const QString& error) {
+            installDownloaded(language, file, error);
+            packPartDone(language);
+        });
     }
     d->progress->setRange(0, 0);   // busy until the first bytes arrive
     d->progress->setFormat(tr("Connecting…"));
@@ -751,12 +765,16 @@ void SettingsDialog::downloadTranslator()
     if (!m_translatorDownload) {
         m_translatorDownload = new core::DictionaryDownload(this);
         QProgressBar* bar = m_translatorProgress;
-        connect(m_translatorDownload, &core::DictionaryDownload::progress, this, [bar](qint64 got, qint64 total) {
+        connect(m_translatorDownload, &core::DictionaryDownload::progress, this, [this, bar](qint64 got, qint64 total) {
             bar->setRange(0, 1000);
             bar->setValue(total > 0 ? int(qMin<qint64>(1000, got * 1000 / total)) : 0);
             bar->setFormat(tr("%1 of %2 MB").arg(QLocale().toString(double(got) / 1e6, 'f', 1), QLocale().toString(double(total) / 1e6, 'f', 1)));
+            if (m_packPart == QLatin1String("translator")) packProgress(got);
         });
-        connect(m_translatorDownload, &core::DictionaryDownload::finished, this, &SettingsDialog::installTranslator);
+        connect(m_translatorDownload, &core::DictionaryDownload::finished, this, [this](const QString& unpacked, const QString& error) {
+            installTranslator(unpacked, error);
+            packPartDone(QStringLiteral("translator"));
+        });
     }
     // Unpacked next to the folder in use, then swapped in, so a failed download leaves the installed one working.
     QDir(folder + QStringLiteral(".download")).removeRecursively();
@@ -1096,6 +1114,34 @@ QWidget* SettingsDialog::buildGeneralTab()
     auto* lay = new QVBoxLayout(page);
     lay->setContentsMargins(12, 4, 12, 8);
     lay->setSpacing(8);
+    // Languages: the reader's own, and a pack for each language read.
+    lay->addWidget(sectionTitle(tr("LANGUAGES")));
+    lay->addWidget(muted(tr("Translations and explanations are given in this language. Each language read has a pack: its "
+                            "dictionary, its definitions and the offline translator, for reading with no internet. Gemini and "
+                            "LM Studio need nothing downloaded.")));
+    {
+        auto* row = new QHBoxLayout;
+        row->setSpacing(10);
+        row->addWidget(new QLabel(tr("Language")));
+        m_readerLanguage = new QComboBox;
+        m_readerLanguage->setProperty("testId", "readerLanguage");
+        for (const QString& code : core::languages::readerLanguages())
+            m_readerLanguage->addItem(core::languages::nativeName(code), code);
+        row->addWidget(m_readerLanguage);
+        auto* note = muted(tr("More languages come as their packs are made complete."));
+        row->addWidget(note, 1);
+        lay->addLayout(row);
+        connect(m_readerLanguage, &QComboBox::currentIndexChanged, this,
+                [this] { setReaderLanguage(m_readerLanguage->currentData().toString()); });
+    }
+    m_packBox = new QWidget;
+    m_packBox->setProperty("testId", "languagePacks");
+    auto* packLay = new QVBoxLayout(m_packBox);
+    packLay->setContentsMargins(0, 2, 0, 0);
+    packLay->setSpacing(6);
+    lay->addWidget(m_packBox);
+    buildPackRows();
+
     lay->addWidget(sectionTitle(tr("APP DATA FOLDER")));
     lay->addWidget(muted(tr("Where the library, reading places, notes, words looked up and settings are kept. Books stay "
                             "where they are.")));
@@ -1165,6 +1211,243 @@ QWidget* SettingsDialog::buildGeneralTab()
         m_message->show();
     });
     return page;
+}
+
+// ---------------------------------------------------------------- Languages
+
+void SettingsDialog::buildPackRows()
+{
+    auto* lay = static_cast<QVBoxLayout*>(m_packBox->layout());
+    while (QLayoutItem* it = lay->takeAt(0)) {
+        if (QWidget* w = it->widget()) w->deleteLater();
+        if (QLayout* l = it->layout()) {
+            while (QLayoutItem* c = l->takeAt(0)) {
+                if (c->widget()) c->widget()->deleteLater();
+                delete c;
+            }
+        }
+        delete it;
+    }
+    m_packRows.clear();
+    for (const core::languages::LanguagePack& p : core::languages::packsFor(m_settings.readerLanguage)) {
+        PackRow r;
+        r.language = p.language;
+        auto* row = new QHBoxLayout;
+        row->setSpacing(10);
+        auto* texts = new QVBoxLayout;
+        texts->setSpacing(1);
+        auto* name = new QLabel(p.language == p.reader ? tr("%1 (Definitions Only)").arg(core::languages::englishName(p.language))
+                                                       : core::languages::englishName(p.language));
+        name->setStyleSheet(QStringLiteral("font-weight: 600;"));
+        texts->addWidget(name);
+        r.status = muted(QString());
+        r.status->setProperty("testId", QStringLiteral("packStatus-") + p.language);
+        texts->addWidget(r.status);
+        row->addLayout(texts, 1);
+        r.get = new QPushButton;
+        r.get->setObjectName(QStringLiteral("Suggested"));
+        r.get->setProperty("testId", QStringLiteral("packDownload-") + p.language);
+        r.get->setToolTip(tr("Downloads %1 from FreeReader's page on GitHub, once. Nothing else is sent.").arg(p.contents()));
+        r.remove = new QPushButton(tr("Remove"));
+        r.remove->setProperty("testId", QStringLiteral("packRemove-") + p.language);
+        r.remove->setToolTip(tr("Deletes this pack's files from the app data folder. It can be downloaded again."));
+        row->addWidget(r.get, 0, Qt::AlignTop);
+        row->addWidget(r.remove, 0, Qt::AlignTop);
+        lay->addLayout(row);
+        r.progress = new QProgressBar;
+        r.progress->setProperty("testId", QStringLiteral("packProgress-") + p.language);
+        r.progress->setTextVisible(true);
+        r.progress->hide();
+        lay->addWidget(r.progress);
+        const QString language = p.language;
+        connect(r.get, &QPushButton::clicked, this, [this, language] {
+            if (m_packLanguage == language) cancelPackDownload();
+            else downloadPack(language);
+        });
+        connect(r.remove, &QPushButton::clicked, this, [this, language] { removePack(language); });
+        m_packRows.push_back(r);
+    }
+    refreshPacks();
+}
+
+bool SettingsDialog::partInstalled(const QString& key) const
+{
+    if (key == QLatin1String("translator")) return m_translatorEngine && m_translatorEngine->isInstalled();
+    const DictRow* d = row(key);
+    return d && d->dict && d->dict->info().ok;
+}
+
+bool SettingsDialog::isPackInstalled(const QString& language) const
+{
+    const std::optional<core::languages::LanguagePack> p = core::languages::packFor(m_settings.readerLanguage, language);
+    if (!p) return false;
+    for (const core::languages::PackPart& part : p->parts)
+        if (!partInstalled(part.key)) return false;
+    return true;
+}
+
+void SettingsDialog::refreshPacks()
+{
+    if (!m_readerLanguage) return;
+    {
+        const QSignalBlocker b(m_readerLanguage);
+        m_readerLanguage->setCurrentIndex(qMax(0, m_readerLanguage->findData(m_settings.readerLanguage)));
+    }
+    const QLocale loc;
+    for (PackRow& r : m_packRows) {
+        const std::optional<core::languages::LanguagePack> p = core::languages::packFor(m_settings.readerLanguage, r.language);
+        if (!p) continue;
+        int have = 0;
+        qint64 missing = 0;
+        for (const core::languages::PackPart& part : p->parts) {
+            if (partInstalled(part.key)) ++have;
+            else missing += part.source.size;
+        }
+        const bool busy = m_packLanguage == r.language;
+        const QString mb = loc.toString(double(missing) / 1e6, 'f', 0);
+        QString status = p->contents();
+        if (busy) status += QStringLiteral(" · ") + tr("downloading…");
+        else if (have == p->parts.size()) status += QStringLiteral(" · ") + tr("installed");
+        else if (have > 0) status += QStringLiteral(" · ") + tr("%1 of %2 parts installed").arg(have).arg(p->parts.size());
+        r.status->setText(status);
+        r.get->setText(busy ? tr("Cancel Download") : have == 0 ? tr("Download (%1 MB)").arg(mb) : tr("Download the Rest (%1 MB)").arg(mb));
+        r.get->setVisible(busy || have < p->parts.size());
+        r.get->setEnabled(busy || m_packLanguage.isEmpty());
+        r.remove->setVisible(have > 0 && !busy);
+        r.progress->setVisible(busy);
+    }
+}
+
+void SettingsDialog::setReaderLanguage(const QString& code)
+{
+    if (!core::languages::readerLanguages().contains(code) || code == m_settings.readerLanguage) return;
+    m_settings.readerLanguage = code;
+    core::languages::setReaderLanguage(code);
+    buildPackRows();
+    emit languageChanged();
+}
+
+void SettingsDialog::downloadPacks(const QStringList& languages)
+{
+    QStringList todo;
+    for (const QString& l : languages)
+        if (!isPackInstalled(l)) todo << l;
+    if (todo.isEmpty() || isDownloadingPack()) return;
+    const QString first = todo.takeFirst();
+    downloadPack(first);
+    for (const QString& l : todo) m_packQueue << QStringLiteral("pack:") + l;
+}
+
+void SettingsDialog::downloadPack(const QString& language)
+{
+    const std::optional<core::languages::LanguagePack> p = core::languages::packFor(m_settings.readerLanguage, language);
+    if (!p || isDownloadingPack() || isDownloadingDictionary() || isDownloadingTranslator()) return;
+    m_packLanguage = language;
+    m_packDone = 0;
+    QStringList parts;
+    for (const core::languages::PackPart& part : p->parts)
+        if (!partInstalled(part.key)) parts << part.key;
+    m_packQueue = parts + m_packQueue;   // its parts first, then any packs queued after it
+    for (PackRow& r : m_packRows)
+        if (r.language == language) {
+            r.progress->setRange(0, 0);
+            r.progress->setFormat(tr("Connecting…"));
+        }
+    // Chosen to be read: kept with the reader's languages.
+    if (!m_settings.practiceLanguages.contains(language)) {
+        m_settings.practiceLanguages << language;
+        emit languageChanged();
+    }
+    startNextPackPart();
+}
+
+void SettingsDialog::startNextPackPart()
+{
+    m_packPart.clear();
+    while (!m_packQueue.isEmpty() && !m_packQueue.first().startsWith(QLatin1String("pack:")) && partInstalled(m_packQueue.first()))
+        m_packQueue.removeFirst();
+    if (m_packQueue.isEmpty() || m_packQueue.first().startsWith(QLatin1String("pack:"))) {
+        // This pack is done; the next one, if any.
+        const QString done = m_packLanguage;
+        m_packLanguage.clear();
+        refreshPacks();
+        if (!done.isEmpty()) {
+            m_message->setText(tr("The %1 pack is installed.").arg(core::languages::englishName(done)));
+            m_message->show();
+            emit packFinished(done, QString());
+        }
+        if (!m_packQueue.isEmpty()) {
+            const QString next = m_packQueue.takeFirst().mid(5);
+            downloadPack(next);
+        }
+        return;
+    }
+    m_packPart = m_packQueue.takeFirst();
+    refreshPacks();
+    if (m_packPart == QLatin1String("translator")) downloadTranslator();
+    else downloadDictionary(m_packPart);
+    // Nothing started (no folder for it, or no download for this computer): the pack stops with a message.
+    if (m_packPart == QLatin1String("translator") ? !isDownloadingTranslator() : !isDownloadingDictionary(m_packPart)) packPartDone(m_packPart);
+}
+
+void SettingsDialog::packProgress(qint64 got)
+{
+    const std::optional<core::languages::LanguagePack> p = core::languages::packFor(m_settings.readerLanguage, m_packLanguage);
+    if (!p) return;
+    qint64 total = 0;
+    for (const core::languages::PackPart& part : p->parts) total += part.source.size;
+    const qint64 now = m_packDone + got;
+    for (PackRow& r : m_packRows)
+        if (r.language == m_packLanguage) {
+            r.progress->setRange(0, 1000);
+            r.progress->setValue(total > 0 ? int(qMin<qint64>(1000, now * 1000 / total)) : 0);
+            r.progress->setFormat(tr("%1 of %2 MB").arg(QLocale().toString(double(now) / 1e6, 'f', 1), QLocale().toString(double(total) / 1e6, 'f', 1)));
+        }
+}
+
+void SettingsDialog::packPartDone(const QString& key)
+{
+    if (key != m_packPart || m_packLanguage.isEmpty()) return;
+    const std::optional<core::languages::LanguagePack> p = core::languages::packFor(m_settings.readerLanguage, m_packLanguage);
+    if (!partInstalled(key)) {
+        // A part failed (or was cancelled): the pack stops here; the parts already installed stay.
+        const QString failed = m_packLanguage;
+        const QString why = m_message->text();
+        m_packLanguage.clear();
+        m_packPart.clear();
+        m_packQueue.clear();
+        refreshPacks();
+        m_message->setText(tr("The %1 pack wasn't finished: %2").arg(core::languages::englishName(failed), why));
+        m_message->show();
+        emit packFinished(failed, why.isEmpty() ? tr("not finished") : why);
+        return;
+    }
+    if (p)
+        for (const core::languages::PackPart& part : p->parts)
+            if (part.key == key) m_packDone += part.source.size;
+    startNextPackPart();
+}
+
+void SettingsDialog::cancelPackDownload()
+{
+    if (m_packLanguage.isEmpty()) return;
+    m_packQueue.clear();
+    if (m_packPart == QLatin1String("translator")) cancelTranslatorDownload();
+    else if (!m_packPart.isEmpty()) cancelDictionaryDownload(m_packPart);
+}
+
+void SettingsDialog::removePack(const QString& language)
+{
+    const std::optional<core::languages::LanguagePack> p = core::languages::packFor(m_settings.readerLanguage, language);
+    if (!p || m_packLanguage == language) return;
+    for (const core::languages::PackPart& part : p->parts) {
+        // The translator program serves every pack: it goes with the last pack that has a translator.
+        if (part.key == QLatin1String("translator")) removeTranslator();
+        else removeDictionary(part.key);
+    }
+    m_settings.practiceLanguages.removeAll(language);
+    refreshPacks();
+    emit languageChanged();
 }
 
 // ---------------------------------------------------------------- Audio

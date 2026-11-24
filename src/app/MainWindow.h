@@ -59,6 +59,9 @@ public:
     PracticeView* practiceSide() const { return m_practiceSide; }
     // Help > Getting Started: the guide in a panel on the window's right, in the library and while reading.
     HelpPanel* helpPanel() const { return m_help; }
+    // The welcome on the first start: the reader's language and the language packs to download.
+    void showWelcome();
+    class WelcomeDialog* welcome() const;
     bool helpVisible() const;
     void setHelpVisible(bool on);
     LibrarySearchView* librarySearch() const { return m_librarySearch; }
@@ -144,6 +147,8 @@ private:
     PracticeView* m_practice;
     PracticeView* m_practiceSide;   // the practice workspace beside the page (in the reader)
     HelpPanel* m_help = nullptr;
+    QPointer<class WelcomeDialog> m_welcome;
+    void ensureSettingsDialog();
     std::unique_ptr<core::WordLog> m_words;
     std::unique_ptr<core::Annotations> m_annotations;
     QWidget* m_beforePractice = nullptr;

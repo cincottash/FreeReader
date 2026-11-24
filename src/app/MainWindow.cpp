@@ -40,6 +40,8 @@
 #include <QMenuBar>
 #include <QHBoxLayout>
 #include "HelpPanel.h"
+#include "WelcomeDialog.h"
+#include "core/translate/LanguagePacks.h"
 #include <QMessageBox>
 #include <QStandardPaths>
 #include <QGuiApplication>
@@ -55,6 +57,10 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
 {
     setWindowTitle(QStringLiteral(APP_NAME));
     setAcceptDrops(true);
+    core::languages::setReaderLanguage(m_settings.readerLanguage);   // the engines answer in it
+    // The first start (and once for anyone who updated): the welcome, with the language and its packs. Never in
+    // the tests or a screenshot run.
+    if (interactive && !m_settings.welcomeShown) QTimer::singleShot(600, this, &MainWindow::showWelcome);
     m_engine = new core::BookEngine(this);
     // Translation: Gemini first, then LM Studio (the offline ones join the list when they are installed).
     m_net = new QNetworkAccessManager(this);
@@ -691,7 +697,36 @@ void MainWindow::syncChecks()
     set("pages-right-to-left", m_reader && isReading() && m_reader->pagesRightToLeft());
 }
 
+WelcomeDialog* MainWindow::welcome() const { return m_welcome; }
+
+void MainWindow::showWelcome()
+{
+    ensureSettingsDialog();   // it knows which packs are installed, and downloads them
+    if (m_welcome) m_welcome->deleteLater();
+    m_welcome = new WelcomeDialog(m_settings, [this](const QString& language) { return m_settingsDialog->isPackInstalled(language); }, this);
+    m_welcome->setAttribute(Qt::WA_DeleteOnClose);
+    connect(m_welcome, &WelcomeDialog::downloadRequested, this, [this](const QStringList& languages) {
+        // The downloads run in Settings > General, where their progress shows (and Cancel Download).
+        showSettings(SettingsDialog::GeneralTab);
+        m_settingsDialog->downloadPacks(languages);
+    });
+    connect(m_welcome, &QDialog::finished, this, [this] { saveSettingsSoon(); });
+    if (m_interactive) m_welcome->open();
+}
+
 void MainWindow::showSettings(int tab)
+{
+    ensureSettingsDialog();
+    if (!m_settingsDialog->isVisible()) m_settingsDialog->begin();
+    m_settingsDialog->setDataFolder(appdata::folder(), appdata::isTemporary());
+    m_settingsDialog->refreshTranslation();
+    m_settingsDialog->fillLibraryFolders();
+    m_settingsDialog->showTab(SettingsDialog::Tab(tab));
+    m_settingsDialog->show();
+    m_settingsDialog->raise();
+}
+
+void MainWindow::ensureSettingsDialog()
 {
     if (!m_settingsDialog) {
         std::vector<Command*> list;
@@ -744,14 +779,12 @@ void MainWindow::showSettings(int tab)
             if (isReading()) m_reader->applyReadingOptions();
             saveSettingsSoon();
         });
+        connect(m_settingsDialog, &SettingsDialog::languageChanged, this, &MainWindow::saveSettingsSoon);
+        connect(m_settingsDialog, &SettingsDialog::packFinished, this, [this] {
+            applyTranslationSettings();
+            saveSettingsSoon();
+        });
     }
-    if (!m_settingsDialog->isVisible()) m_settingsDialog->begin();
-    m_settingsDialog->setDataFolder(appdata::folder(), appdata::isTemporary());
-    m_settingsDialog->refreshTranslation();
-    m_settingsDialog->fillLibraryFolders();
-    m_settingsDialog->showTab(SettingsDialog::Tab(tab));
-    m_settingsDialog->show();
-    m_settingsDialog->raise();
 }
 
 Command* MainWindow::command(const QString& id) const

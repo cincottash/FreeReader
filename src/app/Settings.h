@@ -52,6 +52,12 @@ struct Settings {
     bool useDictionary = true;        // the offline dictionary, when one is installed
     bool useOfflineTranslator = true; // the offline sentence translator (Bergamot), when downloaded
 
+    // Languages (Settings > General, and the welcome on the first start): the reader's own language (the app's text
+    // and the engines' answers), and the languages the reader reads and practises (their packs downloaded).
+    QString readerLanguage = QStringLiteral("en");
+    QStringList practiceLanguages;
+    bool welcomeShown = false;        // the welcome (languages and packs) was shown once
+
     // Audio: Hear Pronunciation and Read Aloud, with the voices installed on this computer.
     int speechRatePct = 0;            // -100 (slowest) .. 100 (fastest); 0: the voice's normal speed
     int speechVolumePct = 100;        // 0..100

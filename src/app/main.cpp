@@ -1,5 +1,6 @@
 #include "AppData.h"
 #include "Appearance.h"
+#include "InterfaceLanguage.h"
 #include "Commands.h"
 #include "LibraryView.h"
 #include "MainWindow.h"
@@ -279,6 +280,8 @@ int main(int argc, char* argv[])
     if (appdata::resolve(cli.value(QStringLiteral("data-folder")), nullptr).isEmpty()) return 0;
     Settings settings;
     settings.load(appdata::settingsFile());
+    // The app's own text in the reader's language (nothing to do for English).
+    installInterfaceLanguage(settings.readerLanguage, appdata::folder());
     core::Library library;
     QString err;
     library.open(QDir(appdata::folder()).filePath(QStringLiteral("library.sqlite")), &err);

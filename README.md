@@ -107,8 +107,12 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 - **Keeping text offline:** Gemini is the only engine that sends text over the internet, so turning off **Use
   Gemini** keeps every book offline. **Keep This Book Offline** does it for the open book only. Both are in
   **Settings ▸ Translation**, and in the translation settings window, which also counts the books kept offline.
-- **Offline dictionaries** (optional downloads in the translation settings) answer single words with no internet,
-  when the engines before them can't:
+- **Language packs:** the first start asks for your language and the languages you read, and downloads their packs:
+  a language's dictionary, its definitions and the offline translator, together. **Settings ▸ General…** changes them
+  later (Download, Remove). Only languages with every part are offered: Spanish, and English definitions for English
+  books, so far.
+- **Offline dictionaries** (in the language packs, or one by one in the translation settings) answer single words
+  with no internet, when the engines before them can't:
   - **Spanish → English** (31 MB): 120,000 words from [Wiktionary](https://en.wiktionary.org) (CC BY-SA 4.0),
     with verb forms ("tenía" → tener). [Release](https://github.com/cincottash/FreeReader/releases/tag/dictionary-es-en-1).
   - **English definitions** (11 MB), for English books: 160,000 words and names from

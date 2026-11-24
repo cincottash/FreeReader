@@ -27,6 +27,7 @@
 #include "core/translate/OfflineTranslator.h"
 #include "core/translate/OfflineDictionary.h"
 #include "core/translate/DictionaryCardHtml.h"
+#include "core/translate/LanguagePacks.h"
 #include "core/services/BookIndex.h"
 #include "core/services/WordLog.h"
 #include "core/services/Statistics.h"
@@ -1906,7 +1907,8 @@ QList<ReaderView::ParagraphRef> ReaderView::visibleParagraphs() const
 
 QString ReaderView::paragraphKey(const QString& text) const
 {
-    const QByteArray raw = (QStringLiteral("paragraph|") + languageCode() + QStringLiteral("|en|") + text).toUtf8();
+    const QByteArray raw = (QStringLiteral("paragraph|") + languageCode() + QLatin1Char('|') + core::languages::readerLanguage() +
+                            QLatin1Char('|') + text).toUtf8();
     return QString::fromLatin1(QCryptographicHash::hash(raw, QCryptographicHash::Sha256).toHex());
 }
 
