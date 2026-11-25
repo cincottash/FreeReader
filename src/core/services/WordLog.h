@@ -25,6 +25,7 @@ struct WordEntry {
     QString lemma;             // dictionary form ("tener"); empty when it is the text itself
     bool passage = false;      // more than a few words
     QString translation, partOfSpeech, definition, sentence, sentenceTranslation, note, userNote;
+    QString meaningLanguage = QStringLiteral("en");   // the language the meaning is in (the reader's, when saved)
     QStringList alternatives;
     bool edited = false;       // the meaning was changed by hand
     bool starred = false;
@@ -79,8 +80,10 @@ public:
     QList<WordEntry> words(int bookId = 0) const;   // newest first; 0: all books
     WordEntry word(int id) const;
     // A saved word with a meaning, found by how it was read ("tenía") or by its dictionary form ("tener"), in any
-    // capitals; id 0 when there is none. For answering offline from what was looked up before.
-    WordEntry find(const QString& language, const QString& text, const QString& lemma = QString()) const;
+    // capitals; id 0 when there is none. For answering offline from what was looked up before. Only a meaning in
+    // `meaningLanguage` (empty: the reader's language now): a Spanish reader never gets an English one saved before.
+    WordEntry find(const QString& language, const QString& text, const QString& lemma = QString(),
+                   const QString& meaningLanguage = QString()) const;
     bool update(const WordEntry& e);                 // meaning, note, star; marks the meaning as edited
     void remove(int id);                             // with its cards and their history
     int count() const;

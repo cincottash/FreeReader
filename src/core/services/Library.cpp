@@ -16,7 +16,7 @@ namespace core {
 
 namespace {
 
-constexpr int kSchemaVersion = 8;
+constexpr int kSchemaVersion = 9;
 
 QString nowIso() { return QDateTime::currentDateTimeUtc().toString(Qt::ISODate); }
 
@@ -194,6 +194,11 @@ bool Library::open(const QString& databaseFile, QString* error)
         // Files found to be copies of a book in the library, so a folder check doesn't read them again.
         if (!run("CREATE TABLE IF NOT EXISTS duplicate_files (path TEXT PRIMARY KEY, book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE)"))
             return false;
+    }
+    if (version < 9) {
+        // The language a word's saved meaning is in (the reader's language when it was saved). Every meaning saved
+        // before 2026-11-24 is English: English was the only reader language until then.
+        if (!run("ALTER TABLE words ADD COLUMN meaning_language TEXT NOT NULL DEFAULT 'en'")) return false;
     }
     if (version < kSchemaVersion) q.exec(QStringLiteral("PRAGMA user_version=%1").arg(kSchemaVersion));
     m_open = true;

@@ -108,7 +108,8 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
   Gemini** keeps every book offline. **Keep This Book Offline** does it for the open book only. Both are in
   **Settings ▸ Translation**, and in the translation settings window, which also counts the books kept offline.
 - **Your language: English or Spanish.** FreeReader's menus, buttons and messages, its translations and its
-  explanations are all in the language you choose. A Spanish speaker reads English books with Spanish meanings, the
+  explanations are all in the language you choose, and so are its numbers ("30,6 MB" in Spanish, unless the
+  computer itself is set to a Spanish-speaking country's own format). A Spanish speaker reads English books with Spanish meanings, the
   same way an English speaker reads Spanish ones.
 - **Language packs:** the first start asks for your language and the languages you read. The app switches to your
   language at once, and every pack is ticked, so one click (**Download and Start**) gets everything. Nothing is
@@ -128,7 +129,7 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
     [Spanish Wiktionary](https://es.wiktionary.org) (CC BY-SA 4.0). [Release](https://github.com/cincottash/FreeReader/releases/tag/dictionary-es-es-1).
   - **English → Spanish** (6 MB), for Spanish speakers: 74,000 English words with their Spanish meanings and 84,000
     forms ("went" → go), from the English Wiktionary's translation tables and the Spanish Wiktionary's English
-    entries (CC BY-SA 4.0). [Release](https://github.com/cincottash/FreeReader/releases/tag/dictionary-en-es-1).
+    entries (CC BY-SA 4.0), common words first. [Release](https://github.com/cincottash/FreeReader/releases/tag/dictionary-en-es-2).
 - **Offline translator** (30 MB, optional download in the same place): translates sentences and pages with no
   internet, in a fraction of a second, when Gemini and LM Studio can't. It's
   [Bergamot](https://github.com/browsermt/bergamot-translator), the engine Firefox translates with, and Mozilla's
