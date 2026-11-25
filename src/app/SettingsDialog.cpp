@@ -213,27 +213,49 @@ QWidget* SettingsDialog::buildTranslationTab()
     m_keyStatus->setWordWrap(true);
     m_keyStatus->setProperty("testId", "keyStatus");
     lay->addWidget(m_keyStatus);
-    auto* keyRow = new QHBoxLayout;
+    // The key, model and address boxes: one moderate width (a key or a model's name fits), their buttons right
+    // beside them, and the labels of both sections in one column (the owner's request, 2026-11-25: boxes as wide
+    // as the window looked odd).
+    const int fieldWidth = page->fontMetrics().averageCharWidth() * 46;
+    QList<QLabel*> fieldLabels;
+    auto fieldGrid = [&] {
+        auto* g = new QGridLayout;
+        g->setHorizontalSpacing(8);
+        g->setVerticalSpacing(6);
+        g->setColumnStretch(3, 1);
+        return g;
+    };
+    auto fieldLabel = [&](const QString& text) {
+        auto* l = new QLabel(text);
+        fieldLabels << l;
+        return l;
+    };
+    auto buttons = [](std::initializer_list<QPushButton*> list) {
+        auto* row = new QHBoxLayout;
+        row->setSpacing(6);
+        for (QPushButton* b : list) row->addWidget(b);
+        row->addStretch(1);   // each button its own size, not the width of the key's two
+        return row;
+    };
+    auto* gemini = fieldGrid();
     m_keyEdit = new QLineEdit;
     m_keyEdit->setEchoMode(QLineEdit::Password);
     m_keyEdit->setPlaceholderText(tr("Paste a Gemini API key"));
     m_keyEdit->setProperty("testId", "keyEdit");
+    m_keyEdit->setFixedWidth(fieldWidth);
     auto* save = new QPushButton(tr("Save Key"));
     save->setProperty("testId", "saveKey");
     m_removeKey = new QPushButton(tr("Remove Key"));
     m_removeKey->setProperty("testId", "removeKey");
-    keyRow->addWidget(m_keyEdit, 1);
-    keyRow->addWidget(save);
-    keyRow->addWidget(m_removeKey);
-    lay->addLayout(keyRow);
+    gemini->addWidget(fieldLabel(tr("Key")), 0, 0);
+    gemini->addWidget(m_keyEdit, 0, 1);
+    gemini->addLayout(buttons({save, m_removeKey}), 0, 2);
     auto* getKey = new QPushButton(tr("Get a Free Key…"));
     getKey->setToolTip(QStringLiteral("https://aistudio.google.com/apikey"));
     getKey->setProperty("testId", "getKey");
     getKey->setObjectName(QStringLiteral("Link"));
     getKey->setCursor(Qt::PointingHandCursor);
-    lay->addWidget(getKey, 0, Qt::AlignLeft);
-    auto* modelRow = new QHBoxLayout;
-    modelRow->addWidget(new QLabel(tr("Model")));
+    gemini->addWidget(getKey, 1, 1, Qt::AlignLeft);
     m_model = new QComboBox;
     m_model->setEditable(true);
     m_model->setProperty("testId", "geminiModel");
@@ -241,32 +263,17 @@ QWidget* SettingsDialog::buildTranslationTab()
                        QStringLiteral("gemini-3.1-flash-lite"), QStringLiteral("gemini-flash-latest")});
     m_model->setToolTip(tr("gemini-flash-lite-latest always uses Google's newest Flash-Lite model, which has the most "
                            "free lookups a day. Flash models are better but have far fewer free lookups."));
-    modelRow->addWidget(m_model, 1);
+    m_model->setFixedWidth(fieldWidth);
     auto* test = new QPushButton(tr("Test"));
     test->setToolTip(tr("Looks up one word (uses one of today's free lookups)."));
     test->setProperty("testId", "testGemini");
-    modelRow->addWidget(test);
-    lay->addLayout(modelRow);
+    gemini->addWidget(fieldLabel(tr("Model")), 2, 0);
+    gemini->addWidget(m_model, 2, 1);
+    gemini->addLayout(buttons({test}), 2, 2);
+    lay->addLayout(gemini);
     m_geminiResult = muted(QString());
     m_geminiResult->setProperty("testId", "geminiResult");
     lay->addWidget(m_geminiResult);
-    // Gemini is the only engine that sends text over the internet, so keeping books offline belongs here.
-    lay->addWidget(muted(tr("Gemini is the only engine that sends text over the internet: with Use Gemini off, nothing "
-                            "leaves this computer. A single book can be kept offline instead; the engines on this "
-                            "computer still answer for it.")));
-    m_bookOffline = new QCheckBox(tr("Keep This Book Offline"));
-    m_bookOffline->setProperty("testId", "bookOffline");
-    m_bookOffline->setToolTip(tr("Text from the open book is never sent to Gemini. Also in Settings > Translation in the menu bar."));
-    lay->addWidget(m_bookOffline);
-    auto* offlineRow = new QHBoxLayout;
-    m_offlineCount = muted(QString());
-    m_offlineCount->setProperty("testId", "offlineCount");
-    offlineRow->addWidget(m_offlineCount, 1);
-    m_allowAll = new QPushButton(tr("Allow Gemini for Every Book"));
-    m_allowAll->setProperty("testId", "allowGeminiEveryBook");
-    m_allowAll->setToolTip(tr("Empties the list of books kept offline."));
-    offlineRow->addWidget(m_allowAll);
-    lay->addLayout(offlineRow);
 
     lay->addWidget(sectionTitle(tr("LM STUDIO (ON THIS COMPUTER)")));
     lay->addWidget(muted(tr("Asked when Gemini can't answer (offline, or today's free lookups are used up). LM Studio's server "
@@ -275,27 +282,34 @@ QWidget* SettingsDialog::buildTranslationTab()
     m_useLm = new QCheckBox(tr("Use LM Studio"));
     m_useLm->setProperty("testId", "useLmStudio");
     lay->addWidget(m_useLm);
-    auto* lmRow = new QHBoxLayout;
-    lmRow->addWidget(new QLabel(tr("Address")));
+    auto* lm = fieldGrid();
     m_lmAddress = new QLineEdit;
     m_lmAddress->setProperty("testId", "lmAddress");
     m_lmAddress->setPlaceholderText(QStringLiteral("http://localhost:1234"));
-    lmRow->addWidget(m_lmAddress, 1);
-    auto* check = new QPushButton(tr("Check"));
+    m_lmAddress->setFixedWidth(fieldWidth);
+    // Both buttons say Test (the owner's request, 2026-11-25): this one tests the address, the one below the model.
+    auto* check = new QPushButton(tr("Test"));
     check->setProperty("testId", "checkLmStudio");
-    lmRow->addWidget(check);
-    lay->addLayout(lmRow);
-    auto* lmModelRow = new QHBoxLayout;
-    lmModelRow->addWidget(new QLabel(tr("Model")));
+    check->setToolTip(tr("Connects to LM Studio at this address and lists its models."));
+    lm->addWidget(fieldLabel(tr("Address")), 0, 0);
+    lm->addWidget(m_lmAddress, 0, 1);
+    lm->addLayout(buttons({check}), 0, 2);
     m_lmModel = new QComboBox;
     m_lmModel->setProperty("testId", "lmModel");
-    m_lmModel->setToolTip(tr("Check fills this list with the models LM Studio has."));
-    lmModelRow->addWidget(m_lmModel, 1);
+    m_lmModel->setToolTip(tr("Test beside the address fills this list with the models LM Studio has."));
+    m_lmModel->setFixedWidth(fieldWidth);
     auto* lmTest = new QPushButton(tr("Test"));
     lmTest->setToolTip(tr("Looks up one word with LM Studio."));
     lmTest->setProperty("testId", "testLmStudio");
-    lmModelRow->addWidget(lmTest);
-    lay->addLayout(lmModelRow);
+    lm->addWidget(fieldLabel(tr("Model")), 1, 0);
+    lm->addWidget(m_lmModel, 1, 1);
+    lm->addLayout(buttons({lmTest}), 1, 2);
+    lay->addLayout(lm);
+    // One column for the labels of both sections, so the four boxes line up.
+    int labelWidth = 0;
+    for (QLabel* l : fieldLabels) labelWidth = qMax(labelWidth, l->sizeHint().width());
+    gemini->setColumnMinimumWidth(0, labelWidth);
+    lm->setColumnMinimumWidth(0, labelWidth);
     connect(lmTest, &QPushButton::clicked, this, &SettingsDialog::testLmStudio);
     connect(m_lmModel, &QComboBox::currentIndexChanged, this, [this] {
         const QString v = m_lmModel->currentData().toString();
@@ -348,13 +362,9 @@ QWidget* SettingsDialog::buildTranslationTab()
                                         "FreeReader's page on GitHub, once. Nothing else is sent.")
                                    : tr("Downloads the Spanish dictionary of definitions made from the Spanish Wiktionary "
                                         "(CC BY-SA 4.0) from FreeReader's page on GitHub, once. Nothing else is sent."));
-        d.add = new QPushButton(tr("Add File…"));
-        d.add->setToolTip(tr("Install a FreeReader dictionary file (.sqlite) from this computer."));
-        d.add->setProperty("testId", ("addDictionary" + suffix).constData());
-        d.remove = new QPushButton(tr("Remove"));
+        d.remove = new QPushButton(tr("Uninstall"));
         d.remove->setProperty("testId", ("removeDictionary" + suffix).constData());
         rowLay->addWidget(d.download);
-        rowLay->addWidget(d.add);
         rowLay->addWidget(d.remove);
         lay->addLayout(rowLay);
         d.progress = new QProgressBar;
@@ -366,14 +376,6 @@ QWidget* SettingsDialog::buildTranslationTab()
         connect(d.download, &QPushButton::clicked, this, [this, language] {
             if (isDownloadingDictionary(language)) cancelDictionaryDownload(language);
             else downloadDictionary(language);
-        });
-        connect(d.add, &QPushButton::clicked, this, [this] {
-            if (!m_interactive) return;
-            const QString f = QFileDialog::getOpenFileName(this, tr("Add Dictionary File"), QString(), tr("FreeReader dictionaries (*.sqlite)"));
-            if (f.isEmpty()) return;
-            const QString err = installDictionary(f);
-            m_message->setText(err.isEmpty() ? tr("The dictionary is installed.") : err);
-            m_message->show();
         });
         connect(d.remove, &QPushButton::clicked, this, [this, language] { removeDictionary(language); });
     }
@@ -402,7 +404,7 @@ QWidget* SettingsDialog::buildTranslationTab()
         m_translatorGet->setObjectName(QStringLiteral("Suggested"));
         m_translatorGet->setToolTip(tr("Downloads the translator (Bergamot, MPL 2.0) and Mozilla's Spanish → English model "
                                        "(MPL 2.0) from FreeReader's page on GitHub, once. Nothing else is sent."));
-        m_translatorRemove = new QPushButton(tr("Remove"));
+        m_translatorRemove = new QPushButton(tr("Uninstall"));
         m_translatorRemove->setProperty("testId", "removeTranslator");
         rowLay->addWidget(m_translatorGet);
         rowLay->addWidget(m_translatorRemove);
@@ -424,6 +426,20 @@ QWidget* SettingsDialog::buildTranslationTab()
     m_auto->setToolTip(tr("Off: selecting only selects. Right-click the selection and choose Translate, or press Ctrl+E."));
     m_auto->setProperty("testId", "translateOnSelect");
     lay->addWidget(m_auto);
+
+    // At the bottom, after every engine is described (the owner's request, 2026-11-25: not in the middle of Gemini's
+    // section). A book is let back online by opening it and clearing the box (no button empties the whole list).
+    lay->addWidget(sectionTitle(tr("PRIVACY")));
+    lay->addWidget(muted(tr("Gemini is the only engine that sends text over the internet: with Use Gemini off, nothing "
+                            "leaves this computer. A single book can be kept offline instead; the engines on this "
+                            "computer still answer for it.")));
+    m_bookOffline = new QCheckBox(tr("Keep This Book Offline"));
+    m_bookOffline->setProperty("testId", "bookOffline");
+    m_bookOffline->setToolTip(tr("Text from the open book is never sent to Gemini. Also in Settings > Translation in the menu bar."));
+    lay->addWidget(m_bookOffline);
+    m_offlineCount = muted(QString());
+    m_offlineCount->setProperty("testId", "offlineCount");
+    lay->addWidget(m_offlineCount);
     lay->addStretch(1);
 
     connect(save, &QPushButton::clicked, this, [this] {
@@ -444,7 +460,6 @@ QWidget* SettingsDialog::buildTranslationTab()
         emit translationChanged();
     });
     connect(m_bookOffline, &QCheckBox::toggled, this, &SettingsDialog::setOpenBookOffline);
-    connect(m_allowAll, &QPushButton::clicked, this, &SettingsDialog::allowGeminiForEveryBook);
     connect(m_useLm, &QCheckBox::toggled, this, [this](bool on) {
         m_settings.useLmStudio = on;
         emit translationChanged();
@@ -499,7 +514,6 @@ void SettingsDialog::refreshTranslation()
         // Download is offered while it isn't installed (and becomes Cancel while it runs).
         d.download->setVisible(d.dict && (downloading || !installed));
         d.download->setText(downloading ? tr("Cancel Download") : tr("Download (%1 MB)").arg((d.source.size + 500000) / 1000000));
-        d.add->setEnabled(d.dict && !downloading);
         d.progress->setVisible(downloading);
     }
     {
@@ -522,6 +536,23 @@ void SettingsDialog::refreshTranslation()
         m_translatorRemove->setEnabled(installed && !downloading);
         m_translatorProgress->setVisible(downloading);
     }
+    {
+        // Every Download button one width, the widest any of them needs (its size, or Cancel Download while it runs),
+        // so they line up whatever the sizes (the owner's request, 2026-11-25).
+        QList<QPushButton*> gets;
+        for (DictRow& d : m_rows) gets << d.download;
+        gets << m_translatorGet;
+        int width = 0;
+        for (QPushButton* b : gets) {
+            const QString shown = b->text();
+            for (const QString& t : {shown, tr("Cancel Download")}) {
+                b->setText(t);
+                width = qMax(width, b->sizeHint().width());
+            }
+            b->setText(shown);
+        }
+        for (QPushButton* b : gets) b->setFixedWidth(width);
+    }
     const bool has = m_gemini && m_gemini->hasKey();
     m_keyStatus->setText(has ? tr("A key is saved in %1.").arg(storeName()) : tr("No key yet."));
     m_removeKey->setEnabled(has);
@@ -543,7 +574,6 @@ void SettingsDialog::refreshOfflineBooks()
                           : n == 1 ? tr("1 book is kept offline.")
                                    : tr("%1 books are kept offline.").arg(QLocale().toString(n));
     m_offlineCount->setText(book + QLatin1Char(' ') + count);
-    m_allowAll->setEnabled(n > 0);
 }
 
 void SettingsDialog::setOpenBookOffline(bool on)
@@ -554,14 +584,6 @@ void SettingsDialog::setOpenBookOffline(bool on)
         if (on) m_settings.offlineBooks << QString::number(id);
         emit translationChanged();
     }
-    refreshOfflineBooks();
-}
-
-void SettingsDialog::allowGeminiForEveryBook()
-{
-    if (m_settings.offlineBooks.isEmpty()) return;
-    m_settings.offlineBooks.clear();
-    emit translationChanged();
     refreshOfflineBooks();
 }
 
@@ -1372,7 +1394,7 @@ void SettingsDialog::buildPackRows()
         r.get->setObjectName(QStringLiteral("Suggested"));
         r.get->setProperty("testId", QStringLiteral("packDownload-") + p.language);
         r.get->setToolTip(tr("Downloads %1 from FreeReader's page on GitHub, once. Nothing else is sent.").arg(p.contents()));
-        r.remove = new QPushButton(tr("Remove"));
+        r.remove = new QPushButton(tr("Uninstall"));
         r.remove->setProperty("testId", QStringLiteral("packRemove-") + p.language);
         r.remove->setToolTip(tr("Deletes this pack's files from the app data folder. It can be downloaded again."));
         row->addWidget(r.get, 0, Qt::AlignTop);

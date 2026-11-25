@@ -124,11 +124,8 @@ TranslationPopup::TranslationPopup(QWidget* parent) : QFrame(parent)
     m_lay->addWidget(m_definitionTitle);
     m_definition = label("tpDefinition");
     m_lay->addWidget(m_definition);
-    m_sentenceTitle = title("tpSentenceTitle");
-    m_sentenceTitle->setText(tr("IN THIS SENTENCE"));
-    m_lay->addWidget(m_sentenceTitle);
-    m_sentence = label("tpSentence");
-    m_lay->addWidget(m_sentence);
+    // No "in this sentence": the whole sentence translated is Explain This Sentence's job (the owner's request,
+    // 2026-11-25). The answer still has it, for the Word List and Practice.
 
     auto* actions = new QHBoxLayout;
     actions->setContentsMargins(0, 6, 0, 0);
@@ -211,8 +208,8 @@ void TranslationPopup::showLoading(const QString& text, const QString& language,
     m_translation->setObjectName(QStringLiteral("Muted"));
     m_translation->style()->polish(m_translation);
     for (QWidget* w : {static_cast<QWidget*>(m_alternatives), static_cast<QWidget*>(m_note), static_cast<QWidget*>(m_rule),
-                       static_cast<QWidget*>(m_definitionTitle), static_cast<QWidget*>(m_definition), static_cast<QWidget*>(m_sentenceTitle),
-                       static_cast<QWidget*>(m_sentence), static_cast<QWidget*>(m_copy), static_cast<QWidget*>(m_settings),
+                       static_cast<QWidget*>(m_definitionTitle), static_cast<QWidget*>(m_definition),
+                       static_cast<QWidget*>(m_copy), static_cast<QWidget*>(m_settings),
                        static_cast<QWidget*>(m_highlight), static_cast<QWidget*>(m_flip)})
         w->hide();
     m_canHighlight = false;   // the reader says again for these words
@@ -230,15 +227,16 @@ void TranslationPopup::showAsking(const QString& provider)
     place();
 }
 
-void TranslationPopup::showResult(const core::TranslationResult& r, bool dictionaryFirst, const QString& bookSentence)
+void TranslationPopup::showResult(const core::TranslationResult& r, bool dictionaryFirst)
 {
     m_loading = false;
     m_result = r;
-    // Two sides: the Dictionary, with a definition in the book's language, for a book not in the reader's language.
+    // Two sides when there is a definition in the book's language, for a book not in the reader's language: the
+    // translation all in the reader's language (no word of the book's: the owner's request, 2026-11-25), the
+    // definition behind Flip. Dictionary starts on the definition, Translate on the translation.
     const QString lang = m_language.section(QLatin1Char('-'), 0, 0).toLower();
-    m_twoSides = dictionaryFirst && !r.definition.trimmed().isEmpty() && !lang.isEmpty() && lang != readerLanguage();
-    m_bookSide = true;
-    m_bookSentence = bookSentence.simplified();
+    m_twoSides = !r.definition.trimmed().isEmpty() && !lang.isEmpty() && lang != readerLanguage();
+    m_bookSide = dictionaryFirst;
     m_flip->setVisible(m_twoSides);
     const bool word = !m_text.contains(QLatin1Char(' ')) && m_text.size() <= 40;
     QString detail = r.partOfSpeech;
@@ -258,16 +256,11 @@ void TranslationPopup::showResult(const core::TranslationResult& r, bool diction
 
     m_definitionTitle->setText(languageTitle(m_language));
     m_definition->setText(r.definition);
-    const bool showDefinition = !r.definition.isEmpty();
+    // Beside the translation only when it is in the reader's own language (a book in it); else behind Flip.
+    const bool showDefinition = !r.definition.isEmpty() && !m_twoSides;
     m_definitionTitle->setVisible(showDefinition);
     m_definition->setVisible(showDefinition);
-    // For a passage the translation already is the sentence, more or less: show it only when it adds something.
-    const bool showSentence = !r.inSentence.isEmpty() && r.inSentence.compare(r.translation, Qt::CaseInsensitive) != 0 &&
-                              (word || r.inSentence.size() > r.translation.size() + 12);
-    m_sentenceTitle->setVisible(showSentence);
-    m_sentence->setText(r.inSentence);
-    m_sentence->setVisible(showSentence);
-    m_rule->setVisible(showDefinition || showSentence);
+    m_rule->setVisible(showDefinition);
     if (dictionaryFirst && showDefinition) {
         // Dictionary: the definition comes right after the word.
         m_lay->removeWidget(m_definitionTitle);
@@ -292,55 +285,6 @@ void TranslationPopup::showResult(const core::TranslationResult& r, bool diction
     place();
 }
 
-namespace {
-
-// The part of speech as Gemini and LM Studio give it ("noun, masculine", "verb, preterite"), in Spanish for the
-// Spanish side; empty when a word of it isn't known (never half English).
-QString spanishPartOfSpeech(const QString& english)
-{
-    static const QHash<QString, QString> words = {
-        {"noun", "sustantivo"}, {"verb", "verbo"}, {"adjective", "adjetivo"}, {"adverb", "adverbio"}, {"pronoun", "pronombre"},
-        {"preposition", "preposición"}, {"conjunction", "conjunción"}, {"interjection", "interjección"}, {"article", "artículo"},
-        {"determiner", "determinante"}, {"numeral", "numeral"}, {"masculine", "masculino"}, {"feminine", "femenino"},
-        {"neuter", "neutro"}, {"plural", "plural"}, {"singular", "singular"}, {"preterite", "pretérito"}, {"imperfect", "imperfecto"},
-        {"present", "presente"}, {"future", "futuro"}, {"conditional", "condicional"}, {"subjunctive", "subjuntivo"},
-        {"indicative", "indicativo"}, {"imperative", "imperativo"}, {"infinitive", "infinitivo"}, {"participle", "participio"},
-        {"gerund", "gerundio"}, {"past", "pasado"}, {"reflexive", "reflexivo"}, {"transitive", "transitivo"},
-        {"intransitive", "intransitivo"}, {"pronominal", "pronominal"}, {"diminutive", "diminutivo"}, {"augmentative", "aumentativo"},
-        {"proper", "propio"}, {"phrase", "locución"}, {"idiom", "modismo"}, {"expression", "expresión"}, {"first", "primera"},
-        {"second", "segunda"}, {"third", "tercera"}, {"person", "persona"}, {"tense", "tiempo"}, {"form", "forma"},
-        {"perfect", "perfecto"}, {"pluperfect", "pluscuamperfecto"}, {"simple", "simple"}, {"and", "y"}, {"or", "o"}};
-    const QString rest = english.toLower();
-    // Word by word, keeping the punctuation between them.
-    QString result;
-    int i = 0;
-    while (i < rest.size()) {
-        if (rest[i].isLetter() || rest[i] == QLatin1Char('-')) {
-            int j = i;
-            while (j < rest.size() && (rest[j].isLetter() || rest[j] == QLatin1Char('-'))) ++j;
-            const QString w = rest.mid(i, j - i);
-            const auto it = words.constFind(w);
-            if (it == words.constEnd()) return {};
-            result += it.value();
-            i = j;
-        } else {
-            result += rest[i];
-            ++i;
-        }
-    }
-    return result.trimmed();
-}
-
-// "IN THIS SENTENCE" in the book's language, for the side in that language.
-QString sentenceTitleIn(const QString& lang)
-{
-    static const QHash<QString, QString> titles = {{"es", "EN ESTA FRASE"}, {"fr", "DANS CETTE PHRASE"}, {"de", "IN DIESEM SATZ"},
-                                                   {"it", "IN QUESTA FRASE"}, {"pt", "NESTA FRASE"}, {"en", "IN THIS SENTENCE"}};
-    return titles.value(lang);
-}
-
-}  // namespace
-
 void TranslationPopup::applySide()
 {
     const core::TranslationResult& r = m_result;
@@ -349,28 +293,20 @@ void TranslationPopup::applySide()
     const QString bookName = core::languages::displayName(lang);
     const QString readerName = core::languages::displayName(readerLanguage());
     if (m_bookSide) {
-        // All in the book's language: the word, its part of speech, the definition, the sentence as the book has it.
-        // (The part of speech comes in the reader's language: put into Spanish for an English reader's Spanish book.)
-        QString detail = lang == QLatin1String("es") && readerLanguage() == QLatin1String("en") ? spanishPartOfSpeech(r.partOfSpeech) : QString();
-        if (!r.lemma.isEmpty() && (lang == QLatin1String("es") || lang == QLatin1String("en")))
-            detail += (detail.isEmpty() ? QString() : QStringLiteral(" · ")) + (lang == QLatin1String("es") ? QStringLiteral("de ") : QStringLiteral("from ")) + r.lemma;
-        setHead(word ? m_text : QString(), detail);
+        // All in the book's language: the words and their definition.
+        setHead(word ? m_text : QString(), !r.lemma.isEmpty() && lang == QLatin1String("es")   ? QStringLiteral("de ") + r.lemma
+                                           : !r.lemma.isEmpty() && lang == QLatin1String("en") ? QStringLiteral("from ") + r.lemma
+                                                                                               : QString());
         for (QWidget* w : {static_cast<QWidget*>(m_translation), static_cast<QWidget*>(m_alternatives), static_cast<QWidget*>(m_note)}) w->hide();
         m_definitionTitle->setText(languageTitle(m_language));
         m_definitionTitle->show();
         m_definition->setText(r.definition);
         m_definition->show();
-        const bool sentence = !m_bookSentence.isEmpty() && m_bookSentence.compare(m_text, Qt::CaseInsensitive) != 0;
-        const QString title = sentenceTitleIn(lang);
-        m_sentenceTitle->setText(title);
-        m_sentenceTitle->setVisible(sentence && !title.isEmpty());
-        m_sentence->setText(m_bookSentence);
-        m_sentence->setVisible(sentence);
-        m_rule->setVisible(sentence);
+        m_rule->hide();
         m_flip->setText(tr("Flip to %1").arg(readerName));
         m_flip->setToolTip(tr("Turn the card over: everything in %1").arg(readerName));
     } else {
-        // All in the reader's language: the meaning, other meanings, the note, the sentence translated.
+        // All in the reader's language: the meaning, other meanings, the note.
         QString detail = r.partOfSpeech;
         if (!r.lemma.isEmpty()) detail += (detail.isEmpty() ? QString() : QStringLiteral(" · ")) + tr("from %1").arg(r.lemma);
         setHead(word ? m_text : QString(), detail);
@@ -380,12 +316,7 @@ void TranslationPopup::applySide()
         m_note->setVisible(!r.note.isEmpty());
         m_definitionTitle->hide();
         m_definition->hide();
-        const bool sentence = !r.inSentence.isEmpty() && r.inSentence.compare(r.translation, Qt::CaseInsensitive) != 0;
-        m_sentenceTitle->setText(tr("IN THIS SENTENCE"));
-        m_sentenceTitle->setVisible(sentence);
-        m_sentence->setText(r.inSentence);
-        m_sentence->setVisible(sentence);
-        m_rule->setVisible(sentence);
+        m_rule->hide();
         m_flip->setText(tr("Flip to %1").arg(bookName));
         m_flip->setToolTip(tr("Turn the card over: everything in %1").arg(bookName));
     }
@@ -443,8 +374,6 @@ void TranslationPopup::showExplanation(const core::TranslationResult& r)
     m_alternatives->hide();
     m_note->setText(r.note);
     m_note->setVisible(!r.note.isEmpty());
-    m_sentenceTitle->hide();
-    m_sentence->hide();
     // The notes below the rule, where the definition goes.
     if (m_lay->indexOf(m_definitionTitle) < m_lay->indexOf(m_rule)) {
         m_lay->removeWidget(m_definitionTitle);

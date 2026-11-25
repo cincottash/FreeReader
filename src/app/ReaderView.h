@@ -166,6 +166,11 @@ public:
     DictionaryPopup* dictionaryPopup() const { return m_dictCard; }
     // Dictionary (right-click): the selected word's whole entry, as a dictionary card.
     void showDictionary();
+    // A word's translation, shown as the Dictionary card (the owner's request, 2026-11-25): the side in the reader's
+    // language (nothing in the book's language but the headwords) and, for a book in another language, the side in
+    // the book's language behind Flip. For the lookup started last (the picture program: for the selection).
+    void showWordCard(const core::TranslationResult& r);
+    void showWordCardForSelection(const core::TranslationResult& r, bool dictionaryFirst);
     // The pop-ups' Highlight button: the looked-up words highlighted in the color used last, or not any more.
     void toggleLookupHighlight();
     void updateLookupHighlight();
@@ -298,8 +303,9 @@ private:
     core::TranslationService* m_translator = nullptr;
     core::WordLog* m_words = nullptr;
     int m_lookupSpine = -1, m_lookupStart = 0, m_lookupEnd = 0;
+    QRect m_lookupAnchor;   // where the looked-up words are on the page (the card opens beside them)
+    QString m_lookupText;
     QString m_lookupSentence;
-    QString m_lookupBookSentence;   // the sentence as the book has it, for the Dictionary card's first side
     bool m_lookupIsWord = false;
     core::OfflineTranslator* m_offlineTranslator = nullptr;
     int m_lookupId = 0;

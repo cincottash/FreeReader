@@ -39,6 +39,8 @@ QJsonObject TranslationResult::toJson() const
     o[QLatin1String("note")] = note;
     if (!explanation.isEmpty()) o[QLatin1String("explanation")] = QJsonArray::fromStringList(explanation);
     if (!paragraphs.isEmpty()) o[QLatin1String("translations")] = QJsonArray::fromStringList(paragraphs);
+    if (!card.isEmpty()) o[QLatin1String("card")] = cardToJson(card);
+    if (!bookCard.isEmpty()) o[QLatin1String("book_card")] = cardToJson(bookCard);
     o[QLatin1String("provider")] = provider;
     return o;
 }
@@ -63,6 +65,8 @@ TranslationResult TranslationResult::fromJson(const QJsonObject& o)
     for (const QJsonValue& v : o.value(QLatin1String("explanation")).toArray())
         if (!v.toString().trimmed().isEmpty()) r.explanation << v.toString().trimmed();
     for (const QJsonValue& v : o.value(QLatin1String("translations")).toArray()) r.paragraphs << v.toString().trimmed();
+    r.card = cardFromJson(o.value(QLatin1String("card")).toObject());
+    r.bookCard = cardFromJson(o.value(QLatin1String("book_card")).toObject());
     r.provider = s("provider");
     return r;
 }
