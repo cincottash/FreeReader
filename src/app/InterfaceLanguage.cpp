@@ -50,7 +50,16 @@ QString JsonTranslator::translate(const char*, const char* sourceText, const cha
 
 namespace {
 QString g_interface = QStringLiteral("en");
+
+// Numbers and dates in the app's language: this computer's own format when it is in that language (a Mexican or a
+// British setup keeps its own), else the language's usual one ("1.180" and "30,6 MB" in Spanish).
+void useNumbersOf(const QString& code)
+{
+    const QLocale system = QLocale::system();
+    const QLocale wanted(code.isEmpty() ? QStringLiteral("en") : code);
+    QLocale::setDefault(system.language() == wanted.language() ? system : wanted);
 }
+}  // namespace
 
 QString interfaceLanguage() { return g_interface; }
 
@@ -70,7 +79,10 @@ bool installInterfaceLanguage(const QString& code, const QString& dataFolder)
         qtOwn = nullptr;
     }
     g_interface = QStringLiteral("en");
-    if (code.isEmpty() || code == QLatin1String("en")) return false;
+    if (code.isEmpty() || code == QLatin1String("en")) {
+        useNumbersOf(QStringLiteral("en"));
+        return false;
+    }
     {
         auto* q = new QTranslator;
         if (q->load(QStringLiteral(":/qt/qtbase_%1.qm").arg(code))) {
@@ -85,10 +97,12 @@ bool installInterfaceLanguage(const QString& code, const QString& dataFolder)
     const bool ok = (!own.isEmpty() && QFile::exists(own) && t->loadFile(own)) || t->loadFile(QStringLiteral(":/languages/%1.json").arg(code));
     if (!ok || t->isEmpty()) {
         delete t;
+        useNumbersOf(QStringLiteral("en"));
         return false;
     }
     QCoreApplication::installTranslator(t);
     installed = t;
     g_interface = code;
+    useNumbersOf(code);
     return true;
 }

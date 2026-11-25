@@ -52,7 +52,7 @@ QString keyFor(const QString& text, const QString& lemma, bool passage)
 const char* kWordColumns =
     "SELECT w.id, w.language, w.text, w.lemma, w.passage, w.translation, w.alternatives, w.part_of_speech, w.definition, "
     "w.sentence, w.sentence_translation, w.note, w.user_note, w.edited, w.starred, COALESCE(w.book_id, 0), w.book_title, "
-    "w.spine, w.sel_start, w.sel_end, w.cfi, w.page_label, w.chapter, w.lookups, w.added, w.last_seen FROM words w ";
+    "w.spine, w.sel_start, w.sel_end, w.cfi, w.page_label, w.chapter, w.lookups, w.added, w.last_seen, w.meaning_language FROM words w ";
 
 WordEntry readWord(const QSqlQuery& q)
 {
@@ -83,6 +83,7 @@ WordEntry readWord(const QSqlQuery& q)
     e.lookups = q.value(23).toInt();
     e.added = fromIso(q.value(24).toString());
     e.lastSeen = fromIso(q.value(25).toString());
+    e.meaningLanguage = q.value(26).toString();
     return e;
 }
 
@@ -211,12 +212,13 @@ int WordLog::save(const TranslationResult& r, const WordPlace& place, const QDat
         if (!edited) {
             // The latest machine answer; a meaning changed by hand stays.
             QSqlQuery m(QSqlDatabase::database(m_connection));
-            m.prepare(QStringLiteral("UPDATE words SET translation=?, alternatives=?, part_of_speech=?, definition=?, note=? WHERE id=?"));
+            m.prepare(QStringLiteral("UPDATE words SET translation=?, alternatives=?, part_of_speech=?, definition=?, note=?, meaning_language=? WHERE id=?"));
             m.addBindValue(bindable(r.translation.trimmed()));
             m.addBindValue(bindable(alts));
             m.addBindValue(bindable(r.partOfSpeech));
             m.addBindValue(bindable(r.definition));
             m.addBindValue(bindable(r.note));
+            m.addBindValue(bindable(languages::readerLanguage()));
             m.addBindValue(bindable(id));
             m.exec();
         }
@@ -224,7 +226,7 @@ int WordLog::save(const TranslationResult& r, const WordPlace& place, const QDat
     }
     q.prepare(QStringLiteral("INSERT INTO words (language, word_key, text, lemma, passage, translation, alternatives, part_of_speech, definition,"
                              " sentence, sentence_translation, note, book_id, book_title, spine, sel_start, sel_end, cfi, page_label, chapter,"
-                             " lookups, added, last_seen) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"));
+                             " lookups, added, last_seen, meaning_language) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"));
     q.addBindValue(bindable(language));
     q.addBindValue(bindable(key));
     q.addBindValue(bindable(text));
@@ -248,6 +250,7 @@ int WordLog::save(const TranslationResult& r, const WordPlace& place, const QDat
     q.addBindValue(bindable(lookup ? 1 : 0));
     q.addBindValue(bindable(iso(now)));
     q.addBindValue(bindable(iso(now)));
+    q.addBindValue(bindable(languages::readerLanguage()));
     if (!q.exec()) {
         qWarning("word log: %s", qPrintable(q.lastError().text()));
         return 0;
@@ -262,7 +265,7 @@ bool WordLog::fillMeaning(int wordId, const TranslationResult& r)
     if (w.id == 0 || w.edited) return false;
     QSqlQuery q(QSqlDatabase::database(m_connection));
     q.prepare(QStringLiteral("UPDATE words SET translation=?, alternatives=?, part_of_speech=?, definition=?, note=?, lookups=lookups+1, "
-                             "sentence_translation=CASE WHEN ?='' THEN sentence_translation ELSE ? END WHERE id=?"));
+                             "sentence_translation=CASE WHEN ?='' THEN sentence_translation ELSE ? END, meaning_language=? WHERE id=?"));
     q.addBindValue(bindable(r.translation.trimmed()));
     q.addBindValue(bindable(QString::fromUtf8(QJsonDocument(QJsonArray::fromStringList(r.alternatives)).toJson(QJsonDocument::Compact))));
     q.addBindValue(bindable(r.partOfSpeech));
@@ -270,6 +273,7 @@ bool WordLog::fillMeaning(int wordId, const TranslationResult& r)
     q.addBindValue(bindable(r.note));
     q.addBindValue(bindable(r.inSentence));
     q.addBindValue(bindable(r.inSentence));
+    q.addBindValue(bindable(languages::readerLanguage()));
     q.addBindValue(bindable(wordId));
     if (!q.exec()) return false;
     // The dictionary form, when the entry had none and no other entry is filed under it.
@@ -312,19 +316,22 @@ WordEntry WordLog::word(int id) const
     return q.exec() && q.next() ? readWord(q) : WordEntry();
 }
 
-WordEntry WordLog::find(const QString& language, const QString& text, const QString& lemma) const
+WordEntry WordLog::find(const QString& language, const QString& text, const QString& lemma, const QString& meaningLanguage) const
 {
     if (!isOpen() || text.trimmed().isEmpty()) return {};
     const QString lang = language.isEmpty() ? QStringLiteral("und") : language;
+    const QString meaningLang = meaningLanguage.isEmpty() ? languages::readerLanguage() : meaningLanguage;
     // Its key with or without the dictionary form, or the same word saved under another dictionary form (one
     // answer said "tener", another none). Several saved meanings: the one seen last.
     const QString key = keyFor(text.simplified(), QString(), false);
     const QString lemmaKey = lemma.trimmed().isEmpty() ? key : keyFor(text.simplified(), lemma.simplified(), false);
     QSqlQuery q(QSqlDatabase::database(m_connection));
     q.prepare(QString::fromLatin1(kWordColumns) +
-              QStringLiteral("WHERE w.language=? AND w.translation<>'' AND (w.word_key=? OR w.word_key=? OR (w.passage=0 AND w.text=? COLLATE NOCASE)) "
+              QStringLiteral("WHERE w.language=? AND w.translation<>'' AND w.meaning_language=? "
+                             "AND (w.word_key=? OR w.word_key=? OR (w.passage=0 AND w.text=? COLLATE NOCASE)) "
                              "ORDER BY w.last_seen DESC, w.id DESC LIMIT 1"));
     q.addBindValue(bindable(lang));
+    q.addBindValue(bindable(meaningLang));
     q.addBindValue(bindable(key));
     q.addBindValue(bindable(lemmaKey));
     q.addBindValue(bindable(text.simplified()));
@@ -339,13 +346,15 @@ bool WordLog::update(const WordEntry& e)
     const bool meaningChanged = old.translation != e.translation.trimmed() || old.definition != e.definition.trimmed() ||
                                 old.alternatives != e.alternatives;
     QSqlQuery q(QSqlDatabase::database(m_connection));
-    q.prepare(QStringLiteral("UPDATE words SET translation=?, alternatives=?, definition=?, user_note=?, starred=?, edited=? WHERE id=?"));
+    // A meaning typed by hand is in the reader's language now; a star or a note leaves the meaning's language.
+    q.prepare(QStringLiteral("UPDATE words SET translation=?, alternatives=?, definition=?, user_note=?, starred=?, edited=?, meaning_language=? WHERE id=?"));
     q.addBindValue(bindable(e.translation.trimmed()));
     q.addBindValue(bindable(QString::fromUtf8(QJsonDocument(QJsonArray::fromStringList(e.alternatives)).toJson(QJsonDocument::Compact))));
     q.addBindValue(bindable(e.definition.trimmed()));
     q.addBindValue(bindable(e.userNote));
     q.addBindValue(bindable(e.starred ? 1 : 0));
     q.addBindValue(bindable(old.edited || meaningChanged ? 1 : 0));
+    q.addBindValue(bindable(meaningChanged ? languages::readerLanguage() : old.meaningLanguage));
     q.addBindValue(bindable(e.id));
     return q.exec();
 }

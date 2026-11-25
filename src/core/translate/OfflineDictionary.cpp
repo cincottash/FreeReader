@@ -234,7 +234,10 @@ bool OfflineDictionary::open(const QString& path)
         else if (k == QLatin1String("title")) m_info.title = v;
     }
     m_info.cards = q.exec(QStringLiteral("SELECT card FROM entries LIMIT 1"));
-    if (m_info.language.isEmpty() || !q.exec(QStringLiteral("SELECT COUNT(*) FROM entries")) || !q.next()) {
+    // The number of words from the last row's number: instant, where COUNT(*) reads the whole table (a third of a
+    // second for Spanish -> English, more for the Spanish definitions, on the window's thread at every start). The
+    // files are written once, row after row, so the two agree.
+    if (m_info.language.isEmpty() || !q.exec(QStringLiteral("SELECT MAX(rowid) FROM entries")) || !q.next()) {
         m_info.error = tr("It isn't a FreeReader dictionary.");
         return false;
     }

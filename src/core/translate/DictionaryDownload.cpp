@@ -50,11 +50,11 @@ DictionaryDownload::Source DictionaryDownload::spanishDefinitions()
 DictionaryDownload::Source DictionaryDownload::englishSpanish()
 {
     Source s;
-    s.url = QUrl(QStringLiteral("https://github.com/cincottash/FreeReader/releases/download/dictionary-en-es-1/FreeReader-dictionary-en-es.zip"));
-    s.sha256 = "fb4986ae9ae4d00ed3ec474a4f7f68a83f1b8caa7f87fc3ca67dd731365856bd";
-    s.size = 6415372;
+    s.url = QUrl(QStringLiteral("https://github.com/cincottash/FreeReader/releases/download/dictionary-en-es-2/FreeReader-dictionary-en-es.zip"));
+    s.sha256 = "daf6a82417bdc3618953efc772b49023364be77e5645c9095d44553de58cdfe8";
+    s.size = 6333790;
     s.entry = QStringLiteral("en-es.sqlite");
-    s.unpackedSize = 15224832;
+    s.unpackedSize = 15040512;
     return s;
 }
 
