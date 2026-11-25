@@ -71,7 +71,6 @@ public:
     void setOpenBook(std::function<std::pair<int, QString>()> openBook) { m_openBook = std::move(openBook); }
     void refreshOfflineBooks();   // after the open book or the list of offline books changed
     void setOpenBookOffline(bool on);
-    void allowGeminiForEveryBook();   // empties the list of books kept offline
     void setDictionary(core::OfflineDictionary* dictionary, const QString& installPath);
     void setEnglishDictionary(core::OfflineDictionary* dictionary, const QString& installPath);
     // `key`: "es" (Spanish -> English), "en" (English definitions) or "es-es" (Spanish definitions).
@@ -187,7 +186,6 @@ private:
     QLabel* m_lmResult;
     QCheckBox* m_bookOffline;
     QLabel* m_offlineCount;
-    QPushButton* m_allowAll;
     std::function<std::pair<int, QString>()> m_openBook;
     struct DictRow {
         // Its key: "es" Spanish -> English, "en" English definitions, "es-es" Spanish definitions, "en-es" English ->
@@ -198,7 +196,6 @@ private:
         core::DictionaryDownload::Source source;
         QLabel* status = nullptr;
         QPushButton* download = nullptr;
-        QPushButton* add = nullptr;
         QPushButton* remove = nullptr;
         class QProgressBar* progress = nullptr;
         core::DictionaryDownload* downloader = nullptr;

@@ -114,7 +114,7 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 - **Language packs:** the first start asks for your language and the languages you read. The app switches to your
   language at once, and every pack is ticked, so one click (**Download and Start**) gets everything. Nothing is
   downloaded before that click, so the app itself stays small. A pack holds a language's dictionary, its definitions
-  and the offline translator. **Settings ▸ General…** changes them later (Download, Remove) and changes your language
+  and the offline translator. **Settings ▸ General…** changes them later (Download, Uninstall) and changes your language
   (**Restart Now** reopens the window in it). Only languages with every part are offered, in both directions:
   English and Spanish, so far.
   ![The welcome in Spanish: your language, and the language packs ticked](.github/readme/welcome-es.png)
