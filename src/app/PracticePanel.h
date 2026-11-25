@@ -22,11 +22,12 @@ public:
     // Maximize: the panel over the whole page area; its button then says Restore (set by the reader).
     void setMaximized(bool on);
     bool isMaximized() const { return m_maximized; }
+    int narrowest() const;   // the least width its contents fit in (360 px at least)
 
 signals:
     void closeRequested();
     void fullWindowRequested();   // its Maximize / Restore button
-    void widthDragging(int width);  // during the drag: where the edge would be (the reader shows a guide line)
+    void widthDragging(int width);  // during the drag: the width asked for (the panel follows, the page holds its layout)
     void widthDragged(int width);   // on release: the width asked for (the reader keeps it within bounds)
 
 protected:

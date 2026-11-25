@@ -53,6 +53,10 @@ public:
     bool nextScreen();
     bool previousScreen();
     void flushResize();   // apply a resize still waiting in its short delay
+    // While a panel beside the page is dragged wider or narrower: the page keeps its layout (centered in the new
+    // width) and is laid out once, when the hold ends.
+    void setHoldLayout(bool on);
+    bool holdsLayout() const { return m_hold; }
 
     bool hasSelection() const { return m_selEnd != m_selStart; }
     QString selectedText() const;
@@ -125,6 +129,7 @@ private:
     struct Geometry {
         int columns = 1;
         float columnWidth = 600, pageHeight = 800, gap = 64, left = 32, top = 48;
+        int width = 0;   // the page width it was made for
     };
     Geometry geometryFor(QSize size) const;
     void applyParams();
@@ -150,6 +155,8 @@ private:
     QTimer m_resizeTimer;
     core::Position m_anchor;
     std::shared_ptr<const layout::ChapterLayout> m_shown;   // last layout painted (kept while a new one is made)
+    Geometry m_shownGeo;                                     // the geometry m_shown was laid out for
+    bool m_hold = false;                                     // setHoldLayout
     QElapsedTimer m_waiting;
 
     // Selection (one chapter at a time)

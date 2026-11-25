@@ -329,7 +329,6 @@ private:
     QToolButton* m_spreadButton;
     QToolButton* m_practiceButton;
     PracticePanel* m_practicePanel;
-    class QFrame* m_resizeGuide = nullptr;   // where the panel's edge will be, while it is dragged
     bool m_practiceMaximized = false;        // the panel over the whole page area (its Maximize button)
     void updatePracticePage();   // the pages showing, for the workspace's This Page
     void syncSpreadButton();

@@ -12,8 +12,8 @@
 #include <functional>
 
 // The panel's left edge: dragged left, the panel grows; right, it shrinks (the owner's request, 2026-11-25). While
-// it is dragged only a guide line follows the mouse (`moving`); the width changes once, on release (`done`): the
-// book's page laid out again at every step of the drag took a second each time and looked jarring (2026-11-25).
+// it is dragged (`moving`) the panel follows the mouse and the book's page keeps its layout; on release (`done`)
+// the page is laid out once for its new width (laid out at every step it jumped about, 2026-11-25).
 class PanelGrip : public QWidget {
 public:
     PanelGrip(QWidget* panel, std::function<void(int)> moving, std::function<void(int)> done)
@@ -116,6 +116,13 @@ void PracticePanel::setTheme(const Theme& t)
     m_full->setIcon(icons::icon(m_maximized ? "collapse" : "expand", t.fg));
     m_close->setIcon(icons::icon("close", t.fg));
     if (m_view) m_view->setTheme(t);
+}
+
+int PracticePanel::narrowest() const
+{
+    // 360 px, or more when its contents need more (the Word List's buttons, longer in Spanish): at 360 px "Show in
+    // Book" was cut off (2026-11-25).
+    return qMax(360, layout()->minimumSize().width());
 }
 
 void PracticePanel::setMaximized(bool on)

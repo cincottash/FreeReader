@@ -246,32 +246,26 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     m_practicePanel->setFixedWidth(qBound(360, m_settings.practiceWidth, 1600));
     // Its left edge is dragged to make it wider or narrower (the owner's request, 2026-11-25): at least 360 px, and
     // the page keeps at least 360 px beside it (and the contents or search panel, when open).
-    // While dragging, a guide line shows where the edge will be; the page is laid out again once, on release.
-    m_resizeGuide = new QFrame(this);
-    m_resizeGuide->setProperty("testId", "practiceResizeGuide");
-    m_resizeGuide->setAttribute(Qt::WA_TransparentForMouseEvents);
-    m_resizeGuide->hide();
+    // While dragging, the panel follows the mouse and the page keeps its layout, centered in the space left; the
+    // book's text is laid out again once, on release (at every pause of the drag it jumped about, and a guide line
+    // with the panel changing only on release didn't look like resizing: the owner's reports, 2026-11-25).
     auto clampWidth = [this](int wanted) {
         const int left = m_toc->isVisible() || m_search->isVisible() ? 320 : 0;
-        return qBound(360, wanted, qMax(360, width() - left - 360));
+        const int least = m_practicePanel->narrowest();
+        return qBound(least, wanted, qMax(least, width() - left - 360));
     };
     connect(m_practicePanel, &PracticePanel::widthDragging, this, [this, clampWidth](int wanted) {
-        const QRect panel = m_practicePanel->geometry();
-        const int x = panel.right() + 1 - clampWidth(wanted);
-        m_resizeGuide->setStyleSheet(QStringLiteral("background: %1;").arg(m_theme.accent.name()));
-        m_resizeGuide->setGeometry(x - 1, panel.top(), 3, panel.height());
-        m_resizeGuide->show();
-        m_resizeGuide->raise();
+        m_pages->setHoldLayout(true);
+        m_practicePanel->setFixedWidth(clampWidth(wanted));
     });
     connect(m_practicePanel, &PracticePanel::widthDragged, this, [this, clampWidth](int wanted) {
-        m_resizeGuide->hide();
         const int w = clampWidth(wanted);
-        if (w == m_practicePanel->width()) return;
         m_practicePanel->setFixedWidth(w);
+        if (layout()) layout()->activate();   // the page gets its final size now, before the hold ends
+        m_pages->setHoldLayout(false);
+        if (w == m_settings.practiceWidth) return;
         m_settings.practiceWidth = w;
         emit appearanceChanged();   // the settings file needs saving
-        // The page laid out for its new width at once (not after the resize pause).
-        QTimer::singleShot(0, m_pages, &PageView::flushResize);
     });
     m_practicePanel->hide();
     m_practicePanel->setProperty("testId", "practicePanel");
@@ -2026,6 +2020,8 @@ void ReaderView::setPracticeVisible(bool on)
     if (on && m_notebook->isVisible()) setNotebookVisible(false);
     if (on && m_bilingual->isVisible()) setBilingualVisible(false);
     if (on) emit rightPanelOpened();
+    // Never narrower than its contents (a width saved before, or in another interface language).
+    if (on && !m_practiceMaximized && m_practicePanel->width() < m_practicePanel->narrowest()) m_practicePanel->setFixedWidth(m_practicePanel->narrowest());
     if (on) makeRoom(true, m_practicePanel->width());
     const bool was = m_practicePanel->isVisible();
     if (!on && m_practiceMaximized) setPracticeMaximized(false);   // closed: the page comes back
@@ -2060,7 +2056,7 @@ void ReaderView::setPracticeMaximized(bool on)
         m_pages->hide();
     } else {
         m_practicePanel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
-        m_practicePanel->setFixedWidth(qBound(360, m_settings.practiceWidth, 1600));
+        m_practicePanel->setFixedWidth(qBound(m_practicePanel->narrowest(), m_settings.practiceWidth, 1600));
         m_pages->show();
         m_pages->setFocus();
     }

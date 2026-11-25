@@ -205,6 +205,7 @@ PageView::Geometry PageView::geometryFor(QSize size) const
     g.left = std::floor((float(size.width()) - used) / 2.f);
     g.top = 44;
     g.pageHeight = qMax(120.f, float(size.height()) - g.top - 48.f);   // the bottom margin also holds the Back chip
+    g.width = size.width();
     return g;
 }
 
@@ -235,6 +236,10 @@ void PageView::applyParams()
 void PageView::resizeEvent(QResizeEvent*)
 {
     emit resized();   // pop-ups placed next to text would point at the wrong place
+    if (m_hold && m_engine->isOpen()) {
+        update();   // the same pages, centered in the new width (paintScreen)
+        return;
+    }
     if (m_geo.columnWidth <= 0 || !m_engine->isOpen()) {
         applyParams();
         return;
@@ -278,6 +283,7 @@ void PageView::onLayoutReady(int spine)
     const auto cl = current();
     if (!cl) return;
     m_shown = cl;
+    m_shownGeo = m_geo;
     if (m_anchor.offset == kEndOfChapter && !cl->pages.empty()) {
         const int c = qMax(1, m_geo.columns);
         const int last = int(cl->pages.size()) - 1;
@@ -329,6 +335,20 @@ void PageView::flushResize()
     if (!m_resizeTimer.isActive()) return;
     m_resizeTimer.stop();
     applyParams();
+}
+
+void PageView::setHoldLayout(bool on)
+{
+    // Dragging the Practice panel's edge: the panel follows the mouse, and the book's text, which takes a moment to
+    // lay out, is laid out once on release. Laid out at every pause of the drag, the old pages were drawn at the
+    // new positions meanwhile and the text jumped about (the owner's reports, 2026-11-25).
+    if (m_hold == on) return;
+    m_hold = on;
+    if (on) {
+        m_resizeTimer.stop();
+        return;
+    }
+    applyParams();   // nothing is laid out again when the size came back to where it was
 }
 
 bool PageView::nextScreen()
@@ -436,6 +456,7 @@ void PageView::paintEvent(QPaintEvent*)
 void PageView::paintScreen(QPainter& p)
 {
     auto cl = current();
+    const bool fresh = cl != nullptr;
     if (!cl) cl = (m_shown && m_shown->spine == m_anchor.spine) ? m_shown : nullptr;
     if (!cl) {
         if (m_engine->isOpen() && m_waiting.elapsed() > 250) {
@@ -443,6 +464,19 @@ void PageView::paintScreen(QPainter& p)
             p.drawText(rect(), Qt::AlignCenter, tr("Laying out pages…"));
         }
         return;
+    }
+    // The pages are drawn with the geometry they were laid out for: the last layout, while the new one is being
+    // made, keeps its own columns (drawn with the new ones, the text jumped about). In a width other than the one
+    // they were made for (a panel's edge being dragged, or the new layout not ready yet), they are centered.
+    struct Restore {
+        Geometry& target;
+        Geometry saved;
+        ~Restore() { target = saved; }
+    } restore{m_geo, m_geo};
+    if (!fresh) m_geo = m_shownGeo;
+    if (m_geo.width != width()) {
+        const float used = m_geo.columnWidth * float(m_geo.columns) + m_geo.gap * float(m_geo.columns - 1);
+        m_geo.left = qMax(qMin(float(m_look.marginPx), m_geo.left), std::floor((float(width()) - used) / 2.f));
     }
     const layout::RenderColors colors{m_theme.fg, m_theme.muted, m_theme.accent, m_theme.line, m_theme.surface};
     std::vector<layout::Overlay> overlays;
