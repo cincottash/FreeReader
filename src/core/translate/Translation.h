@@ -2,6 +2,8 @@
 // provider (online service, local AI model, offline dictionary) implements.
 #pragma once
 
+#include "DictionaryCard.h"
+
 #include <QJsonObject>
 #include <QObject>
 #include <QString>
@@ -41,6 +43,10 @@ struct TranslationResult {
     QString note;              // one short remark (an old meaning, an idiom), optional
     QStringList explanation;   // Explain: short notes on the sentence's grammar, idioms and unusual words
     QStringList paragraphs;    // Paragraphs: one translation per paragraph asked, in order
+    // A single word: its dictionary entries, as the Dictionary card shows them. `card` is all in the reader's language
+    // (but the headwords), `bookCard` all in the book's (its back, behind Flip). Empty when the engine gave none.
+    DictionaryCard card;
+    DictionaryCard bookCard;
     QString provider;          // shown in the pop-up: "Gemini", "LM Studio", "Offline dictionary"
     bool fromCache = false;
     bool keep = true;          // may be saved as the lasting answer (false for the offline engines' answers)

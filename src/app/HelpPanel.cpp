@@ -196,10 +196,10 @@ QString HelpPanel::html() const
 
     section("translation");
     list({tr("<b>Translate:</b> right-click a word or a selection, then <b>Translate</b> (or select and press Ctrl+E). "
-             "The pop-up shows the meaning in that sentence, other meanings, the dictionary form and the whole sentence "
-             "translated."),
-          tr("In the pop-up: <b>Copy</b>, <b>Hear Pronunciation</b>, and <b>Highlight</b>, which highlights the word "
-             "without another right-click."),
+             "A word opens as a dictionary card all in your language: its parts of speech and meanings, the one in that "
+             "sentence first; <b>Flip</b> shows its definitions in the book's language. A passage shows its translation."),
+          tr("On the card: <b>Hear Pronunciation</b> and <b>Highlight</b>, which highlights the word without another "
+             "right-click. A passage's pop-up also has <b>Copy</b>."),
           tr("<b>Explain This Sentence</b> (Ctrl+Shift+E): the sentence translated, with notes on its grammar and idioms."),
           tr("<b>Your language alongside:</b> %1 (Ctrl+Shift+B) translates every paragraph on the page in a panel beside it.")
               .arg(link(QStringLiteral("bilingual"), tr("Show %1 Alongside").arg(core::languages::displayName(core::languages::readerLanguage())))),
@@ -257,7 +257,7 @@ QString HelpPanel::html() const
               .arg(link(QStringLiteral("themes"), tr("Choose Theme…")))});
 
     section("audio");
-    list({tr("<b>Hear Pronunciation:</b> the speaker button in the translation pop-up."),
+    list({tr("<b>Hear Pronunciation:</b> the speaker button on a word's card and in the translation pop-up."),
           tr("<b>Read Aloud:</b> right-click a selection; <b>Stop Reading Aloud</b> in the same menu stops it."),
           tr("<b>Speed, volume and voices:</b> %1. Each language can have its own voice; <b>Play Sample</b> lets you hear it.")
               .arg(link(QStringLiteral("audio-settings"), tr("Audio Settings"))),

@@ -71,22 +71,24 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 
 ## Translation
 
-![The translation pop-up next to a selected word](.github/readme/translation.png)
+![A word's translation: the dictionary card, all in English](.github/readme/translation.png)
 
 - **Right-click** a word (it's selected for you) or a selection and choose **Translate** (or select and press
-  Ctrl+E): a pop-up shows what it means in that sentence, other meanings, its dictionary form ("tenía" → tener),
-  a definition in Spanish and the whole sentence in English. **Copy** and **Hear Pronunciation** are in the pop-up,
-  and **Highlight** at its top right highlights the word in the color you used last without another right-click
-  (again: Remove Highlight). The Dictionary card has it in the same place. The same menu has Dictionary, Copy, Search the Web and Search Wikipedia; Translate is always first.
+  Ctrl+E). A word opens as a dictionary card, all in English but the word itself: each part of speech with its
+  meanings, the one in that sentence first, and its dictionary form ("tenía": a form of tener). **Flip to Spanish**
+  turns it over to the Spanish definitions. A passage shows its translation, with **Copy**. **Hear Pronunciation**
+  and **Highlight** are at the top right: Highlight highlights the word in the color you used last without another
+  right-click (again: Remove Highlight). The same menu has Dictionary, Copy, Search the Web and Search Wikipedia;
+  Translate is always first. The whole sentence translated is **Explain This Sentence**'s job (below).
 - **Dictionary** (right-click a word) opens the word's whole entry, laid out like a printed dictionary: its forms
   and origin, each part of speech, numbered senses with their labels (colloquial, Mexico…) and examples. A verb
   form opens its verb ("dijo" → decir). **Full Definition** opens the entry on Wiktionary; **Translate** switches to
   the translation pop-up. Spanish books use the Spanish definitions download below; English books, the English
   one.
-- **The Dictionary card turns over** like a flashcard: one side all in the book's language (the definition, the
-  sentence as the book has it), the other all in English (the meaning, other meanings, the sentence in English).
-  **Flip to English** / **Flip to Spanish** at its bottom right turns it. With both offline dictionaries installed,
-  the sides are the Spanish definitions and the Spanish–English entry.
+- **The card turns over** like a flashcard: one side all in the book's language (the definitions), the other all in
+  English (the meanings). **Flip to English** / **Flip to Spanish** at its bottom right turns it. The sides come from
+  Gemini or LM Studio when they answer, else from the offline dictionaries (the Spanish definitions and the
+  Spanish–English entry). Flip is always there: a side with nothing on it says why, and offers the download.
 
   ![The Dictionary card's Spanish side](.github/readme/dictionary-flip.png)
 

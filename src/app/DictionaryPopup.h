@@ -8,6 +8,7 @@
 #include "Theme.h"
 
 #include "core/translate/OfflineDictionary.h"
+#include "core/translate/Translation.h"
 
 #include <QFrame>
 #include <QUrl>
@@ -34,8 +35,22 @@ public:
         QString title, source;
         QUrl fullDefinition;
         QString language;   // what the side is written in: "es", "en"
+        // An empty card: what the side says instead, and whether Get Definitions… is offered there (Flip is always
+        // there for a book in another language: the owner's request, 2026-11-25).
+        QString missing;
+        bool offerDefinitions = false;
     };
     void showSides(const Side& front, const Side& back, const QRect& anchor);
+    // A lookup's card (the translation of a word): no Translate link, since it is the translation. Set before showing.
+    void setTranslateLink(bool on) { m_translateLink = on; }
+    // Hear Pronunciation: the word and its language (the book's), for the speaker button.
+    void setSpeech(const QString& text, const QString& language);
+    void showSpeechProblem(const QString& text, bool canOpenSettings);
+
+    // The card for a translation that came without one (an answer kept before cards existed, the Word List, an
+    // engine that left it out): made from its meaning, other meanings, part of speech and dictionary form;
+    // `bookSide`: from its definition in the book's language (`bookLanguage`) instead.
+    static core::DictionaryCard cardFromResult(const core::TranslationResult& r, bool bookSide, const QString& bookLanguage);
     bool hasTwoSides() const { return m_twoSides; }
     bool showingFront() const { return m_front; }
     void flipSide();
@@ -53,6 +68,8 @@ signals:
     void highlightRequested();
     void fullDefinitionRequested(const QUrl& url);
     void settingsRequested();
+    void speakRequested(const QString& text, const QString& language);
+    void speechSettingsRequested();
 
 private:
     void place();
@@ -77,4 +94,9 @@ private:
     QPushButton* m_highlight;
     QPushButton* m_getDefinitions;
     QLabel* m_source;
+    class QToolButton* m_speak;
+    QLabel* m_speechNote;
+    QPushButton* m_speechSettings;
+    QString m_speakText, m_speakLanguage;
+    bool m_translateLink = true;
 };

@@ -70,6 +70,42 @@
 
 namespace {
 
+// The name on the card's side in the book's language, written in that language (the side is all in it).
+QString bookDictionaryTitle(const QString& book)
+{
+    if (book == QLatin1String("es")) return QStringLiteral("Diccionario de español");
+    if (book == QLatin1String("en")) return QStringLiteral("English Dictionary");
+    return ReaderView::tr("%1 Dictionary").arg(core::languages::displayName(book));
+}
+
+// The word's entry on Wiktionary: the `edition` in the reader's language, at the book language's section.
+QUrl wiktionaryUrl(const core::DictionaryCard& card, const QString& edition, const QString& book)
+{
+    if (card.isEmpty()) return {};
+    QUrl u(QStringLiteral("https://%1.wiktionary.org/wiki/").arg(edition) +
+           QString(card.headwords.first().word).replace(QLatin1Char(' '), QLatin1Char('_')));
+    if (edition != book) u.setFragment(QLocale::languageToString(QLocale(book).language()));
+    return u;
+}
+
+// The side in the book's language when nothing has the word in it: says why, and offers the download where a
+// dictionary of definitions exists for that language.
+DictionaryPopup::Side missingDefinitions(const QList<core::OfflineDictionary*>& dictionaries, const QString& book, bool dictionariesOn)
+{
+    DictionaryPopup::Side s;
+    s.language = book;
+    s.title = bookDictionaryTitle(book);
+    bool installed = false;
+    for (const core::OfflineDictionary* d : dictionaries)
+        if (d && d->info().ok && d->isMonolingual() && d->info().language == book) installed = true;
+    const QString name = core::languages::displayName(book);
+    s.missing = !dictionariesOn ? ReaderView::tr("The offline dictionaries are turned off (Settings > Translation).")
+                : installed     ? ReaderView::tr("The %1 definitions don't have this word.").arg(name)
+                                : ReaderView::tr("The %1 definitions aren't installed.").arg(name);
+    s.offerDefinitions = dictionariesOn && !installed && (book == QLatin1String("es") || book == QLatin1String("en"));
+    return s;
+}
+
 QToolButton* iconButton(const char* icon, const QString& tip, const Theme& t)
 {
     auto* b = new QToolButton;
@@ -242,11 +278,14 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
         m_lastUrl = url.toString(QUrl::FullyEncoded);
         if (m_interactive) QDesktopServices::openUrl(url);
     });
-    connect(m_translate, &TranslationPopup::speechSettingsRequested, this, [this] {
+    auto speechSettings = [this] {
         // Windows' own page for adding voices.
         m_lastUrl = QStringLiteral("ms-settings:speech");
         if (m_interactive) QDesktopServices::openUrl(QUrl(m_lastUrl));
-    });
+    };
+    connect(m_translate, &TranslationPopup::speechSettingsRequested, this, speechSettings);
+    connect(m_dictCard, &DictionaryPopup::speechSettingsRequested, this, speechSettings);
+    connect(m_dictCard, &DictionaryPopup::speakRequested, this, &ReaderView::speak);
     m_panel = new AppearancePanel(this);
     m_lookTimer.setSingleShot(true);
     m_lookTimer.setInterval(60);   // sliders move in many small steps; lay out once they pause
@@ -304,6 +343,7 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     connect(m_pages, &PageView::imageClicked, this, &ReaderView::imageRequested);
     connect(m_pages, &PageView::pageTurnedByUser, m_note, &QWidget::hide);
     connect(m_pages, &PageView::pageTurnedByUser, m_translate, &QWidget::hide);
+    connect(m_pages, &PageView::pageTurnedByUser, m_dictCard, &QWidget::hide);
     connect(m_searchButton, &QToolButton::toggled, this, [this](bool on) { on ? openSearch() : closeSearch(); });
     connect(m_bookmarkButton, &QToolButton::clicked, this, [this] {
         toggleBookmark();
@@ -976,6 +1016,8 @@ void ReaderView::translateSelection(bool dictionaryFirst)
     m_note->hide();
     m_dictCard->hide();
     const QRect anchor = m_pages->rangeRect(m_pages->selectionSpine(), m_pages->selectionStart(), m_pages->selectionEnd());
+    m_lookupAnchor = anchor;
+    m_lookupText = text;
     m_translate->setTheme(m_theme);
     m_translate->showLoading(text, languageCode(), anchor);
     if (!m_translator) {
@@ -985,9 +1027,6 @@ void ReaderView::translateSelection(bool dictionaryFirst)
     core::TranslationRequest r;
     r.text = text.size() > 4000 ? text.left(4000) : text;
     r.sentence = m_pages->selectionSentence();
-    // The Dictionary card's side in the book's language shows the sentence as the book has it (a very long one cut
-    // to the part around the word).
-    m_lookupBookSentence = r.sentence == r.text ? QString() : core::contextAround(r.sentence, r.text);
     if (r.sentence.size() > 600 || r.sentence == r.text) r.sentence.clear();
     r.from = languageCode();
     m_dictionaryFirst = dictionaryFirst;
@@ -1019,17 +1058,92 @@ void ReaderView::showDictionary()
     m_lookupStart = m_pages->selectionStart();
     m_lookupEnd = m_pages->selectionEnd();
     m_dictCard->setTheme(m_theme);
+    m_dictCard->setTranslateLink(true);
+    m_dictCard->setSpeech(text, languageCode());
     updateLookupHighlight();
-    // A dictionary of definitions in the book's language and a translating one both know it: a card with two
-    // sides, the book's language first, then the reader's (Flip turns it over).
+    // A book in another language: two sides, the book's language first, then the reader's (Flip turns it over).
+    // Flip is there even when no dictionary of definitions has the word: that side says why (the owner's request,
+    // 2026-11-25).
     const core::FoundCard defs = core::findDictionaryCard(m_dictionaries, text, languageCode(), core::DictionaryKind::Definitions);
     const core::FoundCard trans = core::findDictionaryCard(m_dictionaries, text, languageCode(), core::DictionaryKind::Translating);
-    if (defs.found() && trans.found() && trans.dictionary->info().target != languageCode()) {
-        m_dictCard->showSides({defs.card, defs.title, defs.source, defs.fullDefinition, languageCode()},
-                              {trans.card, trans.title, trans.source, trans.fullDefinition, trans.dictionary->info().target}, anchor);
+    if (trans.found() && trans.dictionary->info().target != languageCode()) {
+        const DictionaryPopup::Side reader{trans.card, trans.title, trans.source, trans.fullDefinition, trans.dictionary->info().target};
+        if (defs.found())
+            m_dictCard->showSides({defs.card, defs.title, defs.source, defs.fullDefinition, languageCode()}, reader, anchor);
+        else
+            m_dictCard->showSides(reader, missingDefinitions(m_dictionaries, languageCode(), true), anchor);
         return;
     }
-    m_dictCard->showCard(f.card, f.title, f.source, f.fullDefinition, anchor, f.offerDefinitions);
+    m_dictCard->showCard(f.card, f.title, f.source, f.fullDefinition, anchor, false);
+}
+
+void ReaderView::showWordCardForSelection(const core::TranslationResult& r, bool dictionaryFirst)
+{
+    m_lookupAnchor = m_pages->rangeRect(m_pages->selectionSpine(), m_pages->selectionStart(), m_pages->selectionEnd());
+    m_lookupText = m_pages->selectedText().trimmed();
+    m_lookupSpine = m_pages->selectionSpine();
+    m_lookupStart = m_pages->selectionStart();
+    m_lookupEnd = m_pages->selectionEnd();
+    m_dictionaryFirst = dictionaryFirst;
+    showWordCard(r);
+    updateLookupHighlight();
+}
+
+void ReaderView::showWordCard(const core::TranslationResult& r)
+{
+    const QString book = languageCode();
+    const QString mine = core::languages::readerLanguage();
+    const QString text = r.text.isEmpty() ? m_lookupText : r.text;
+    QString source = tr("Source: %1").arg(r.provider.isEmpty() ? tr("unknown") : r.provider);
+    if (r.fromCache) source += tr(" (looked up before)");
+    // The side in the reader's language: the offline dictionary's own entry when it answered, else the engine's
+    // card, else one made from the answer's meanings.
+    DictionaryPopup::Side front;
+    front.language = mine;
+    if (r.provider == core::OfflineDictionary::providerName()) {
+        const core::FoundCard t = core::findDictionaryCard(m_dictionaries, text, book,
+                                                           book == mine ? core::DictionaryKind::Definitions : core::DictionaryKind::Translating);
+        if (t.found()) front = {t.card, t.title, t.source, t.fullDefinition, mine};
+    }
+    if (front.card.isEmpty()) {
+        front.card = !r.card.isEmpty() ? r.card : DictionaryPopup::cardFromResult(r, false, book);
+        front.title = book == mine ? tr("%1 Dictionary").arg(core::languages::displayName(book))
+                                   : tr("%1–%2 Dictionary").arg(core::languages::displayName(book), core::languages::displayName(mine));
+        front.source = source;
+        front.fullDefinition = wiktionaryUrl(front.card, mine, book);
+    }
+    if (front.card.isEmpty()) {   // nothing to make a card of (an answer with no meaning): the pop-up says so
+        m_translate->showResult(r, m_dictionaryFirst);
+        return;
+    }
+    // The translation pop-up keeps the answer (its lookup is over) but stays hidden: the card shows it.
+    m_translate->showResult(r, m_dictionaryFirst);
+    m_translate->hide();
+    m_dictCard->setTheme(m_theme);
+    m_dictCard->setTranslateLink(false);   // this is the translation
+    m_dictCard->setSpeech(text, book);
+    if (book == mine) {
+        m_dictCard->showCard(front.card, front.title, front.source, front.fullDefinition, m_lookupAnchor, false);
+        return;
+    }
+    // The side in the book's language: the engine's, else the dictionary of definitions', else one made from the
+    // answer's definition, else what is missing.
+    DictionaryPopup::Side back;
+    back.language = book;
+    if (!r.bookCard.isEmpty()) {
+        back = {r.bookCard, bookDictionaryTitle(book), source, wiktionaryUrl(r.bookCard, book, book), book};
+    } else if (const core::FoundCard d = m_settings.useDictionary ? core::findDictionaryCard(m_dictionaries, text, book, core::DictionaryKind::Definitions)
+                                                                  : core::FoundCard();
+               d.found()) {
+        back = {d.card, d.title, d.source, d.fullDefinition, book};
+    } else if (const core::DictionaryCard made = DictionaryPopup::cardFromResult(r, true, book); !made.isEmpty()) {
+        back = {made, bookDictionaryTitle(book), source, wiktionaryUrl(made, book, book), book};
+    } else {
+        back = missingDefinitions(m_dictionaries, book, m_settings.useDictionary);
+    }
+    // Translate: the reader's language first; Dictionary (no offline entry): the book's.
+    if (m_dictionaryFirst && !back.card.isEmpty()) m_dictCard->showSides(back, front, m_lookupAnchor);
+    else m_dictCard->showSides(front, back, m_lookupAnchor);
 }
 
 void ReaderView::updateLookupHighlight()
@@ -1121,7 +1235,10 @@ void ReaderView::onTranslated(int id, const core::TranslationResult& r, const QS
         // An explanation isn't vocabulary: shown, not logged.
         m_translate->showExplanation(r);
     } else {
-        m_translate->showResult(r, m_dictionaryFirst, m_lookupBookSentence);
+        // A word: the Dictionary card (no "in this sentence": Explain This Sentence is for that). A passage: the
+        // translation pop-up.
+        if (m_lookupIsWord) showWordCard(r);
+        else m_translate->showResult(r, m_dictionaryFirst);
         updateLookupHighlight();
         // Every lookup goes to the word log, with the place it was seen.
         if (m_words && m_bookId) {
@@ -1355,7 +1472,8 @@ void ReaderView::speak(const QString& text, const QString& language)
     bool canOpenSettings = false;
     const QString problem = speechProblem(language, &canOpenSettings);
     if (!problem.isEmpty()) {
-        m_translate->showSpeechProblem(problem, canOpenSettings);
+        m_translate->showSpeechProblem(problem, canOpenSettings);   // each shows it only while it is open
+        m_dictCard->showSpeechProblem(problem, canOpenSettings);
         return;
     }
     // Settings > Audio: the speed and volume, and the voice chosen for this language.

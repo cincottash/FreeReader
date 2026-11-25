@@ -66,8 +66,32 @@ TranslationResult resultFrom(const QJsonObject& answer, const TranslationRequest
         res.alternatives.clear();
         res.partOfSpeech.clear();
         res.lemma.clear();
+    } else {
+        // A word: its entries as the Dictionary card shows them, one side in each language (the same language on
+        // both for a book in the reader's own language: then one side).
+        const QJsonArray entries = answer.value(QLatin1String("entries")).toArray();
+        res.card = cardFromAiEntries(entries, res.text, false);
+        if (r.from != r.to) res.bookCard = cardFromAiEntries(entries, res.text, true);
     }
     if (res.lemma.compare(res.text, Qt::CaseInsensitive) == 0) res.lemma.clear();
+    // The dictionary form (a verb's infinitive) is always on the card (the owner's request, 2026-11-25): when the
+    // answer names one its entries left out, a line saying the word is a form of it.
+    if (!res.lemma.isEmpty()) {
+        auto addLemma = [&](DictionaryCard& card, const QString& note) {
+            if (card.isEmpty()) return;
+            for (const DictionaryHeadword& w : card.headwords)
+                if (w.word.compare(res.lemma, Qt::CaseInsensitive) == 0) return;
+            DictionaryHeadword w;
+            w.word = res.lemma;
+            w.formOf = res.text;
+            w.formNote = note;
+            card.headwords << w;
+        };
+        addLemma(res.card, QString());   // the card's own "a form of “tener”." in the reader's language
+        addLemma(res.bookCard, r.from == QLatin1String("es")   ? QStringLiteral("forma de %1").arg(res.lemma)
+                               : r.from == QLatin1String("en") ? QStringLiteral("a form of %1").arg(res.lemma)
+                                                               : QString());
+    }
     return res;
 }
 
@@ -121,6 +145,22 @@ QString userPrompt(const TranslationRequest& r)
     p += QStringLiteral("- in_sentence: the whole sentence translated into natural %1.\n").arg(to);
     p += QStringLiteral("- note: one short %1 sentence only when it matters for understanding (an old or regional meaning, "
                         "an idiom, a pun); otherwise \"\".\n").arg(to);
+    // A word: its entries as a printed bilingual dictionary gives them (the pop-up shows them as the Dictionary card).
+    p += QStringLiteral("- entries: for a single word, its dictionary entries as a %1-%2 dictionary prints them; otherwise an "
+                        "empty list. When the selected word is an inflected form (a conjugated verb, a plural, a feminine), "
+                        "always include the entry of its dictionary form (the infinitive for a verb), with form_note saying "
+                        "which form the selected word is. When the selected word is also a dictionary word in its own right, "
+                        "its own entry comes first. Each entry:\n").arg(from, to);
+    p += QStringLiteral("  - headword: the word as the dictionary lists it.\n");
+    p += QStringLiteral("  - form_note: when the selected word is an inflected form of this headword, what form it is, in %1 "
+                        "(for example \"plural of pierna\" or \"first-person singular preterite of decir\"); otherwise \"\".\n").arg(to);
+    p += QStringLiteral("  - form_note_native: the same in %1; otherwise \"\".\n").arg(from);
+    p += QStringLiteral("  - parts: one per part of speech, the one used in this sentence first, each with part_of_speech "
+                        "(in %1, with gender for nouns: \"noun, feminine\"), part_of_speech_native (in %2, as a %2 "
+                        "dictionary writes it) and senses: 1 to 5 senses, the one used in this sentence first. Each sense: "
+                        "gloss (a short %1 translation, as a dictionary gives it, in %1 only), definition (a short "
+                        "definition in %2 only, as a %2 dictionary gives it) and labels (usage labels in %1 such as "
+                        "\"colloquial\", \"archaic\" or a country; usually an empty list).\n").arg(to, from);
     return p;
 }
 
@@ -148,12 +188,22 @@ QJsonObject answerSchema(const TranslationRequest& r)
         {QStringLiteral("in_sentence"), str()},
         {QStringLiteral("note"), str()},
     };
+    auto arrayOf = [](const QJsonObject& item) { return QJsonObject{{QStringLiteral("type"), QStringLiteral("array")}, {QStringLiteral("items"), item}}; };
+    const QJsonObject sense = object({{QStringLiteral("gloss"), str()}, {QStringLiteral("definition"), str()}, {QStringLiteral("labels"), list()}},
+                                     {QStringLiteral("gloss"), QStringLiteral("definition"), QStringLiteral("labels")});
+    const QJsonObject part = object({{QStringLiteral("part_of_speech"), str()}, {QStringLiteral("part_of_speech_native"), str()},
+                                     {QStringLiteral("senses"), arrayOf(sense)}},
+                                    {QStringLiteral("part_of_speech"), QStringLiteral("part_of_speech_native"), QStringLiteral("senses")});
+    const QJsonObject entry = object({{QStringLiteral("headword"), str()}, {QStringLiteral("form_note"), str()},
+                                      {QStringLiteral("form_note_native"), str()}, {QStringLiteral("parts"), arrayOf(part)}},
+                                     {QStringLiteral("headword"), QStringLiteral("form_note"), QStringLiteral("form_note_native"), QStringLiteral("parts")});
+    props[QLatin1String("entries")] = arrayOf(entry);
     return QJsonObject{
         {QStringLiteral("type"), QStringLiteral("object")},
         {QStringLiteral("properties"), props},
         {QStringLiteral("required"), QJsonArray{QStringLiteral("translation"), QStringLiteral("alternatives"), QStringLiteral("part_of_speech"),
                                                 QStringLiteral("lemma"), QStringLiteral("definition"), QStringLiteral("in_sentence"),
-                                                QStringLiteral("note")}},
+                                                QStringLiteral("note"), QStringLiteral("entries")}},
         {QStringLiteral("additionalProperties"), false},
     };
 }

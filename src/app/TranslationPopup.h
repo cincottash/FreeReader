@@ -1,6 +1,6 @@
-// The translation pop-up next to the selection (as in the mock-up): the word and its part of speech, the English
-// meaning in this sentence, other meanings, a definition in the book's language, the whole sentence in English,
-// Copy, Highlight and Hear Pronunciation, and where the answer came from. It never takes the keyboard focus, so the arrow
+// The translation pop-up next to the selection: "Translating…" while a lookup runs, then a passage's translation (a
+// single word's answer is shown as the Dictionary card instead), an explanation, or why nothing answered. Copy,
+// Highlight and Hear Pronunciation, and where the answer came from. It never takes the keyboard focus, so the arrow
 // keys keep turning pages.
 #pragma once
 
@@ -25,11 +25,11 @@ public:
     // `anchor`: the selection's rectangle in the parent's coordinates. `language`: the book's language code.
     void showLoading(const QString& text, const QString& language, const QRect& anchor);
     void showAsking(const QString& provider);
-    // `dictionaryFirst` (right-click > Dictionary): a card with two sides when there is a definition, the first all
-    // in the book's language (the definition, `bookSentence`: the sentence as the book has it), the other all in
-    // the reader's language (the meaning, other meanings, the sentence translated). Flip turns it over; Copy, Flip
-    // and Highlight are in the reader's language on both sides.
-    void showResult(const core::TranslationResult& r, bool dictionaryFirst = false, const QString& bookSentence = QString());
+    // With a definition in the book's language, for a book in another language: two sides, one all in the reader's
+    // language (the meaning, other meanings, the note), one all in the book's (the definition). `dictionaryFirst`
+    // (right-click > Dictionary) starts on the book's side, else the reader's. Flip turns it over; Copy, Flip and
+    // Highlight are in the reader's language on both sides.
+    void showResult(const core::TranslationResult& r, bool dictionaryFirst = false);
     bool hasTwoSides() const { return m_twoSides; }
     bool showingBookSide() const { return m_twoSides && m_bookSide; }
     void flipSide();
@@ -66,7 +66,6 @@ private:
     core::TranslationResult m_result;
     bool m_loading = false;
     bool m_twoSides = false, m_bookSide = true;
-    QString m_bookSentence;
     QPushButton* m_flip;
 
     QLabel* m_word;
@@ -80,8 +79,6 @@ private:
     QFrame* m_rule;
     QLabel* m_definitionTitle;
     QLabel* m_definition;
-    QLabel* m_sentenceTitle;
-    QLabel* m_sentence;
     QPushButton* m_copy;
     QPushButton* m_highlight;
     bool m_canHighlight = false;

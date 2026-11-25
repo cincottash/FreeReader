@@ -29,30 +29,8 @@ struct DictionaryInfo {
     QString error;
 };
 
-// The Dictionary card (right-click > Dictionary), laid out like a printed dictionary: each headword, its forms and
-// origin, then its parts of speech, each with numbered senses, their labels ("coloquial", "México") and examples.
-struct DictionarySense {
-    QString gloss;
-    QStringList labels, examples;
-};
-struct DictionaryEntry {
-    QString partOfSpeech;   // "Adjetivo", "noun, feminine"
-    QString origin;         // "Del latín tranquillum."
-    QString forms;          // "tranquilo, tranquila, tranquilos"
-    QString pronunciation;  // IPA
-    QList<DictionarySense> senses;
-};
-struct DictionaryHeadword {
-    QString word;
-    QString formOf;         // the selected word, when it's a form of this one ("dijo")
-    QString formNote;       // what form it is ("Primera persona del singular ... de decir"), when known
-    QList<DictionaryEntry> entries;
-};
-struct DictionaryCard {
-    QString text;           // the word asked for (punctuation trimmed)
-    QList<DictionaryHeadword> headwords;
-    bool isEmpty() const { return headwords.isEmpty(); }
-};
+// The Dictionary card's content (DictionarySense, DictionaryEntry, DictionaryHeadword, DictionaryCard) is in
+// DictionaryCard.h, shared with the AI providers' answers.
 
 class OfflineDictionary : public TranslationProvider {
     Q_OBJECT
@@ -67,7 +45,8 @@ public:
     QString path() const { return m_path; }
     static DictionaryInfo inspect(const QString& path);
 
-    QString name() const override { return tr("Offline dictionary"); }
+    QString name() const override { return providerName(); }
+    static QString providerName() { return tr("Offline dictionary"); }   // its answers' `provider`
     bool isSetUp() const override { return m_info.ok && m_enabled; }
     // Only words in its own language (a Spanish book never asks the English dictionary).
     bool handles(const TranslationRequest& request) const override;
