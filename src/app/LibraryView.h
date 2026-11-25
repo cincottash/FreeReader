@@ -83,6 +83,7 @@ public:
 signals:
     void practiceRequested();
     void librarySearchRequested(const QString& query);
+    void latestBookmarkRequested();
     void openRequested(const QString& path);
     void settingsLinkClicked();
     void settingsChanged();   // a library setting changed (the settings file needs saving)
@@ -119,6 +120,7 @@ private:
     void updatePracticeCount();
     std::function<int()> m_practiceCount;
     QPushButton* m_searchInside;
+    class QToolButton* m_latestBookmark;
     QPushButton* m_notKept;
     QListWidget* m_filters;
     QLabel* m_heading;

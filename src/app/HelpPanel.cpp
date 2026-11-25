@@ -221,7 +221,8 @@ QString HelpPanel::html() const
     list({tr("<b>Highlight:</b> the color dots at the top of the right-click menu. Right-click a highlight to change its "
              "color, add a note or remove it."),
           tr("<b>Notes:</b> right-click, <b>Add Note…</b>."),
-          tr("<b>Bookmarks:</b> Ctrl+D bookmarks the page; right-click a word for <b>Bookmark Here</b>."),
+          tr("<b>Bookmarks:</b> Ctrl+D bookmarks the page; right-click a word for <b>Bookmark Here</b>. <b>Go to Latest "
+             "Bookmark</b> (Ctrl+Shift+D) opens the one you added last, in any book."),
           tr("<b>The Notebook</b> (%1, Ctrl+Shift+N) lists the book's highlights, notes and bookmarks; export them as "
              "Markdown, plain text, CSV, TSV or JSON.").arg(link(QStringLiteral("notebook"), tr("Show Notebook"))),
           tr("<b>Search:</b> %1 (Ctrl+F) or %2 (Ctrl+Shift+F). Accents and capitals don't matter.")

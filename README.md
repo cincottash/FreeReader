@@ -157,8 +157,8 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
   workspace beside the page, the way Kindle shows its notes beside the book. It has the flashcards and the
   **Word List** of **This Page** (the words you looked up or highlighted on the pages showing), this book or all
   books, with their meanings. It stays open as you turn pages, and new words show in it at once. Drag its left
-  edge to make it wider. The button at its top right opens Practice in the whole window; **Show Beside the Book**
-  at the whole window's top right puts it back.
+  edge to make it wider. **Maximize** at its top right spreads it over the page; the same button, now
+  **Restore**, puts it back.
 - **Practice Words** (at the bottom of the library's left column, or Ctrl+P there) turns the words you looked up or
   highlighted into flashcards (a highlighted word is never looked up for this: the offline dictionary fills in its
   meaning, or its card has a **Look Up Meaning** button). Each session goes through all your cards in the **Order**
@@ -166,9 +166,10 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
   later in the same session.
 - Choose the directions: Spanish → English, English → Spanish, Definition → Word, or the book's sentence with a
   gap. Flip the card, or type the answer (missing accents are accepted but pointed out).
-- **Word List:** every word with its meaning, book and page, in pages as long as the list has room for (the arrows
-  below it, or the mouse wheel, turn them). Search, double-click a meaning to change it, star, and **Export…** a
-  file Anki can import. Double-click a word, or right-click it and choose **Go to Word**, to see it in the book.
+- **Word List:** every word with its meaning, book and page, in pages as long as the list has room for, numbered
+  below it (‹ 1 2 3 … ›; the mouse wheel turns them too). Search, double-click a meaning to change it, and
+  **Export…** a file Anki can import. Double-click a word to see it in the book; right-click it for everything
+  else: Go to Word, Change Meaning, Copy, Star, Start Over and Delete.
 
 <details>
 <summary>Practice in the whole window</summary>
@@ -190,6 +191,8 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
   highlighted or cleared, so it doesn't look like a highlight.
 - **Bookmark This Page** (Ctrl+D, or the bookmark button), or **Bookmark Here** (right-click a word): a bookmark on
   that word, marked with a small ribbon. Going to it from the Notebook selects the word.
+- **Go to Latest Bookmark** (Ctrl+Shift+D, or the bookmark-with-an-arrow button in the reader's and the library's
+  header): the book with the bookmark you added last opens at its page, whichever book you're in.
 - **Notebook** (Ctrl+Shift+N): the book's highlights, notes and bookmarks in reading order, filtered by kind or
   color. Click one to go there; **Export…** saves them as Markdown, plain text, CSV or TSV (for spreadsheets), or
   JSON (for other tools).
@@ -270,6 +273,7 @@ or forward button, with Ctrl, Shift or Alt if you like (**Next Page** and **Prev
 | Translate Selection | Ctrl+E |
 | Search This Book… | Ctrl+F |
 | Bookmark This Page | Ctrl+D |
+| Go to Latest Bookmark | Ctrl+Shift+D |
 | Show or Hide Notebook | Ctrl+Shift+N |
 | Practice Words | Ctrl+P |
 | Back | Alt+Left, Backspace |

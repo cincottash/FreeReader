@@ -182,6 +182,8 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     connect(m_reader, &ReaderView::translationSettingsRequested, this, [this] { showSettings(SettingsDialog::TranslationTab); });
     connect(m_start, &LibraryView::practiceRequested, this, [this] { showPractice(); });
     connect(m_start, &LibraryView::librarySearchRequested, this, [this](const QString& q) { showLibrarySearch(q); });
+    connect(m_start, &LibraryView::latestBookmarkRequested, this, &MainWindow::goToLatestBookmark);
+    connect(m_reader, &ReaderView::latestBookmarkRequested, this, &MainWindow::goToLatestBookmark);
     connect(m_librarySearch, &LibrarySearchView::backRequested, this, [this] {
         QWidget* to = m_beforeLibrarySearch == m_reader && m_engine->isOpen() ? static_cast<QWidget*>(m_reader) : static_cast<QWidget*>(m_start);
         m_stack->setCurrentWidget(to);
@@ -211,13 +213,6 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     connect(m_practiceSide, &PracticeView::settingsChanged, this, &MainWindow::saveSettingsSoon);
     // Show in Book from the workspace: the same book jumps there, beside the workspace.
     connect(m_practiceSide, &PracticeView::showInBookRequested, m_practice, &PracticeView::showInBookRequested);
-    // Open Full Window: Practice in the whole window, on this book (a session in the workspace ends).
-    connect(m_reader, &ReaderView::fullPracticeRequested, this, [this] {
-        m_practiceSide->endSession();
-        m_reader->setPracticeVisible(false);
-        m_practice->setOpenBook(m_reader->bookId(), m_library ? m_library->book(m_reader->bookId()).title : QString());
-        showPractice();
-    });
     // Show Beside the Book (the full window's button): back to the book, Practice beside it on the same tab.
     connect(m_practice, &PracticeView::besideBookRequested, this, [this] {
         if (!m_engine->isOpen()) return;
@@ -241,6 +236,7 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
             return;
         }
         m_pendingJump = {cfi, spine, start, end};
+        m_reader->setPracticeMaximized(false);   // the page, to see the word on
         if (m_engine->isOpen() && m_reader->bookId() == bookId) {
             m_stack->setCurrentWidget(m_reader);
             applyPendingJump();
@@ -424,6 +420,9 @@ void MainWindow::buildCommands()
     }, reading, tr("Reads the selected words aloud in the book's language; again stops it."));
     addCommand(QStringLiteral("bookmark"), tr("Bookmark This Page"), QKeySequence(Qt::CTRL | Qt::Key_D), [this] { m_reader->toggleBookmark(); },
                reading, tr("Adds a bookmark, or removes the one on this page."));
+    // The bookmark added last, in any book, from anywhere (the owner's request, 2026-11-25).
+    addCommand(QStringLiteral("latest-bookmark"), tr("Go to Latest Bookmark"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_D),
+               [this] { goToLatestBookmark(); }, nullptr, tr("Opens the book with the bookmark you added last, at its page."));
     addCommand(QStringLiteral("notebook"), tr("Show or Hide Notebook"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_N),
                [this] { m_reader->setNotebookVisible(!m_reader->notebookVisible()); saveSettingsSoon(); }, reading,
                tr("The book's highlights, notes and bookmarks."));
@@ -543,6 +542,7 @@ void MainWindow::buildMenus()
     add(go, "search-book");
     add(go, "search-library");
     add(go, "bookmark");
+    add(go, "latest-bookmark");
     go->addSeparator();
     add(go, "practice");
     add(go, "statistics");
@@ -1159,6 +1159,33 @@ void MainWindow::showLibrarySearch(const QString& query)
     if (!query.simplified().isEmpty()) m_librarySearch->setQuery(query);
     m_librarySearch->setFocus();
     if (auto* box = m_librarySearch->findChild<QLineEdit*>()) box->setFocus();
+}
+
+void MainWindow::goToLatestBookmark()
+{
+    const core::Annotation b = m_annotations ? m_annotations->latestBookmark() : core::Annotation();
+    if (b.id == 0) {
+        const QString none = tr("No bookmarks yet. Ctrl+D bookmarks the page you're reading.");
+        if (isReading()) m_reader->pages()->showNotice(none);
+        else m_start->setMessage(none);
+        return;
+    }
+    const core::LibraryBook book = m_library ? m_library->book(b.bookId) : core::LibraryBook();
+    if (book.id == 0 || !QFileInfo::exists(book.path)) {
+        m_start->setMessage(tr("The book with your latest bookmark wasn't found."));
+        m_stack->setCurrentWidget(m_start);
+        return;
+    }
+    // The bookmark's page (a word bookmark: its word's page, the word not selected, so no translation opens).
+    m_pendingJump = {b.cfi, b.spine, b.start, b.start};
+    m_reader->setPracticeMaximized(false);
+    if (m_engine->isOpen() && m_reader->bookId() == b.bookId) {
+        m_stack->setCurrentWidget(m_reader);
+        applyPendingJump();
+        m_reader->pages()->setFocus();
+    } else {
+        openBook(book.path);
+    }
 }
 
 void MainWindow::applyPendingJump()

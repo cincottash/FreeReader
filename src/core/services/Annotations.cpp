@@ -118,6 +118,16 @@ QList<Annotation> Annotations::forBook(int bookId) const
     return out;
 }
 
+Annotation Annotations::latestBookmark() const
+{
+    if (!isOpen()) return {};
+    QSqlQuery q(QSqlDatabase::database(m_connection));
+    q.prepare(QString::fromLatin1(kColumns) + QStringLiteral("WHERE kind=? ORDER BY created DESC, id DESC LIMIT 1"));
+    q.addBindValue(int(Annotation::Bookmark));
+    if (q.exec() && q.next()) return read(q);
+    return {};
+}
+
 QList<Annotation> Annotations::inChapter(int bookId, int spine) const
 {
     QList<Annotation> out;

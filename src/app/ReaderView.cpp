@@ -197,6 +197,11 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     m_themeDots->layout()->setSpacing(0);
     h->addWidget(m_themeDots);
     h->addWidget(m_bookmarkButton);
+    // The bookmark added last, in any book (the owner's request, 2026-11-25): beside Bookmark This Page.
+    m_latestBookmarkButton = iconButton("bookmarkGo", tr("Go to Latest Bookmark (Ctrl+Shift+D)"), m_theme);
+    m_latestBookmarkButton->setProperty("testId", "latestBookmarkButton");
+    h->addWidget(m_latestBookmarkButton);
+    connect(m_latestBookmarkButton, &QToolButton::clicked, this, &ReaderView::latestBookmarkRequested);
     h->addWidget(m_notebookButton);
     // Practice: a button with its name, easy to find (the owner's request, 2026-11-23).
     m_practiceButton = new QToolButton;
@@ -241,13 +246,32 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     m_practicePanel->setFixedWidth(qBound(360, m_settings.practiceWidth, 1600));
     // Its left edge is dragged to make it wider or narrower (the owner's request, 2026-11-25): at least 360 px, and
     // the page keeps at least 360 px beside it (and the contents or search panel, when open).
-    connect(m_practicePanel, &PracticePanel::widthDragged, this, [this](int wanted) {
+    // While dragging, a guide line shows where the edge will be; the page is laid out again once, on release.
+    m_resizeGuide = new QFrame(this);
+    m_resizeGuide->setProperty("testId", "practiceResizeGuide");
+    m_resizeGuide->setAttribute(Qt::WA_TransparentForMouseEvents);
+    m_resizeGuide->hide();
+    auto clampWidth = [this](int wanted) {
         const int left = m_toc->isVisible() || m_search->isVisible() ? 320 : 0;
-        const int w = qBound(360, wanted, qMax(360, width() - left - 360));
+        return qBound(360, wanted, qMax(360, width() - left - 360));
+    };
+    connect(m_practicePanel, &PracticePanel::widthDragging, this, [this, clampWidth](int wanted) {
+        const QRect panel = m_practicePanel->geometry();
+        const int x = panel.right() + 1 - clampWidth(wanted);
+        m_resizeGuide->setStyleSheet(QStringLiteral("background: %1;").arg(m_theme.accent.name()));
+        m_resizeGuide->setGeometry(x - 1, panel.top(), 3, panel.height());
+        m_resizeGuide->show();
+        m_resizeGuide->raise();
+    });
+    connect(m_practicePanel, &PracticePanel::widthDragged, this, [this, clampWidth](int wanted) {
+        m_resizeGuide->hide();
+        const int w = clampWidth(wanted);
         if (w == m_practicePanel->width()) return;
         m_practicePanel->setFixedWidth(w);
         m_settings.practiceWidth = w;
         emit appearanceChanged();   // the settings file needs saving
+        // The page laid out for its new width at once (not after the resize pause).
+        QTimer::singleShot(0, m_pages, &PageView::flushResize);
     });
     m_practicePanel->hide();
     m_practicePanel->setProperty("testId", "practicePanel");
@@ -256,7 +280,9 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
         setPracticeVisible(false);
         m_pages->setFocus();
     });
-    connect(m_practicePanel, &PracticePanel::fullWindowRequested, this, &ReaderView::fullPracticeRequested);
+    // Maximize: the panel over the page area, in place (its button then says Restore, in the same spot). Before, it
+    // opened Practice in the whole window, whose way back sat elsewhere (the owner's report, 2026-11-25).
+    connect(m_practicePanel, &PracticePanel::fullWindowRequested, this, [this] { setPracticeMaximized(!m_practiceMaximized); });
     m_bilingualTimer.setSingleShot(true);
     m_bilingualTimer.setInterval(250);   // a quick run of page turns asks once, for the page it stops on
     connect(&m_bilingualTimer, &QTimer::timeout, this, &ReaderView::refreshBilingual);
@@ -474,6 +500,7 @@ void ReaderView::setTheme(const Theme& t)
     m_tocButton->setIcon(icons::icon("toc", t.fg));
     m_searchButton->setIcon(icons::icon("search", t.fg));
     m_bookmarkButton->setIcon(icons::icon("bookmark", t.fg));
+    m_latestBookmarkButton->setIcon(icons::icon("bookmarkGo", t.fg));
     m_notebookButton->setIcon(icons::icon("panel", t.fg));
     m_spreadButton->setIcon(icons::icon("spread", t.fg));
     m_practiceButton->setIcon(icons::icon("cards", t.fg));
@@ -2001,6 +2028,7 @@ void ReaderView::setPracticeVisible(bool on)
     if (on) emit rightPanelOpened();
     if (on) makeRoom(true, m_practicePanel->width());
     const bool was = m_practicePanel->isVisible();
+    if (!on && m_practiceMaximized) setPracticeMaximized(false);   // closed: the page comes back
     m_practicePanel->setVisible(on);
     {
         const QSignalBlocker b(m_practiceButton);
@@ -2016,6 +2044,28 @@ void ReaderView::setPracticeVisible(bool on)
         m_settings.showPractice = on;
         emit appearanceChanged();   // the settings file needs saving
     }
+}
+
+void ReaderView::setPracticeMaximized(bool on)
+{
+    if (on && !m_practicePanel->isVisible()) return;
+    if (on == m_practiceMaximized) return;
+    m_practiceMaximized = on;
+    m_practicePanel->setMaximized(on);
+    if (on) {
+        // Over the whole page area: the page is hidden (it keeps its place), the panel takes the room.
+        m_practicePanel->setMinimumWidth(0);
+        m_practicePanel->setMaximumWidth(QWIDGETSIZE_MAX);
+        m_practicePanel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        m_pages->hide();
+    } else {
+        m_practicePanel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+        m_practicePanel->setFixedWidth(qBound(360, m_settings.practiceWidth, 1600));
+        m_pages->show();
+        m_pages->setFocus();
+    }
+    // The Word List's book, lookups and next review, and Export, when there is room for them.
+    if (PracticeView* v = m_practicePanel->view()) v->setWide(on);
 }
 
 void ReaderView::updatePracticePage()

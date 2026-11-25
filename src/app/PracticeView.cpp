@@ -10,8 +10,10 @@
 #include "core/translate/LanguagePacks.h"
 #include "core/translate/TranslationService.h"
 
+#include <QApplication>
 #include <QButtonGroup>
 #include <QCheckBox>
+#include <QClipboard>
 #include <QComboBox>
 #include <QFileDialog>
 #include <QHBoxLayout>
@@ -168,7 +170,9 @@ void PracticeView::setTheme(const Theme& t)
 {
     m_theme = t;
     m_back->setIcon(icons::icon("back", t.fg));
-    m_beside->setIcon(icons::icon("exitFullscreen", t.fg));
+    m_beside->setIcon(icons::icon("collapse", t.fg));   // as the panel's Restore
+    m_prevPage->setIcon(icons::icon("chevronLeft", t.fg));
+    m_nextPage->setIcon(icons::icon("chevronRight", t.fg));
 }
 
 void PracticeView::setCanShowBesideBook(bool on)
@@ -802,10 +806,13 @@ QWidget* PracticeView::buildList()
     // request, 2026-11-25: "there should be multiple pages ... if it doesn't fit all in one page").
     m_list->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_list->viewport()->installEventFilter(this);
-    auto* countRow = new QHBoxLayout;
-    countRow->setSpacing(4);
     m_listCount = wrapLabel("wordListCount", "Muted");
-    countRow->addWidget(m_listCount, 1);
+    lay->addWidget(m_listCount);
+    // The pages' numbers under the list, as a search engine lists its result pages (the owner's request,
+    // 2026-11-25): ‹ 1 2 3 … ›, the page showing in the text's color.
+    auto* countRow = new QHBoxLayout;
+    countRow->setSpacing(2);
+    countRow->addStretch(1);
     auto pageButton = [](const char* id, const QString& tip) {
         auto* b = new QToolButton;
         b->setObjectName(QStringLiteral("Icon"));
@@ -819,11 +826,15 @@ QWidget* PracticeView::buildList()
     };
     m_prevPage = pageButton("wordListPrevious", tr("Previous Page"));
     m_nextPage = pageButton("wordListNext", tr("Next Page"));
-    m_pageLabel = wrapLabel("wordListPage", "Muted");
-    m_pageLabel->setWordWrap(false);
+    m_pageNumbers = new QWidget;
+    m_pageNumbers->setProperty("testId", "wordListPages");
+    auto* numbers = new QHBoxLayout(m_pageNumbers);
+    numbers->setContentsMargins(0, 0, 0, 0);
+    numbers->setSpacing(2);
     countRow->addWidget(m_prevPage);
-    countRow->addWidget(m_pageLabel);
+    countRow->addWidget(m_pageNumbers);
     countRow->addWidget(m_nextPage);
+    countRow->addStretch(1);
     lay->addLayout(countRow);
     connect(m_prevPage, &QToolButton::clicked, this, [this] { showListPage(m_listPage - 1); });
     connect(m_nextPage, &QToolButton::clicked, this, [this] { showListPage(m_listPage + 1); });
@@ -875,34 +886,10 @@ QWidget* PracticeView::buildList()
         std::unique_ptr<QMenu> menu(wordMenu(it));
         if (m_interactive) menu->exec(m_list->viewport()->mapToGlobal(at));
     });
-    connect(star, &QPushButton::clicked, this, [this] {
-        for (QTreeWidgetItem* it : m_list->selectedItems()) {
-            core::WordEntry w = m_log->word(it->data(0, Qt::UserRole).toInt());
-            w.starred = !w.starred;
-            m_log->update(w);
-        }
-        fillList();
-    });
-    connect(show, &QPushButton::clicked, this, [this] {
-        if (QTreeWidgetItem* it = currentListItem()) {
-            const core::WordEntry w = m_log->word(it->data(0, Qt::UserRole).toInt());
-            if (w.bookId) emit showInBookRequested(w.bookId, w.cfi, w.spine, w.start, w.end);
-        }
-    });
-    connect(reset, &QPushButton::clicked, this, [this] {
-        for (QTreeWidgetItem* it : m_list->selectedItems()) m_log->resetCards(it->data(0, Qt::UserRole).toInt());
-        fillList();
-    });
-    connect(del, &QPushButton::clicked, this, [this] {
-        const QList<QTreeWidgetItem*> sel = m_list->selectedItems();
-        if (sel.isEmpty()) return;
-        if (m_interactive && QMessageBox::question(this, tr("Delete Words"),
-                                                   tr("Delete %1 from the word log? Their practice history goes too.")
-                                                       .arg(count(int(sel.size()), tr("word"), tr("words")))) != QMessageBox::Yes)
-            return;
-        for (QTreeWidgetItem* it : sel) m_log->remove(it->data(0, Qt::UserRole).toInt());
-        fillList();
-    });
+    connect(star, &QPushButton::clicked, this, &PracticeView::starSelected);
+    connect(show, &QPushButton::clicked, this, [this] { goToWord(currentListItem()); });
+    connect(reset, &QPushButton::clicked, this, &PracticeView::startOverSelected);
+    connect(del, &QPushButton::clicked, this, &PracticeView::deleteSelected);
     connect(exp, &QPushButton::clicked, this, [this] {
         if (!m_interactive) return;
         const QString dir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
@@ -922,21 +909,86 @@ void PracticeView::goToWord(QTreeWidgetItem* it)
     if (w.bookId) emit showInBookRequested(w.bookId, w.cfi, w.spine, w.start, w.end);
 }
 
+void PracticeView::starSelected()
+{
+    // All starred: unstar them; else star them all.
+    const QList<QTreeWidgetItem*> sel = m_list->selectedItems();
+    bool all = !sel.isEmpty();
+    for (QTreeWidgetItem* it : sel) all = all && m_log->word(it->data(0, Qt::UserRole).toInt()).starred;
+    for (QTreeWidgetItem* it : sel) {
+        core::WordEntry w = m_log->word(it->data(0, Qt::UserRole).toInt());
+        w.starred = !all;
+        m_log->update(w);
+    }
+    fillList();
+}
+
+void PracticeView::startOverSelected()
+{
+    for (QTreeWidgetItem* it : m_list->selectedItems()) m_log->resetCards(it->data(0, Qt::UserRole).toInt());
+    fillList();
+}
+
+void PracticeView::deleteSelected()
+{
+    const QList<QTreeWidgetItem*> sel = m_list->selectedItems();
+    if (sel.isEmpty()) return;
+    if (m_interactive && QMessageBox::question(this, tr("Delete Words"),
+                                               tr("Delete %1 from the word log? Their practice history goes too.")
+                                                   .arg(count(int(sel.size()), tr("word"), tr("words")))) != QMessageBox::Yes)
+        return;
+    for (QTreeWidgetItem* it : sel) m_log->remove(it->data(0, Qt::UserRole).toInt());
+    fillList();
+}
+
 QMenu* PracticeView::wordMenu(QTreeWidgetItem* it)
 {
+    // Everything that can be done to a word, here too (the owner's request, 2026-11-25: "all of the common
+    // options, even though they are already listed elsewhere"). Star, Start Over and Delete act on every word
+    // selected, as their buttons do.
     auto* menu = new QMenu(this);
+    if (!it->isSelected()) {
+        m_list->clearSelection();
+        it->setSelected(true);
+    }
+    m_list->setCurrentItem(it, 0, QItemSelectionModel::NoUpdate);
     const core::WordEntry w = m_log->word(it->data(0, Qt::UserRole).toInt());
-    QAction* go = menu->addAction(w.pageLabel.isEmpty() ? tr("Go to Word") : tr("Go to Word (Page %1)").arg(w.pageLabel));
-    go->setProperty("testId", "wordGoTo");
+    const QList<QTreeWidgetItem*> sel = m_list->selectedItems();
+    const int n = int(sel.size());
+    bool allStarred = n > 0;
+    for (QTreeWidgetItem* s : sel) allStarred = allStarred && m_log->word(s->data(0, Qt::UserRole).toInt()).starred;
+    auto add = [menu](const QString& text, const char* id) {
+        QAction* a = menu->addAction(text);
+        a->setProperty("testId", id);
+        return a;
+    };
+    QAction* go = add(w.pageLabel.isEmpty() ? tr("Go to Word") : tr("Go to Word (Page %1)").arg(w.pageLabel), "wordGoTo");
     go->setEnabled(w.bookId != 0);
-    QAction* change = menu->addAction(tr("Change Meaning"));
-    change->setProperty("testId", "wordChangeMeaning");
+    QAction* change = add(tr("Change Meaning"), "wordChangeMeaning");
+    QAction* copy = add(tr("Copy"), "wordCopy");
+    menu->addSeparator();
+    QAction* star = add(allStarred ? tr("Unstar") : tr("Star"), "wordMenuStar");
+    QAction* again = add(tr("Start Over"), "wordMenuStartOver");
+    again->setToolTip(tr("The word's cards become new again."));
+    menu->addSeparator();
+    QAction* del = add(n > 1 ? tr("Delete %1…").arg(count(n, tr("word"), tr("words"))) : tr("Delete…"), "wordMenuDelete");
     const QPersistentModelIndex row = m_list->indexFromItem(it);
     auto item = [this, row] { return row.isValid() ? m_list->itemFromIndex(row) : nullptr; };
     connect(go, &QAction::triggered, this, [this, item] { goToWord(item()); });
     connect(change, &QAction::triggered, this, [this, item] {
         if (QTreeWidgetItem* i = item()) m_list->editItem(i, 1);
     });
+    connect(copy, &QAction::triggered, this, [this, item] {
+        // The word and its meaning, one per line for each selected word.
+        QStringList lines;
+        for (QTreeWidgetItem* s : m_list->selectedItems()) lines << s->text(0) + QLatin1Char('\t') + s->text(1);
+        if (lines.isEmpty())
+            if (QTreeWidgetItem* i = item()) lines << i->text(0) + QLatin1Char('\t') + i->text(1);
+        QApplication::clipboard()->setText(lines.join(QLatin1Char('\n')));
+    });
+    connect(star, &QAction::triggered, this, &PracticeView::starSelected);
+    connect(again, &QAction::triggered, this, &PracticeView::startOverSelected);
+    connect(del, &QAction::triggered, this, &PracticeView::deleteSelected);
     return menu;
 }
 
@@ -1037,10 +1089,36 @@ void PracticeView::showListPage(int page)
     const bool paged = m_listPages > 1;
     m_prevPage->setVisible(paged);
     m_nextPage->setVisible(paged);
-    m_pageLabel->setVisible(paged);
+    m_pageNumbers->setVisible(paged);
     m_prevPage->setEnabled(m_listPage > 0);
     m_nextPage->setEnabled(m_listPage < m_listPages - 1);
-    m_pageLabel->setText(tr("Page %1 of %2").arg(QLocale().toString(m_listPage + 1), QLocale().toString(m_listPages)));
+    // Up to 10 numbers (fewer when the list is narrow), around the page showing.
+    for (QPushButton* b : m_pageNumbers->findChildren<QPushButton*>(Qt::FindDirectChildrenOnly)) {
+        // Out of the row at once, deleted later (a click on one of them runs this).
+        m_pageNumbers->layout()->removeWidget(b);
+        b->hide();
+        b->setParent(nullptr);
+        b->deleteLater();
+    }
+    if (!paged) return;
+    const int room = (m_list->width() > 0 ? m_list->width() : 400) - 2 * 34;
+    const int most = qBound(3, room / 30, 10);
+    const int shown = qMin(most, m_listPages);
+    const int from = qBound(0, m_listPage - shown / 2, m_listPages - shown);
+    for (int p = from; p < from + shown; ++p) {
+        auto* b = new QPushButton(QLocale().toString(p + 1));
+        const bool here = p == m_listPage;
+        b->setObjectName(here ? QString() : QStringLiteral("Link"));
+        b->setFlat(true);
+        b->setFocusPolicy(Qt::NoFocus);
+        b->setCursor(here ? Qt::ArrowCursor : Qt::PointingHandCursor);
+        b->setProperty("testId", QByteArray("wordListPage-") + QByteArray::number(p + 1));
+        b->setToolTip(tr("Page %1 of %2").arg(QLocale().toString(p + 1), QLocale().toString(m_listPages)));
+        b->setStyleSheet(here ? QStringLiteral("QPushButton { border: 0; background: transparent; padding: 2px 6px; font-weight: 700; }")
+                              : QStringLiteral("QPushButton { border: 0; background: transparent; padding: 2px 6px; }"));
+        connect(b, &QPushButton::clicked, this, [this, p] { showListPage(p); });
+        m_pageNumbers->layout()->addWidget(b);
+    }
 }
 
 bool PracticeView::exportTo(const QString& path, QString* error)
@@ -1095,10 +1173,23 @@ void PracticeView::setCompact(bool on)
     m_startTitle->setText(on ? tr("Practice While You Read") : tr("Practice Your Words"));
     m_cardFrame->setMinimumWidth(on ? 0 : 360);
     m_cardKeys->setWordWrap(on);
-    m_exportButton->setVisible(!on);   // in the full window
-    // Word, meaning and page fit beside the book; the book, lookups and next review are in the full window.
-    for (int c : {2, 4, 5}) m_list->setColumnHidden(c, on);
-    m_list->setColumnWidth(0, on ? 150 : 200);
+    applyListColumns();
+}
+
+void PracticeView::setWide(bool on)
+{
+    m_wide = on;
+    applyListColumns();
+}
+
+void PracticeView::applyListColumns()
+{
+    // Word, meaning and page fit beside the book; the book, lookups and next review (and Export) when there is
+    // room: the full window, or the panel maximized.
+    const bool narrow = m_compact && !m_wide;
+    m_exportButton->setVisible(!narrow);
+    for (int c : {2, 4, 5}) m_list->setColumnHidden(c, narrow);
+    m_list->setColumnWidth(0, narrow ? 150 : 200);
 }
 
 void PracticeView::setOpenBook(int bookId, const QString& title)

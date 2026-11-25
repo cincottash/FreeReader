@@ -410,6 +410,17 @@ LibraryView::LibraryView(core::Library* library, Settings& settings, QWidget* pa
     m_searchInside->setProperty("testId", "librarySearchInside");
     h->addWidget(m_searchInside);
     connect(m_searchInside, &QPushButton::clicked, this, [this] { emit librarySearchRequested(m_search->text()); });
+    // The bookmark added last, in any book (the owner's request, 2026-11-25): the reader's icon, no words (with
+    // words, the Spanish header no longer fit a 900 px window).
+    m_latestBookmark = new QToolButton;
+    m_latestBookmark->setObjectName(QStringLiteral("Icon"));
+    m_latestBookmark->setFixedSize(36, 36);
+    m_latestBookmark->setIconSize(QSize(20, 20));
+    m_latestBookmark->setCursor(Qt::PointingHandCursor);
+    m_latestBookmark->setToolTip(tr("Go to Latest Bookmark (Ctrl+Shift+D)"));
+    m_latestBookmark->setProperty("testId", "libraryLatestBookmark");
+    h->addWidget(m_latestBookmark);
+    connect(m_latestBookmark, &QToolButton::clicked, this, &LibraryView::latestBookmarkRequested);
     m_add = new QPushButton(tr("Add Books"));
     m_add->setObjectName(QStringLiteral("Primary"));
     m_add->setCursor(Qt::PointingHandCursor);
@@ -671,6 +682,7 @@ void LibraryView::setTheme(const Theme& t)
 {
     m_theme = t;
     m_gridButton->setIcon(icons::icon("grid", t.fg));
+    m_latestBookmark->setIcon(icons::icon("bookmarkGo", t.fg));
     m_listButton->setIcon(icons::icon("list", t.fg));
     if (auto* d = dynamic_cast<CoverDelegate*>(m_grid->itemDelegate())) d->covers.clear();
     m_grid->viewport()->update();

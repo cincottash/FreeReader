@@ -19,11 +19,15 @@ public:
     void setTheme(const Theme& t);
 
     QWidget* grip() const { return m_grip; }   // its left edge, dragged to change its width
+    // Maximize: the panel over the whole page area; its button then says Restore (set by the reader).
+    void setMaximized(bool on);
+    bool isMaximized() const { return m_maximized; }
 
 signals:
     void closeRequested();
-    void fullWindowRequested();
-    void widthDragged(int width);   // the width the drag asks for (the reader keeps it within bounds)
+    void fullWindowRequested();   // its Maximize / Restore button
+    void widthDragging(int width);  // during the drag: where the edge would be (the reader shows a guide line)
+    void widthDragged(int width);   // on release: the width asked for (the reader keeps it within bounds)
 
 protected:
     void resizeEvent(QResizeEvent* e) override;
@@ -31,6 +35,8 @@ protected:
 private:
     QWidget* m_grip = nullptr;
     PracticeView* m_view = nullptr;
+    bool m_maximized = false;
+    QColor m_fg;
     QToolButton* m_full;
     QToolButton* m_close;
 };

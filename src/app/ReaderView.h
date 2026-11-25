@@ -152,6 +152,9 @@ public:
     // this book or all books, beside the page. One panel on the right at a time.
     void setPracticeView(PracticeView* view);
     PracticePanel* practicePanel() const { return m_practicePanel; }
+    // The practice panel over the whole page area (its Maximize button), or back beside the page.
+    void setPracticeMaximized(bool on);
+    bool practiceMaximized() const { return m_practiceMaximized; }
     bool practiceVisible() const;
     void setPracticeVisible(bool on);
     // Two pages side by side, or one (the header's button): the Columns setting, Two or One.
@@ -189,6 +192,7 @@ public:
 signals:
     void rightPanelOpened();   // the Notebook, English alongside or the practice workspace (one panel on the right)
     void libraryRequested();
+    void latestBookmarkRequested();   // the header's Go to Latest Bookmark
     void fullScreenRequested();
     void imageRequested(const QString& path);
     void settingsLinkClicked();
@@ -197,7 +201,6 @@ signals:
     void moreThemesRequested(const QPoint& windowPos);   // below-right corner of the button, window coordinates
     void translationSettingsRequested();
     void wordLogged();
-    void fullPracticeRequested();   // the workspace's Open Full Window
 
 protected:
     void resizeEvent(QResizeEvent*) override;
@@ -321,10 +324,13 @@ private:
     SearchPanel* m_search;
     QToolButton* m_searchButton;
     QToolButton* m_bookmarkButton;
+    QToolButton* m_latestBookmarkButton;
     QToolButton* m_notebookButton;
     QToolButton* m_spreadButton;
     QToolButton* m_practiceButton;
     PracticePanel* m_practicePanel;
+    class QFrame* m_resizeGuide = nullptr;   // where the panel's edge will be, while it is dragged
+    bool m_practiceMaximized = false;        // the panel over the whole page area (its Maximize button)
     void updatePracticePage();   // the pages showing, for the workspace's This Page
     void syncSpreadButton();
     int m_searchId = 0;

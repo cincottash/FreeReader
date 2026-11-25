@@ -61,6 +61,8 @@ public:
     // The practice workspace while reading.
     void setCompact(bool on);
     bool isCompact() const { return m_compact; }
+    // Compact but with room (the panel maximized over the page): the Word List's other columns and Export too.
+    void setWide(bool on);
     // The book being read (0: none): chosen in Words From and the Word List the next time either is shown.
     void setOpenBook(int bookId, const QString& title);
     // The pages showing now (one spine item, offsets start..end), for This Page in the Word List.
@@ -125,10 +127,13 @@ private:
     QString languageName() const;
     QTreeWidgetItem* currentListItem() const;
     void goToWord(QTreeWidgetItem* it);
+    void starSelected();
+    void startOverSelected();
+    void deleteSelected();
     int listRowsPerPage() const;
     class QToolButton* m_prevPage = nullptr;
     class QToolButton* m_nextPage = nullptr;
-    QLabel* m_pageLabel = nullptr;
+    QWidget* m_pageNumbers = nullptr;   // the pages' numbers between Previous and Next
     int m_listPage = 0, m_listPages = 1;
     int m_wheel = 0;
     class QMenu* wordMenu(QTreeWidgetItem* it);
@@ -139,6 +144,8 @@ private:
     void fillBookChoices(QComboBox* box, bool thisPage);
 
     bool m_compact = false;
+    bool m_wide = false;
+    void applyListColumns();
     int m_openBook = 0;
     QString m_openTitle;
     int m_pageSpine = -1, m_pageStart = 0, m_pageEnd = 0;
