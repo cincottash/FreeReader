@@ -15,6 +15,7 @@ struct Settings {
     bool showNotebook = false;
     bool showBilingual = false;       // the English of the page in a panel on the right
     bool showPractice = false;        // the practice workspace on the right while reading
+    int practiceWidth = 480;          // its width, dragged at its left edge (px)
 
     // Reading
     Appearance look;                  // All Books; languages and books can override it (library database)

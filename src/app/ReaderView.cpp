@@ -238,7 +238,17 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     m_bilingual->hide();
     body->addWidget(m_bilingual);
     m_practicePanel = new PracticePanel;
-    m_practicePanel->setFixedWidth(480);
+    m_practicePanel->setFixedWidth(qBound(360, m_settings.practiceWidth, 1600));
+    // Its left edge is dragged to make it wider or narrower (the owner's request, 2026-11-25): at least 360 px, and
+    // the page keeps at least 360 px beside it (and the contents or search panel, when open).
+    connect(m_practicePanel, &PracticePanel::widthDragged, this, [this](int wanted) {
+        const int left = m_toc->isVisible() || m_search->isVisible() ? 320 : 0;
+        const int w = qBound(360, wanted, qMax(360, width() - left - 360));
+        if (w == m_practicePanel->width()) return;
+        m_practicePanel->setFixedWidth(w);
+        m_settings.practiceWidth = w;
+        emit appearanceChanged();   // the settings file needs saving
+    });
     m_practicePanel->hide();
     m_practicePanel->setProperty("testId", "practicePanel");
     body->addWidget(m_practicePanel);
@@ -651,7 +661,7 @@ void ReaderView::makeRoom(bool right, int width)
         }
         return;
     }
-    const int other = m_notebook->isVisible() ? 340 : m_bilingual->isVisible() ? 380 : m_practicePanel->isVisible() ? 480 : 0;
+    const int other = m_notebook->isVisible() ? 340 : m_bilingual->isVisible() ? 380 : m_practicePanel->isVisible() ? m_practicePanel->width() : 0;
     if (other && width + other + page > this->width()) {
         if (m_notebook->isVisible()) setNotebookVisible(false);
         if (m_bilingual->isVisible()) setBilingualVisible(false);
@@ -1989,7 +1999,7 @@ void ReaderView::setPracticeVisible(bool on)
     if (on && m_notebook->isVisible()) setNotebookVisible(false);
     if (on && m_bilingual->isVisible()) setBilingualVisible(false);
     if (on) emit rightPanelOpened();
-    if (on) makeRoom(true, 480);
+    if (on) makeRoom(true, m_practicePanel->width());
     const bool was = m_practicePanel->isVisible();
     m_practicePanel->setVisible(on);
     {

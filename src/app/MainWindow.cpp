@@ -218,6 +218,15 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
         m_practice->setOpenBook(m_reader->bookId(), m_library ? m_library->book(m_reader->bookId()).title : QString());
         showPractice();
     });
+    // Show Beside the Book (the full window's button): back to the book, Practice beside it on the same tab.
+    connect(m_practice, &PracticeView::besideBookRequested, this, [this] {
+        if (!m_engine->isOpen()) return;
+        const bool list = m_practice->page() == PracticeView::ListPage;
+        m_stack->setCurrentWidget(m_reader);
+        m_reader->setPracticeVisible(true);
+        if (list) m_practiceSide->showList();
+        m_reader->pages()->setFocus();
+    });
     connect(m_practice, &PracticeView::backRequested, this, [this] {
         QWidget* to = m_beforePractice == m_reader && m_engine->isOpen() ? static_cast<QWidget*>(m_reader) : static_cast<QWidget*>(m_start);
         m_stack->setCurrentWidget(to);
@@ -1128,6 +1137,7 @@ void MainWindow::endPreview()
 void MainWindow::showPractice(bool wordList)
 {
     if (m_stack->currentWidget() != m_practice) m_beforePractice = m_stack->currentWidget();
+    m_practice->setCanShowBesideBook(m_beforePractice == m_reader && m_engine->isOpen());
     m_stack->setCurrentWidget(m_practice);
     wordList ? m_practice->showList() : m_practice->showStart();
 }

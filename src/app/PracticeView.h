@@ -73,6 +73,14 @@ public:
     void setListBook(int choice);
     int listBook() const;
     QStringList listWords() const;   // the words the Word List shows (tests)
+    // The Word List's pages (as many words a page as it has room for): 0-based; out of range is clamped.
+    void showListPage(int page);
+    int listPage() const { return m_listPage; }
+    int listPageCount() const { return m_listPages; }
+    // A word's right-click menu in the Word List (Go to Word, Change Meaning); the caller owns it (tests).
+    class QMenu* wordMenuForRow(int row);
+    // The full window's button back to the book, with Practice beside it: shown when there is a book to go back to.
+    void setCanShowBesideBook(bool on);
 
     // Session (also driven by tests)
     bool startSession();        // false when there is nothing to practise
@@ -94,6 +102,7 @@ public:
 
 signals:
     void backRequested();
+    void besideBookRequested();   // the full window's Show Beside the Book
     void showInBookRequested(int bookId, const QString& cfi, int spine, int start, int end);
     void settingsChanged();
 
@@ -115,6 +124,16 @@ private:
     QStringList acceptedAnswers() const;
     QString languageName() const;
     QTreeWidgetItem* currentListItem() const;
+    void goToWord(QTreeWidgetItem* it);
+    int listRowsPerPage() const;
+    class QToolButton* m_prevPage = nullptr;
+    class QToolButton* m_nextPage = nullptr;
+    QLabel* m_pageLabel = nullptr;
+    int m_listPage = 0, m_listPages = 1;
+    int m_wheel = 0;
+    class QMenu* wordMenu(QTreeWidgetItem* it);
+    class QToolButton* m_beside = nullptr;
+    bool m_canShowBeside = false;
 
     void showMeaningOnCard();
     void fillBookChoices(QComboBox* box, bool thisPage);
@@ -185,7 +204,7 @@ private:
     // List
     QLineEdit* m_search;
     QComboBox* m_listBook;
-    QTreeWidget* m_list;
+    QTreeWidget* m_list = nullptr;
     QLabel* m_listCount;
 
     // Session state

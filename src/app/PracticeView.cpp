@@ -2,6 +2,7 @@
 
 #include "core/practice/Session.h"
 
+#include "ElidingComboBox.h"
 #include "Icons.h"
 #include "Settings.h"
 
@@ -19,6 +20,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QLocale>
+#include <QMenu>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QScrollArea>
@@ -30,6 +32,7 @@
 #include <QToolButton>
 #include <QTreeWidget>
 #include <QVBoxLayout>
+#include <QWheelEvent>
 
 #include <algorithm>
 
@@ -111,6 +114,22 @@ PracticeView::PracticeView(core::WordLog* log, Settings& settings, QWidget* pare
     }
     m_tabPractice->setProperty("testId", "tabPractice");
     m_tabList->setProperty("testId", "tabWordList");
+    // The full window's way back to the panel beside the book (the owner's request, 2026-11-25: the panel's button
+    // makes it bigger, and nothing made it smaller again).
+    m_beside = new QToolButton;
+    m_beside->setObjectName(QStringLiteral("Icon"));
+    m_beside->setFixedSize(40, 40);
+    m_beside->setIconSize(QSize(20, 20));
+    m_beside->setToolTip(tr("Show Beside the Book"));
+    m_beside->setCursor(Qt::PointingHandCursor);
+    m_beside->setFocusPolicy(Qt::NoFocus);
+    m_beside->setProperty("testId", "practiceBeside");
+    m_beside->hide();
+    h->addWidget(m_beside);
+    connect(m_beside, &QToolButton::clicked, this, [this] {
+        if (page() == CardPage) endSession();
+        emit besideBookRequested();
+    });
     lay->addWidget(bar);
 
     m_pages = new CurrentPageStack;
@@ -149,6 +168,13 @@ void PracticeView::setTheme(const Theme& t)
 {
     m_theme = t;
     m_back->setIcon(icons::icon("back", t.fg));
+    m_beside->setIcon(icons::icon("exitFullscreen", t.fg));
+}
+
+void PracticeView::setCanShowBesideBook(bool on)
+{
+    m_canShowBeside = on;
+    m_beside->setVisible(on && !m_compact);
 }
 
 PracticeView::Page PracticeView::page() const { return Page(m_pages->currentIndex()); }
@@ -227,7 +253,7 @@ QWidget* PracticeView::buildStart()
     lay->addWidget(sectionTitle(tr("WHAT TO PRACTISE")));
     auto* bookRow = new QHBoxLayout;
     bookRow->addWidget(new QLabel(tr("Words From")));
-    m_book = new QComboBox;
+    m_book = new ElidingComboBox;
     m_book->setProperty("testId", "practiceBook");
     bookRow->addWidget(m_book, 1);
     lay->addLayout(bookRow);
@@ -749,8 +775,11 @@ QWidget* PracticeView::buildList()
     m_search->setPlaceholderText(tr("Search words and meanings"));
     m_search->setClearButtonEnabled(true);
     m_search->setProperty("testId", "wordSearch");
-    m_listBook = new QComboBox;
+    m_listBook = new ElidingComboBox;
     m_listBook->setProperty("testId", "wordListBook");
+    // A long title ends in "…" rather than being cut (the box is as wide as half the search box).
+    m_listBook->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    m_listBook->setMinimumContentsLength(8);
     top->addWidget(m_search, 2);
     top->addWidget(m_listBook, 1);
     lay->addLayout(top);
@@ -764,10 +793,40 @@ QWidget* PracticeView::buildList()
     m_list->header()->setStretchLastSection(false);
     m_list->setColumnWidth(0, 200);
     m_list->setColumnWidth(2, 200);
-    m_list->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed);
+    // Only the meaning can be changed, by double-clicking it (or right-click > Change Meaning). Double-clicking the word or the page goes
+    // to the word in the book: before, any cell opened an editor, which looked broken there (2026-11-25).
+    m_list->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_list->setContextMenuPolicy(Qt::CustomContextMenu);
     lay->addWidget(m_list, 1);
+    // Pages, as many words on each as the list has room for, instead of a scroll bar easy to miss (the owner's
+    // request, 2026-11-25: "there should be multiple pages ... if it doesn't fit all in one page").
+    m_list->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_list->viewport()->installEventFilter(this);
+    auto* countRow = new QHBoxLayout;
+    countRow->setSpacing(4);
     m_listCount = wrapLabel("wordListCount", "Muted");
-    lay->addWidget(m_listCount);
+    countRow->addWidget(m_listCount, 1);
+    auto pageButton = [](const char* id, const QString& tip) {
+        auto* b = new QToolButton;
+        b->setObjectName(QStringLiteral("Icon"));
+        b->setFixedSize(30, 30);
+        b->setIconSize(QSize(16, 16));
+        b->setToolTip(tip);
+        b->setCursor(Qt::PointingHandCursor);
+        b->setFocusPolicy(Qt::NoFocus);
+        b->setProperty("testId", id);
+        return b;
+    };
+    m_prevPage = pageButton("wordListPrevious", tr("Previous Page"));
+    m_nextPage = pageButton("wordListNext", tr("Next Page"));
+    m_pageLabel = wrapLabel("wordListPage", "Muted");
+    m_pageLabel->setWordWrap(false);
+    countRow->addWidget(m_prevPage);
+    countRow->addWidget(m_pageLabel);
+    countRow->addWidget(m_nextPage);
+    lay->addLayout(countRow);
+    connect(m_prevPage, &QToolButton::clicked, this, [this] { showListPage(m_listPage - 1); });
+    connect(m_nextPage, &QToolButton::clicked, this, [this] { showListPage(m_listPage + 1); });
     auto* buttons = new QHBoxLayout;
     auto button = [&](const QString& text, const char* id, const QString& tip) {
         auto* b = new QPushButton(text);
@@ -785,8 +844,15 @@ QWidget* PracticeView::buildList()
     m_exportButton = exp;
     lay->addLayout(buttons);
 
-    connect(m_search, &QLineEdit::textChanged, this, &PracticeView::fillList);
-    connect(m_listBook, &QComboBox::currentIndexChanged, this, &PracticeView::fillList);
+    // Another search or book: from the first page.
+    connect(m_search, &QLineEdit::textChanged, this, [this] {
+        m_listPage = 0;
+        fillList();
+    });
+    connect(m_listBook, &QComboBox::currentIndexChanged, this, [this] {
+        m_listPage = 0;
+        fillList();
+    });
     connect(m_list, &QTreeWidget::itemChanged, this, [this](QTreeWidgetItem* it, int column) {
         if (column != 1) return;
         core::WordEntry w = m_log->word(it->data(0, Qt::UserRole).toInt());
@@ -795,10 +861,19 @@ QWidget* PracticeView::buildList()
         w.translation = meaning;
         m_log->update(w);   // kept over later lookups
     });
+    connect(m_list, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* it, int column) {
+        if (column == 1) m_list->editItem(it, 1);
+    });
     connect(m_list, &QTreeWidget::itemActivated, this, [this](QTreeWidgetItem* it, int column) {
-        if (column == 1) return;   // editing the meaning
-        const core::WordEntry w = m_log->word(it->data(0, Qt::UserRole).toInt());
-        if (w.bookId) emit showInBookRequested(w.bookId, w.cfi, w.spine, w.start, w.end);
+        if (column != 1) goToWord(it);   // the meaning: being edited
+    });
+    // Right-click a word: go to it in the book, or change its meaning (the owner's request, 2026-11-25).
+    connect(m_list, &QWidget::customContextMenuRequested, this, [this](const QPoint& at) {
+        QTreeWidgetItem* it = m_list->itemAt(at);
+        if (!it) return;
+        if (!it->isSelected()) m_list->setCurrentItem(it);
+        std::unique_ptr<QMenu> menu(wordMenu(it));
+        if (m_interactive) menu->exec(m_list->viewport()->mapToGlobal(at));
     });
     connect(star, &QPushButton::clicked, this, [this] {
         for (QTreeWidgetItem* it : m_list->selectedItems()) {
@@ -838,6 +913,37 @@ QWidget* PracticeView::buildList()
         if (!exportTo(path, &err)) QMessageBox::warning(this, tr("Export Word Log"), tr("Couldn't save the file. %1").arg(err));
     });
     return page;
+}
+
+void PracticeView::goToWord(QTreeWidgetItem* it)
+{
+    if (!it) return;
+    const core::WordEntry w = m_log->word(it->data(0, Qt::UserRole).toInt());
+    if (w.bookId) emit showInBookRequested(w.bookId, w.cfi, w.spine, w.start, w.end);
+}
+
+QMenu* PracticeView::wordMenu(QTreeWidgetItem* it)
+{
+    auto* menu = new QMenu(this);
+    const core::WordEntry w = m_log->word(it->data(0, Qt::UserRole).toInt());
+    QAction* go = menu->addAction(w.pageLabel.isEmpty() ? tr("Go to Word") : tr("Go to Word (Page %1)").arg(w.pageLabel));
+    go->setProperty("testId", "wordGoTo");
+    go->setEnabled(w.bookId != 0);
+    QAction* change = menu->addAction(tr("Change Meaning"));
+    change->setProperty("testId", "wordChangeMeaning");
+    const QPersistentModelIndex row = m_list->indexFromItem(it);
+    auto item = [this, row] { return row.isValid() ? m_list->itemFromIndex(row) : nullptr; };
+    connect(go, &QAction::triggered, this, [this, item] { goToWord(item()); });
+    connect(change, &QAction::triggered, this, [this, item] {
+        if (QTreeWidgetItem* i = item()) m_list->editItem(i, 1);
+    });
+    return menu;
+}
+
+QMenu* PracticeView::wordMenuForRow(int row)
+{
+    QTreeWidgetItem* it = m_list->topLevelItem(row);
+    return it ? wordMenu(it) : nullptr;
 }
 
 QTreeWidgetItem* PracticeView::currentListItem() const
@@ -905,6 +1011,36 @@ void PracticeView::fillList()
                                                    : tr("%1 of %2").arg(QLocale().toString(shown), count(int(all.size()), tr("word"), tr("words"))));
     if (choice == kThisPage && all.isEmpty())
         m_listCount->setText(tr("No words on this page yet. Translate or highlight one and it shows here."));
+    showListPage(m_listPage);
+}
+
+int PracticeView::listRowsPerPage() const
+{
+    // As many rows as the list has room for (the rows are all as tall); before it is laid out, 25.
+    const int row = m_list->topLevelItemCount() ? m_list->sizeHintForRow(0) : 0;
+    const int room = m_list->viewport()->height();
+    if (row <= 0 || room < row * 3) return 25;
+    return qMax(3, room / row);
+}
+
+void PracticeView::showListPage(int page)
+{
+    const int n = m_list->topLevelItemCount();
+    const int per = listRowsPerPage();
+    m_listPages = qMax(1, (n + per - 1) / per);
+    m_listPage = qBound(0, page, m_listPages - 1);
+    const int first = m_listPage * per;
+    m_list->setUpdatesEnabled(false);
+    for (int i = 0; i < n; ++i) m_list->topLevelItem(i)->setHidden(i < first || i >= first + per);
+    m_list->setUpdatesEnabled(true);
+    m_list->scrollToTop();
+    const bool paged = m_listPages > 1;
+    m_prevPage->setVisible(paged);
+    m_nextPage->setVisible(paged);
+    m_pageLabel->setVisible(paged);
+    m_prevPage->setEnabled(m_listPage > 0);
+    m_nextPage->setEnabled(m_listPage < m_listPages - 1);
+    m_pageLabel->setText(tr("Page %1 of %2").arg(QLocale().toString(m_listPage + 1), QLocale().toString(m_listPages)));
 }
 
 bool PracticeView::exportTo(const QString& path, QString* error)
@@ -946,6 +1082,7 @@ void PracticeView::setCompact(bool on)
     m_compact = on;
     m_back->setVisible(!on);
     m_heading->setVisible(!on);
+    m_beside->setVisible(!on && m_canShowBeside);
     m_tabPractice->setText(on ? tr("Flashcards") : tr("Practice"));
     // Beside the book the column fills the panel; in the whole window it is centred.
     m_startCol->setMinimumWidth(on ? 0 : 320);
@@ -1006,6 +1143,27 @@ QStringList PracticeView::listWords() const
 
 bool PracticeView::eventFilter(QObject* o, QEvent* e)
 {
+    if (m_list && o == m_list->viewport()) {
+        if (e->type() == QEvent::Resize) {
+            // Another height, another number of rows a page: the page that has the first word shown now.
+            int first = 0;
+            for (int i = 0; i < m_list->topLevelItemCount(); ++i)
+                if (!m_list->topLevelItem(i)->isHidden()) {
+                    first = i;
+                    break;
+                }
+            showListPage(first / listRowsPerPage());
+        } else if (e->type() == QEvent::Wheel && m_listPages > 1) {
+            // The wheel turns the pages (there is no scrolling within one).
+            auto* w = static_cast<QWheelEvent*>(e);
+            m_wheel += w->angleDelta().y();
+            if (qAbs(m_wheel) >= 120) {
+                showListPage(m_listPage + (m_wheel < 0 ? 1 : -1));
+                m_wheel = 0;
+            }
+            return true;
+        }
+    }
     if (o == m_answer && e->type() == QEvent::KeyPress) {
         const int k = static_cast<QKeyEvent*>(e)->key();
         if (k == Qt::Key_Return || k == Qt::Key_Enter) {

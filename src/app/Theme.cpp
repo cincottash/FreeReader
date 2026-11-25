@@ -60,6 +60,7 @@ QPushButton#Link { background: transparent; color: @accent; border: 0; padding: 
 QPushButton#Link:hover { text-decoration: underline; }
 QLineEdit { background: @input; border: 1px solid @line; border-radius: 8px; padding: 8px 10px; selection-background-color: @accent; selection-color: @accentFg; }
 QLineEdit:focus { border-color: @accent; }
+QAbstractItemView QLineEdit { padding: 0 4px; border-radius: 4px; border: 1px solid @accent; background: @input; }
 QTreeView, QListView { background: transparent; border: 0; outline: 0; }
 QListView#FramedList { background: @input; border: 1px solid @line; border-radius: 8px; padding: 4px; }
 QTreeView::item, QListView::item { padding: 6px 4px; border-radius: 6px; }
@@ -74,8 +75,10 @@ QScrollBar:horizontal { height: 0; }
 QMessageBox, QDialog { background: @surface; }
 QPushButton { background: @pop; border: 1px solid @line; border-radius: 8px; padding: 6px 14px; }
 QPushButton:hover { border-color: @accent; }
-QComboBox { background: @input; border: 1px solid @line; border-radius: 8px; padding: 6px 10px; }
+QComboBox { background: @input; border: 1px solid @line; border-radius: 8px; padding: 6px 28px 6px 10px; }
 QComboBox:hover { border-color: @accent; }
+QComboBox::drop-down { subcontrol-origin: padding; subcontrol-position: center right; width: 26px; border: 0; background: transparent; }
+QComboBox::down-arrow { image: url(@chevron); width: 14px; height: 14px; }
 QComboBox QAbstractItemView { background: @pop; border: 1px solid @line; selection-background-color: @hl; selection-color: @fg; }
 QSlider::groove:horizontal { height: 4px; background: @line; border-radius: 2px; }
 QSlider::sub-page:horizontal { background: @accent; border-radius: 2px; }
@@ -115,7 +118,10 @@ QMenu::indicator { width: 14px; height: 14px; left: 6px; }
         .replace(QLatin1String("@hl"), c(t.hl))
         .replace(QLatin1String("@bg"), c(t.bg))
         // A check mark that shows on the accent color.
-        .replace(QLatin1String("@check"), t.accentFg.lightnessF() > 0.5f ? QStringLiteral(":/check-light.svg") : QStringLiteral(":/check-dark.svg"));
+        .replace(QLatin1String("@check"), t.accentFg.lightnessF() > 0.5f ? QStringLiteral(":/check-light.svg") : QStringLiteral(":/check-dark.svg"))
+        // A drop-down list's arrow in the text's color, on the box itself: no square of its own (the owner's report,
+        // 2026-11-25: the default one looked like a box squeezed into the rounded corner).
+        .replace(QLatin1String("@chevron"), t.fg.lightnessF() > 0.5f ? QStringLiteral(":/chevron-light.svg") : QStringLiteral(":/chevron-dark.svg"));
     return css;
 }
 

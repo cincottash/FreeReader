@@ -20,6 +20,7 @@ void fields(Settings& s, F&& f)
     f("show_notebook", s.showNotebook);
     f("show_bilingual", s.showBilingual);
     f("show_practice", s.showPractice);
+    f("practice_width", s.practiceWidth);
     f("text_size_pct", s.look.textSizePct);
     f("line_spacing_pct", s.look.lineSpacingPct);
     f("margin_px", s.look.marginPx);

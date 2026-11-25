@@ -156,8 +156,9 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 - **Practice while you read:** the **Practice** button in the reader's header (or Ctrl+P) opens a practice
   workspace beside the page, the way Kindle shows its notes beside the book. It has the flashcards and the
   **Word List** of **This Page** (the words you looked up or highlighted on the pages showing), this book or all
-  books, with their meanings. It stays open as you turn pages, and new words show in it at once. The button at
-  its top right opens Practice in the whole window.
+  books, with their meanings. It stays open as you turn pages, and new words show in it at once. Drag its left
+  edge to make it wider. The button at its top right opens Practice in the whole window; **Show Beside the Book**
+  at the whole window's top right puts it back.
 - **Practice Words** (at the bottom of the library's left column, or Ctrl+P there) turns the words you looked up or
   highlighted into flashcards (a highlighted word is never looked up for this: the offline dictionary fills in its
   meaning, or its card has a **Look Up Meaning** button). Each session goes through all your cards in the **Order**
@@ -165,8 +166,9 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
   later in the same session.
 - Choose the directions: Spanish → English, English → Spanish, Definition → Word, or the book's sentence with a
   gap. Flip the card, or type the answer (missing accents are accepted but pointed out).
-- **Word List:** every word with its meaning, book and page. Search, change a meaning, star, **Show in Book**,
-  and **Export…** a file Anki can import.
+- **Word List:** every word with its meaning, book and page, in pages as long as the list has room for (the arrows
+  below it, or the mouse wheel, turn them). Search, double-click a meaning to change it, star, and **Export…** a
+  file Anki can import. Double-click a word, or right-click it and choose **Go to Word**, to see it in the book.
 
 <details>
 <summary>Practice in the whole window</summary>
