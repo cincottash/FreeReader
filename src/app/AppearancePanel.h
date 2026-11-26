@@ -30,6 +30,9 @@ public:
     // Page turns (for all books, from the settings).
     void setPageTurn(const QString& style, int ms, const QString& motion);
     void setTurnArrows(bool on);   // Arrows at the Sides
+    // The page turn animations and motions, for this panel and Settings > General.
+    static void addPageTurnStyles(class QComboBox* box);
+    static void addPageTurnMotions(class QComboBox* box);
 
 signals:
     void valueChanged(const QString& key, const QJsonValue& value);

@@ -137,6 +137,9 @@ public:
     // them (asked in a message box; tests answer with setBookmarkAnswerForTests, given how many there are).
     enum class BookmarkChoice { Keep, RemovePrevious, RemoveAll };
     void setBookmarkAnswerForTests(std::function<BookmarkChoice(int earlier)> answer) { m_bookmarkAnswerForTests = std::move(answer); }
+    // The page turn animation and the arrows at the sides, from the settings (both the page and the Text and
+    // Layout panel).
+    void applyPageTurnSettings();
     // That question (the caller owns it; pictures show it without running it).
     class QMessageBox* bookmarkQuestion(int earlier, const QString& where);
     int wordBookmarkAtSelection() const;                         // true when the page is bookmarked now

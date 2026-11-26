@@ -226,23 +226,7 @@ AppearancePanel::AppearancePanel(QWidget* parent) : QFrame(parent)
     turnGrid->setColumnStretch(1, 1);
     m_turnStyle = new QComboBox;
     m_turnStyle->setProperty("testId", "pageTurn");
-    m_turnStyle->addItem(tr("None"), QStringLiteral("none"));
-    m_turnStyle->addItem(tr("Slide"), QStringLiteral("slide"));
-    m_turnStyle->addItem(tr("Cover"), QStringLiteral("cover"));
-    m_turnStyle->addItem(tr("Fade"), QStringLiteral("fade"));
-    m_turnStyle->addItem(tr("Page Curl"), QStringLiteral("curl"));
-    // The styles other e-readers offer (the owner's request, 2026-11-26: Apple Books' Curl, Slide and Fast Fade,
-    // Kotobee's Page Flip, Hardcover Flip, Card Flip, Stack and Fade, Moon+ Reader's page flips, Kindle's on or off).
-    m_turnStyle->addItem(tr("Uncover"), QStringLiteral("uncover"));
-    m_turnStyle->addItem(tr("Hardcover Flip"), QStringLiteral("flip"));
-    m_turnStyle->addItem(tr("Card Flip"), QStringLiteral("card"));
-    m_turnStyle->setItemData(1, tr("The new page pushes the old one aside."), Qt::ToolTipRole);
-    m_turnStyle->setItemData(2, tr("The new page slides in over the old one."), Qt::ToolTipRole);
-    m_turnStyle->setItemData(3, tr("The old page fades into the new one."), Qt::ToolTipRole);
-    m_turnStyle->setItemData(4, tr("The page folds back like paper."), Qt::ToolTipRole);
-    m_turnStyle->setItemData(5, tr("The old page slides away, showing the new one under it."), Qt::ToolTipRole);
-    m_turnStyle->setItemData(6, tr("The page swings over on its spine, like a stiff page in a hardcover book."), Qt::ToolTipRole);
-    m_turnStyle->setItemData(7, tr("The page turns over like a card, the new page on its back."), Qt::ToolTipRole);
+    addPageTurnStyles(m_turnStyle);
     turnGrid->addWidget(rowLabel(tr("Animation")), 0, 0);
     turnGrid->addWidget(m_turnStyle, 0, 1, 1, 2);
     m_turnSpeed = new QSlider(Qt::Horizontal);
@@ -257,9 +241,7 @@ AppearancePanel::AppearancePanel(QWidget* parent) : QFrame(parent)
     turnGrid->addWidget(m_turnSpeedValue, 1, 2);
     m_turnMotion = new QComboBox;
     m_turnMotion->setProperty("testId", "pageTurnMotion");
-    m_turnMotion->addItem(tr("Smooth (Fast, Then Slowing)"), QStringLiteral("smooth"));
-    m_turnMotion->addItem(tr("Even"), QStringLiteral("even"));
-    m_turnMotion->addItem(tr("Gentle (Slow Start and End)"), QStringLiteral("gentle"));
+    addPageTurnMotions(m_turnMotion);
     turnGrid->addWidget(rowLabel(tr("Motion")), 2, 0);
     turnGrid->addWidget(m_turnMotion, 2, 1, 1, 2);
     // Faint arrows at the page's sides: a click there turns the page (the owner's request, 2026-11-26).
@@ -368,6 +350,49 @@ void AppearancePanel::setPageTurn(const QString& style, int ms, const QString& m
     m_turnSpeed->setEnabled(on);
     m_turnMotion->setEnabled(on);
     m_turnSpeedValue->setText(QStringLiteral("%1 s").arg(QLocale().toString(ms / 1000.0, 'f', 2)));
+}
+
+void AppearancePanel::addPageTurnStyles(QComboBox* box)
+{
+    box->addItem(tr("None"), QStringLiteral("none"));
+    box->addItem(tr("Slide"), QStringLiteral("slide"));
+    box->addItem(tr("Cover"), QStringLiteral("cover"));
+    box->addItem(tr("Fade"), QStringLiteral("fade"));
+    box->addItem(tr("Page Curl"), QStringLiteral("curl"));
+    // The styles other e-readers offer (the owner's request, 2026-11-26: Apple Books' Curl, Slide and Fast Fade,
+    // Kotobee's Page Flip, Hardcover Flip, Card Flip, Stack and Fade, Moon+ Reader's page flips, Kindle's on or off).
+    box->addItem(tr("Uncover"), QStringLiteral("uncover"));
+    box->addItem(tr("Hardcover Flip"), QStringLiteral("flip"));
+    box->addItem(tr("Card Flip"), QStringLiteral("card"));
+    box->setItemData(1, tr("The new page pushes the old one aside."), Qt::ToolTipRole);
+    box->setItemData(2, tr("The new page slides in over the old one."), Qt::ToolTipRole);
+    box->setItemData(3, tr("The old page fades into the new one."), Qt::ToolTipRole);
+    box->setItemData(4, tr("The page folds back like paper."), Qt::ToolTipRole);
+    box->setItemData(5, tr("The old page slides away, showing the new one under it."), Qt::ToolTipRole);
+    box->setItemData(6, tr("The page swings over on its spine, like a stiff page in a hardcover book."), Qt::ToolTipRole);
+    box->setItemData(7, tr("The page turns over like a card, the new page on its back."), Qt::ToolTipRole);
+}
+
+void AppearancePanel::addPageTurnMotions(QComboBox* box)
+{
+    // Many ways a turn can move (the owner's request, 2026-11-26: "many more motion settings"); the keys are
+    // PageView::motions(), in the same order.
+    const QList<std::pair<const char*, QString>> motions{
+        {"smooth", tr("Smooth (Fast, Then Slowing)")},
+        {"even", tr("Even")},
+        {"gentle", tr("Gentle (Slow Start and End)")},
+        {"soft", tr("Soft (Slowing a Little)")},
+        {"quick", tr("Quick (Very Fast, Long Slow Finish)")},
+        {"snappy", tr("Snappy (Fast, Sudden Stop)")},
+        {"rounded", tr("Rounded (Fast, Round Finish)")},
+        {"speeding", tr("Speeding Up")},
+        {"ease", tr("Ease In and Out")},
+        {"strong", tr("Strong (Slow, Fast, Slow)")},
+        {"overshoot", tr("Overshoot (Goes Past, Settles Back)")},
+        {"windup", tr("Wind-Up (Pulls Back First)")},
+        {"springy", tr("Springy (Wobbles Into Place)")},
+        {"bounce", tr("Bounce (Bounces Into Place)")}};
+    for (const auto& [key, label] : motions) box->addItem(label, QString::fromLatin1(key));
 }
 
 void AppearancePanel::setTurnArrows(bool on)

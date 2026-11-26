@@ -116,7 +116,10 @@ bool Settings::load(const QString& path)
     speechRatePct = qBound(-100, speechRatePct, 100);
     speechVolumePct = qBound(0, speechVolumePct, 100);
     if (!QStringList{"none", "slide", "cover", "fade", "curl", "uncover", "flip", "card"}.contains(pageTurn)) pageTurn = QStringLiteral("none");
-    if (!QStringList{"smooth", "even", "gentle"}.contains(pageTurnMotion)) pageTurnMotion = QStringLiteral("smooth");
+    // The keys of PageView::motions().
+    if (!QStringList{"smooth", "even", "gentle", "soft", "quick", "snappy", "rounded", "speeding", "ease", "strong", "overshoot", "windup",
+                     "springy", "bounce"}.contains(pageTurnMotion))
+        pageTurnMotion = QStringLiteral("smooth");
     {
         QStringList keep;
         for (const QString& d : practiceDirections)

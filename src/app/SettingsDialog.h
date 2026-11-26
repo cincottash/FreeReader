@@ -148,6 +148,7 @@ signals:
     void libraryFoldersChanged();
     void addLibraryFolderRequested();
     void cancelled();   // the settings were put back: apply them again
+    void pageTurnChanged();   // the page turn animation, its duration or motion, or the arrows changed: apply and save
 
 private:
     QWidget* buildTranslationTab();
@@ -156,6 +157,12 @@ private:
     QWidget* buildAudioTab();
     void fillAudio();
     void fill();
+    void fillPageTurns();   // Settings > General > Page Turns, from the settings
+    QComboBox* m_turnStyle = nullptr;
+    class QSlider* m_turnSpeed = nullptr;
+    QLabel* m_turnSpeedValue = nullptr;
+    QComboBox* m_turnMotion = nullptr;
+    QCheckBox* m_turnArrows = nullptr;
     void fillLmModels(const QList<core::LmStudioProvider::Model>& models);
     static core::TranslationRequest testRequest();   // the word Test looks up
 

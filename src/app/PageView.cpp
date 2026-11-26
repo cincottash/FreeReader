@@ -9,6 +9,7 @@
 #include "core/services/BookEngine.h"
 
 #include <QContextMenuEvent>
+#include <QHash>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPainter>
@@ -59,9 +60,27 @@ void PageView::setPageTurn(const QString& style, int ms, const QString& motion)
 {
     m_turnStyle = style;
     m_turn->setDuration(qBound(100, ms, 1000));
-    m_turn->setEasingCurve(motion == QLatin1String("even")     ? QEasingCurve::Linear
-                           : motion == QLatin1String("gentle") ? QEasingCurve::InOutSine
-                                                               : QEasingCurve::OutCubic);
+    m_turn->setEasingCurve(easingFor(motion));
+}
+
+QEasingCurve::Type PageView::easingFor(const QString& motion)
+{
+    // How a turn speeds up and slows down (Text and Layout > Motion; many more since the owner's request of
+    // 2026-11-26). Unknown keys: Smooth.
+    static const QHash<QString, QEasingCurve::Type> curves{
+        {QStringLiteral("smooth"), QEasingCurve::OutCubic},     {QStringLiteral("even"), QEasingCurve::Linear},
+        {QStringLiteral("gentle"), QEasingCurve::InOutSine},    {QStringLiteral("soft"), QEasingCurve::OutSine},
+        {QStringLiteral("quick"), QEasingCurve::OutQuint},      {QStringLiteral("snappy"), QEasingCurve::OutExpo},
+        {QStringLiteral("rounded"), QEasingCurve::OutCirc},     {QStringLiteral("speeding"), QEasingCurve::InCubic},
+        {QStringLiteral("ease"), QEasingCurve::InOutCubic},     {QStringLiteral("strong"), QEasingCurve::InOutQuint},
+        {QStringLiteral("overshoot"), QEasingCurve::OutBack},   {QStringLiteral("windup"), QEasingCurve::InOutBack},
+        {QStringLiteral("springy"), QEasingCurve::OutElastic},  {QStringLiteral("bounce"), QEasingCurve::OutBounce}};
+    return curves.value(motion, QEasingCurve::OutCubic);
+}
+
+QStringList PageView::motions()
+{
+    return {"smooth", "even", "gentle", "soft", "quick", "snappy", "rounded", "speeding", "ease", "strong", "overshoot", "windup", "springy", "bounce"};
 }
 
 bool PageView::isAnimating() const { return m_turn->state() == QAbstractAnimation::Running || !m_toPix.isNull(); }
@@ -117,7 +136,11 @@ void PageView::paintTurn(QPainter& p)
     // Turning back is turning forward played backwards: the new screen is the one being turned away.
     const QPixmap& a = m_turnDir > 0 ? m_fromPix : m_toPix;   // the page that leaves (forward)
     const QPixmap& b = m_turnDir > 0 ? m_toPix : m_fromPix;   // the page that arrives (forward)
-    const double s = m_turnDir > 0 ? t : 1.0 - t;
+    double s = m_turnDir > 0 ? t : 1.0 - t;
+    // Overshoot, Wind-Up and Springy go past the ends (s below 0 or above 1): the sliding styles show that, the
+    // others stay within the turn.
+    static const QStringList pastTheEnds{QStringLiteral("slide"), QStringLiteral("cover"), QStringLiteral("uncover"), QStringLiteral("card")};
+    if (!pastTheEnds.contains(m_turnStyle)) s = qBound(0.0, s, 1.0);
     const qreal w = width(), h = height();
     p.setRenderHint(QPainter::SmoothPixmapTransform);
     auto shadow = [&](qreal x, qreal width, bool toRight, qreal strength) {

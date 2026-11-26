@@ -343,8 +343,7 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
         m_pages->setPageTurn(style, ms, motion);
         emit appearanceChanged();
     });
-    m_panel->setTurnArrows(m_settings.pageTurnArrows);
-    m_pages->setTurnArrows(m_settings.pageTurnArrows);
+    applyPageTurnSettings();
     connect(m_panel, &AppearancePanel::turnArrowsChanged, this, [this](bool on) {
         m_settings.pageTurnArrows = on;
         m_pages->setTurnArrows(on);
@@ -1923,6 +1922,15 @@ QMessageBox* ReaderView::bookmarkQuestion(int earlier, const QString& where)
     box->setDefaultButton(removeLast);
     box->setEscapeButton(keep);
     return box;
+}
+
+void ReaderView::applyPageTurnSettings()
+{
+    // From the settings (Settings > General > Page Turns, or Cancel there): the page and the Text and Layout panel.
+    m_panel->setPageTurn(m_settings.pageTurn, m_settings.pageTurnMs, m_settings.pageTurnMotion);
+    m_pages->setPageTurn(m_settings.pageTurn, m_settings.pageTurnMs, m_settings.pageTurnMotion);
+    m_panel->setTurnArrows(m_settings.pageTurnArrows);
+    m_pages->setTurnArrows(m_settings.pageTurnArrows);
 }
 
 void ReaderView::offerToRemoveEarlierBookmarks(int newId)

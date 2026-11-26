@@ -9,7 +9,9 @@
 #include "core/layout/PageRenderer.h"
 #include "core/position/Position.h"
 
+#include <QEasingCurve>
 #include <QElapsedTimer>
+#include <QStringList>
 #include <QPixmap>
 #include <QTimer>
 #include <QWidget>
@@ -91,6 +93,8 @@ public:
     // Page turn animation (Settings > the Text and Layout panel): style none / slide / cover / fade / curl, how long
     // a turn takes, and how it moves (smooth / even / gentle).
     void setPageTurn(const QString& style, int ms, const QString& motion);
+    static QEasingCurve::Type easingFor(const QString& motion);   // a Motion key: its curve
+    static QStringList motions();                                  // every Motion key, in the menu's order
     // Faint arrows at the sides, always (a click there turns the page); off: only when pointed at.
     void setTurnArrows(bool on)
     {

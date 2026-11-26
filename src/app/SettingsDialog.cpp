@@ -33,6 +33,7 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QGridLayout>
+#include "AppearancePanel.h"
 #include <QMap>
 #include <QSignalBlocker>
 #include <QSlider>
@@ -145,6 +146,21 @@ void SettingsDialog::begin()
 {
     m_before = std::make_shared<Settings>(m_settings);
     m_message->hide();
+    fillPageTurns();   // changed in the Text and Layout panel meanwhile, perhaps
+}
+
+void SettingsDialog::fillPageTurns()
+{
+    if (!m_turnStyle) return;
+    const QSignalBlocker b1(m_turnStyle), b2(m_turnSpeed), b3(m_turnMotion), b4(m_turnArrows);
+    m_turnStyle->setCurrentIndex(qMax(0, m_turnStyle->findData(m_settings.pageTurn)));
+    m_turnSpeed->setValue(m_settings.pageTurnMs);
+    m_turnMotion->setCurrentIndex(qMax(0, m_turnMotion->findData(m_settings.pageTurnMotion)));
+    m_turnArrows->setChecked(m_settings.pageTurnArrows);
+    const bool on = m_settings.pageTurn != QLatin1String("none");
+    m_turnSpeed->setEnabled(on);
+    m_turnMotion->setEnabled(on);
+    m_turnSpeedValue->setText(QStringLiteral("%1 s").arg(QLocale().toString(m_settings.pageTurnMs / 1000.0, 'f', 2)));
 }
 
 void SettingsDialog::reject()
@@ -165,6 +181,11 @@ void SettingsDialog::reject()
         s.shortcuts = b.shortcuts;
         s.mouseShortcuts = b.mouseShortcuts;
         s.libraryFolders = b.libraryFolders;
+        s.pageTurn = b.pageTurn;
+        s.pageTurnMs = b.pageTurnMs;
+        s.pageTurnMotion = b.pageTurnMotion;
+        s.pageTurnArrows = b.pageTurnArrows;
+        fillPageTurns();
         const bool audio = s.speechRatePct != b.speechRatePct || s.speechVolumePct != b.speechVolumePct || s.speechVoices != b.speechVoices;
         s.speechRatePct = b.speechRatePct;
         s.speechVolumePct = b.speechVolumePct;
@@ -1337,8 +1358,9 @@ QWidget* SettingsDialog::buildGeneralTab()
     connect(change, &QPushButton::clicked, this, &SettingsDialog::changeDataFolderRequested);
 
     lay->addWidget(sectionTitle(tr("LIBRARY FOLDERS")));
-    lay->addWidget(muted(tr("Each time FreeReader starts, the books put in these folders (or their subfolders) since are "
-                            "added to the library. A book already in the library isn't added twice.")));
+    // In plain words (the owner's request, 2026-11-26: the wording before read awkwardly).
+    lay->addWidget(muted(tr("FreeReader checks these folders, and the folders inside them, every time it starts, and adds "
+                            "any new books it finds. Books already in the library are skipped.")));
     // The list in a frame, its buttons beside it (not floating below).
     auto* foldersRow = new QHBoxLayout;
     foldersRow->setSpacing(10);
@@ -1351,7 +1373,7 @@ QWidget* SettingsDialog::buildGeneralTab()
     auto* folderButtons = new QVBoxLayout;
     folderButtons->setSpacing(6);
     auto* addFolder = new QPushButton(tr("Add Folder…"));
-    addFolder->setToolTip(tr("A folder of books: its books are added now and its new books at every start."));
+    addFolder->setToolTip(tr("Choose a folder of books. Its books are added now, and new ones each time FreeReader starts."));
     addFolder->setProperty("testId", "addLibraryFolder");
     m_removeFolder = new QPushButton(tr("Remove Folder"));
     m_removeFolder->setToolTip(tr("FreeReader stops checking this folder. Its books stay in the library."));
@@ -1381,6 +1403,54 @@ QWidget* SettingsDialog::buildGeneralTab()
     resetLook->setProperty("testId", "resetLook");
     lookRow->addWidget(resetLook, 0, Qt::AlignTop);
     lay->addLayout(lookRow);
+
+    // Page turns here too, not only in the Text and Layout panel (the owner's request, 2026-11-26: "I would expect
+    // the animation settings to be in the settings"). The same settings: a change shows at once in both.
+    lay->addWidget(sectionTitle(tr("PAGE TURNS")));
+    auto* turns = new QGridLayout;
+    turns->setHorizontalSpacing(10);
+    turns->setVerticalSpacing(8);
+    turns->setColumnStretch(3, 1);
+    m_turnStyle = new QComboBox;
+    m_turnStyle->setProperty("testId", "settingsPageTurn");
+    AppearancePanel::addPageTurnStyles(m_turnStyle);
+    turns->addWidget(new QLabel(tr("Animation")), 0, 0);
+    turns->addWidget(m_turnStyle, 0, 1, 1, 2, Qt::AlignLeft);
+    m_turnSpeed = new QSlider(Qt::Horizontal);
+    m_turnSpeed->setRange(100, 1000);
+    m_turnSpeed->setSingleStep(50);
+    m_turnSpeed->setPageStep(100);
+    m_turnSpeed->setFixedWidth(page->fontMetrics().averageCharWidth() * 30);
+    m_turnSpeed->setProperty("testId", "settingsPageTurnMs");
+    m_turnSpeed->setToolTip(tr("How long one page turn takes."));
+    m_turnSpeedValue = new QLabel;
+    m_turnSpeedValue->setProperty("testId", "settingsPageTurnMsValue");
+    turns->addWidget(new QLabel(tr("Duration")), 1, 0);
+    turns->addWidget(m_turnSpeed, 1, 1);
+    turns->addWidget(m_turnSpeedValue, 1, 2);
+    m_turnMotion = new QComboBox;
+    m_turnMotion->setProperty("testId", "settingsPageTurnMotion");
+    AppearancePanel::addPageTurnMotions(m_turnMotion);
+    turns->addWidget(new QLabel(tr("Motion")), 2, 0);
+    turns->addWidget(m_turnMotion, 2, 1, 1, 2, Qt::AlignLeft);
+    m_turnArrows = new QCheckBox(tr("Arrows at the Sides"));
+    m_turnArrows->setProperty("testId", "settingsPageTurnArrows");
+    m_turnArrows->setToolTip(tr("A faint arrow at each side of the page, where a click turns it."));
+    turns->addWidget(m_turnArrows, 3, 1, 1, 2);
+    lay->addLayout(turns);
+    auto sendTurns = [this] {
+        m_settings.pageTurn = m_turnStyle->currentData().toString();
+        m_settings.pageTurnMs = qRound(m_turnSpeed->value() / 50.0) * 50;
+        m_settings.pageTurnMotion = m_turnMotion->currentData().toString();
+        m_settings.pageTurnArrows = m_turnArrows->isChecked();
+        fillPageTurns();   // the duration's label, and what an animation of None greys out
+        emit pageTurnChanged();
+    };
+    connect(m_turnStyle, &QComboBox::activated, this, sendTurns);
+    connect(m_turnMotion, &QComboBox::activated, this, sendTurns);
+    connect(m_turnSpeed, &QSlider::valueChanged, this, sendTurns);
+    connect(m_turnArrows, &QCheckBox::toggled, this, sendTurns);
+    fillPageTurns();   // as the settings are now (Duration and Motion greyed out with no animation)
     lay->addStretch(1);
     connect(resetLook, &QPushButton::clicked, this, [this] {
         m_lookReset = true;
@@ -1843,7 +1913,7 @@ void SettingsDialog::fillLibraryFolders()
         if (!QFileInfo(f).isDir()) it->setText(it->text() + tr("  (not found now)"));
     }
     if (m_settings.libraryFolders.isEmpty()) {
-        auto* it = new QListWidgetItem(tr("No folders yet: Add Folder… picks one."), m_libraryFolders);
+        auto* it = new QListWidgetItem(tr("No folders added yet. Click Add Folder… to choose one."), m_libraryFolders);
         it->setFlags(Qt::NoItemFlags);
     }
     if (m_removeFolder) m_removeFolder->setEnabled(false);

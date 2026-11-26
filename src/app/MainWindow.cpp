@@ -873,6 +873,11 @@ void MainWindow::ensureSettingsDialog()
             applyTranslationSettings();
             applyShortcuts();
             if (isReading()) m_reader->applyReadingOptions();
+            m_reader->applyPageTurnSettings();
+            saveSettingsSoon();
+        });
+        connect(m_settingsDialog, &SettingsDialog::pageTurnChanged, this, [this] {
+            m_reader->applyPageTurnSettings();   // the page and the Text and Layout panel
             saveSettingsSoon();
         });
         connect(m_settingsDialog, &SettingsDialog::languageChanged, this, &MainWindow::saveSettingsSoon);

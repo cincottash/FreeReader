@@ -245,9 +245,10 @@ hyphenation. **Apply To** decides which books a change is for: all books, all bo
 this one. Over the page, Ctrl+wheel changes the text size and Ctrl+Shift+wheel the margins; Ctrl+[ and Ctrl+] narrow
 and widen the margins too.
 
-**Page Turns** in the same panel animates turning the page: Slide, Cover, Uncover, Fade, Page Curl, Hardcover Flip
-or Card Flip (or None), with its duration and how it moves. A click at the middle of either side turns the page; faint
-**Arrows at the Sides** show where (they can be turned off there).
+**Page Turns** in the same panel (and in **Settings ▸ General**) animates turning the page: Slide, Cover, Uncover,
+Fade, Page Curl, Hardcover Flip or Card Flip (or None), with its duration and one of 14 motions (Smooth, Even,
+Gentle, Bounce, Springy, Overshoot and more). A click at the middle of either side turns the page; faint **Arrows at
+the Sides** show where (they can be turned off there).
 
 ## Themes
 
