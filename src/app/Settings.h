@@ -72,6 +72,8 @@ struct Settings {
     bool practiceHighlights = true;   // highlighted words (up to 4) join the word log, without a lookup
     int practiceNewPerDay = 20;       // no longer offered (every card is practised); kept so old files still read
     QString practiceOrder = QStringLiteral("random");   // random, alphabetical, newest, oldest, book
+    // The Word List's order: recent, newest, oldest, az, za, meaning, book, lookups, starred, review.
+    QString wordListSort = QStringLiteral("recent");
 
     // Files
     QString lastFolder;

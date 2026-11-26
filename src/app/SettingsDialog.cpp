@@ -276,7 +276,8 @@ QWidget* SettingsDialog::buildTranslationTab()
     lay->addWidget(m_geminiResult);
 
     lay->addWidget(sectionTitle(tr("LM STUDIO (ON THIS COMPUTER)")));
-    lay->addWidget(muted(tr("Asked when Gemini can't answer (offline, or today's free lookups are used up). LM Studio's server "
+    lay->addWidget(muted(tr("Asked when Gemini can't answer (offline, today's free lookups are used up, or no answer to a word or "
+                            "passage within 2.5 seconds). LM Studio's server "
                             "must be running. With a model chosen, LM Studio loads it the first time it's needed (that "
                             "takes a moment, and uses the graphics card's memory until LM Studio unloads it).")));
     m_useLm = new QCheckBox(tr("Use LM Studio"));

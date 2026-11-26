@@ -101,7 +101,8 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 - Answers come from one engine at a time, always in this order: **Google's Gemini** (free tier, no card needed),
   then **LM Studio** on your own computer (optional), then what your **Word List** already says, then the **offline
   dictionaries** and the **offline translator**. The next one is asked only when the one before can't answer or is
-  switched off (**Settings ▸ Translation**). Every Gemini and LM Studio answer is kept, so looking up the same words
+  switched off (**Settings ▸ Translation**), or when Gemini takes longer than 2.5 seconds over a word or passage: its
+  late answer doesn't replace the one showing, and is kept for next time. Every Gemini and LM Studio answer is kept, so looking up the same words
   again costs nothing and works offline; a kept answer follows the same order (Gemini's is used while Gemini is on).
 - **Set it up once:** get a free key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey), then
   paste it in **Settings ▸ Translation ▸ All Translation Options…**. The key is kept in Windows Credential Manager
@@ -169,7 +170,9 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 - **Word List:** every word with its meaning, book and page, in pages as long as the list has room for, numbered
   below it (‹ 1 2 3 … ›; the mouse wheel turns them too). Search, double-click a meaning to change it, and
   **Export…** a file Anki can import. Double-click a word to see it in the book; right-click it for everything
-  else: Go to Word, Change Meaning, Copy, Star, Start Over and Delete.
+  else: Go to Word, Change Meaning, Copy, Star, Start Over and Delete. **Sort** them by when you looked them up or
+  added them, A to Z or Z to A, meaning, book order, how often you looked them up, starred first or next review (or
+  click a column's heading).
 
 <details>
 <summary>Practice in the whole window</summary>

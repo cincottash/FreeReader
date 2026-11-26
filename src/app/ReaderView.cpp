@@ -1376,6 +1376,11 @@ QMenu* ReaderView::buildSelectionMenu()
     QAction* dict = menu->addAction(tr("Dictionary"), this, [this] { showDictionary(); });
     dict->setProperty("testId", "menuDictionary");
     dict->setEnabled(words >= 1 && words <= 4);
+    // Greyed out: why, on hover (the owner's request, 2026-11-26).
+    if (!dict->isEnabled())
+        dict->setToolTip(tr("The dictionary looks up 1 to 4 words: %1 are selected. Translate gives the meaning of a longer passage.")
+                             .arg(QLocale().toString(words)));
+    menu->setToolTipsVisible(true);
     // Text to speech: the selection read in the book's language (the owner's request, 2026-11-23).
     QAction* aloud = menu->addAction(tr("Read Aloud"), this, [this] { readSelectionAloud(); });
     aloud->setProperty("testId", "menuReadAloud");

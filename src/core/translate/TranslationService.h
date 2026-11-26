@@ -1,6 +1,7 @@
 // Every translation goes through here: the cache first, then the providers in order (Gemini, LM Studio, the
 // offline ones), moving on when one can't answer. A provider whose free allowance is used up is skipped until
-// the allowance renews; one that is rate-limited, for a minute.
+// the allowance renews; one that is rate-limited, for a minute. A lookup that an online provider takes too long
+// for goes on to the next provider (see setOnlineWait).
 #pragma once
 
 #include "Translation.h"
@@ -10,6 +11,7 @@
 #include <QObject>
 #include <QPointer>
 
+#include <memory>
 #include <vector>
 
 namespace core {
@@ -29,6 +31,13 @@ public:
     // Offline only: no provider that sends text over the internet is asked (cached answers still show).
     void setOfflineOnly(bool on) { m_offlineOnly = on; }
     bool offlineOnly() const { return m_offlineOnly; }
+    // How long a lookup (a word or passage in the pop-up) waits for an online provider (Gemini) before the next
+    // provider answers instead (LM Studio, else the offline ones); 0: no limit. The late answer is kept for next
+    // time but never replaces the one showing (the owner's request, 2026-11-26: Gemini sometimes takes 3 to 5
+    // seconds). Explain and the bilingual view's paragraphs always wait: nothing offline answers them as well.
+    void setOnlineWait(int ms) { m_onlineWaitMs = ms; }
+    int onlineWait() const { return m_onlineWaitMs; }
+    static constexpr int kDefaultOnlineWaitMs = 2500;
 
     // Starts a lookup; `finished` reports it with the returned id. A newer lookup doesn't cancel older ones.
     int translate(const TranslationRequest& request);
@@ -49,8 +58,18 @@ signals:
     void finished(int id, const core::TranslationResult& result, const QString& why);
 
 private:
-    void next(int id, const TranslationRequest& request, size_t from, QStringList why);
+    // One lookup on its way: whether it was answered, and the online providers it stopped waiting for (still
+    // working). When every provider after them failed too, the first late answer is shown after all.
+    struct Lookup {
+        bool done = false;
+        int late = 0;
+        bool exhausted = false;   // nothing after the late ones answered
+        QString exhaustedWhy;
+    };
+    void next(int id, const TranslationRequest& request, size_t from, QStringList why, std::shared_ptr<Lookup> state);
     void finish(const TranslationRequest& request, const TranslationResult& r, const QString& why);
+    void recordFailure(const QString& name, TranslationFailure f);
+    int m_onlineWaitMs = kDefaultOnlineWaitMs;
 
     Library* m_cache = nullptr;
     std::vector<OfflineDictionary*> m_instant;

@@ -79,6 +79,10 @@ public:
     // The Word List's pages (as many words a page as it has room for): 0-based; out of range is clamped.
     void showListPage(int page);
     int listPage() const { return m_listPage; }
+    // The Word List's order (Settings::wordListSort keys: recent, newest, oldest, az, za, meaning, book, lookups,
+    // starred, review); kept in the settings.
+    void setListSort(const QString& key);
+    QString listSort() const;
     int listPageCount() const { return m_listPages; }
     // A word's right-click menu in the Word List (Go to Word, Change Meaning); the caller owns it (tests).
     class QMenu* wordMenuForRow(int row);
@@ -133,6 +137,8 @@ private:
     void deleteSelected();
     int listRowsPerPage() const;
     void buildListRows(int first, int count);   // the rows of the page showing (only those are made)
+    void sortListEntries();                       // m_listEntries in the order chosen
+    QComboBox* m_listSort = nullptr;
     void updatePageNumbers();
     class QToolButton* m_prevPage = nullptr;
     class QToolButton* m_nextPage = nullptr;

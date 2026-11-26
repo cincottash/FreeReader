@@ -807,7 +807,43 @@ QWidget* PracticeView::buildList()
     m_list->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_list->viewport()->installEventFilter(this);
     m_listCount = wrapLabel("wordListCount", "Muted");
-    lay->addWidget(m_listCount);
+    // The order of the words (the owner's request, 2026-11-26: "various ways for me to sort the words"), also by
+    // clicking a column's heading. Kept in the settings.
+    m_listSort = new QComboBox;
+    m_listSort->setProperty("testId", "wordListSort");
+    m_listSort->setToolTip(tr("The order of the words (also: click a column's heading)"));
+    for (const auto& [key, label] : std::initializer_list<std::pair<const char*, QString>>{
+             {"recent", tr("Recently Looked Up")}, {"newest", tr("Newest First")}, {"oldest", tr("Oldest First")},
+             {"az", tr("A to Z")}, {"za", tr("Z to A")}, {"meaning", tr("Meaning A to Z")}, {"book", tr("Book Order")},
+             {"lookups", tr("Most Looked Up")}, {"starred", tr("Starred First")}, {"review", tr("Next Review")}})
+        m_listSort->addItem(label, QString::fromLatin1(key));
+    m_listSort->setCurrentIndex(qMax(0, m_listSort->findData(m_settings.wordListSort)));
+    auto* countLine = new QHBoxLayout;
+    countLine->setSpacing(8);
+    countLine->addWidget(m_listCount, 1);
+    auto* sortLabel = new QLabel(tr("Sort"));
+    sortLabel->setObjectName(QStringLiteral("Muted"));
+    countLine->addWidget(sortLabel);
+    countLine->addWidget(m_listSort);
+    lay->addLayout(countLine);
+    connect(m_listSort, &QComboBox::currentIndexChanged, this, [this] { setListSort(m_listSort->currentData().toString()); });
+    // A heading: its order; the same heading again, the other way round (Word: A to Z, Z to A).
+    m_list->header()->setSectionsClickable(true);
+    m_list->header()->setSortIndicatorShown(true);
+    connect(m_list->header(), &QHeaderView::sectionClicked, this, [this](int column) {
+        const QString now = m_settings.wordListSort;
+        QString key;
+        switch (column) {
+        case 0: key = now == QLatin1String("az") ? QStringLiteral("za") : QStringLiteral("az"); break;
+        case 1: key = QStringLiteral("meaning"); break;
+        case 2:
+        case 3: key = QStringLiteral("book"); break;
+        case 4: key = QStringLiteral("lookups"); break;
+        case 5: key = QStringLiteral("review"); break;
+        default: return;
+        }
+        setListSort(key);
+    });
     // The pages' numbers under the list, as a search engine lists its result pages (the owner's request,
     // 2026-11-25): ‹ 1 2 3 … ›, the page showing in the text's color.
     auto* countRow = new QHBoxLayout;
@@ -964,6 +1000,7 @@ QMenu* PracticeView::wordMenu(QTreeWidgetItem* it)
     };
     QAction* go = add(w.pageLabel.isEmpty() ? tr("Go to Word") : tr("Go to Word (Page %1)").arg(w.pageLabel), "wordGoTo");
     go->setEnabled(w.bookId != 0);
+    if (!go->isEnabled()) go->setToolTip(tr("This word wasn't looked up in a book of the library (or its book was removed)."));
     QAction* change = add(tr("Change Meaning"), "wordChangeMeaning");
     QAction* copy = add(tr("Copy"), "wordCopy");
     menu->addSeparator();
@@ -1056,6 +1093,7 @@ void PracticeView::fillList()
         }
         m_listEntries << w;
     }
+    sortListEntries();
     const int shown = int(m_listEntries.size());
     m_listCount->setText(shown == int(all.size()) ? count(shown, tr("word"), tr("words"))
                                                    : tr("%1 of %2").arg(QLocale().toString(shown), count(int(all.size()), tr("word"), tr("words"))));
@@ -1063,6 +1101,81 @@ void PracticeView::fillList()
         m_listCount->setText(tr("No words on this page yet. Translate or highlight one and it shows here."));
     m_listDirty = true;
     showListPage(m_listPage);
+}
+
+void PracticeView::setListSort(const QString& key)
+{
+    if (m_listSort->findData(key) < 0) return;
+    {
+        const QSignalBlocker b(m_listSort);
+        m_listSort->setCurrentIndex(m_listSort->findData(key));
+    }
+    if (m_settings.wordListSort != key) {
+        m_settings.wordListSort = key;
+        emit settingsChanged();
+    }
+    m_listPage = 0;   // another order: from its first page
+    fillList();
+}
+
+QString PracticeView::listSort() const { return m_settings.wordListSort; }
+
+void PracticeView::sortListEntries()
+{
+    // This Page: always the order on the page (the words are few, and read in that order).
+    const bool thisPage = m_listBook->currentData().toInt() == kThisPage;
+    const QString key = thisPage ? QStringLiteral("book") : m_settings.wordListSort;
+    {
+        // The other Practice (the full window's or the panel's) may have changed it.
+        const QSignalBlocker b(m_listSort);
+        m_listSort->setCurrentIndex(qMax(0, m_listSort->findData(m_settings.wordListSort)));
+    }
+    m_listSort->setEnabled(!thisPage);
+    m_listSort->setToolTip(thisPage ? tr("This Page lists its words in the order they are on the page.")
+                                    : tr("The order of the words (also: click a column's heading)"));
+    // The heading's arrow on the column the order goes by (none for the orders no column shows).
+    static const QHash<QString, QPair<int, Qt::SortOrder>> columns{
+        {QStringLiteral("az"), {0, Qt::AscendingOrder}},   {QStringLiteral("za"), {0, Qt::DescendingOrder}},
+        {QStringLiteral("meaning"), {1, Qt::AscendingOrder}}, {QStringLiteral("book"), {3, Qt::AscendingOrder}},
+        {QStringLiteral("lookups"), {4, Qt::DescendingOrder}}, {QStringLiteral("review"), {5, Qt::AscendingOrder}}};
+    const auto col = columns.value(key, {-1, Qt::AscendingOrder});
+    m_list->header()->setSortIndicator(col.first, col.second);
+    if (key == QLatin1String("recent")) return;   // as the word log gives them
+    auto folded = [](const QString& s) { return core::practice::foldAccents(s.toLower()); };
+    auto alpha = [&](const QString& a, const QString& b) { return QString::localeAwareCompare(folded(a), folded(b)); };
+    auto& v = m_listEntries;
+    using W = core::WordEntry;
+    if (key == QLatin1String("newest"))
+        std::stable_sort(v.begin(), v.end(), [](const W& a, const W& b) { return a.added > b.added; });
+    else if (key == QLatin1String("oldest"))
+        std::stable_sort(v.begin(), v.end(), [](const W& a, const W& b) { return a.added < b.added; });
+    else if (key == QLatin1String("az") || key == QLatin1String("za")) {
+        const bool up = key == QLatin1String("az");
+        std::stable_sort(v.begin(), v.end(), [&](const W& a, const W& b) {
+            const int c = alpha(a.headword(), b.headword());
+            return up ? c < 0 : c > 0;
+        });
+    } else if (key == QLatin1String("meaning"))
+        std::stable_sort(v.begin(), v.end(), [&](const W& a, const W& b) { return alpha(a.translation, b.translation) < 0; });
+    else if (key == QLatin1String("book"))
+        std::stable_sort(v.begin(), v.end(), [&](const W& a, const W& b) {
+            if (a.bookTitle != b.bookTitle) return alpha(a.bookTitle, b.bookTitle) < 0;
+            if (a.spine != b.spine) return a.spine < b.spine;
+            return a.start < b.start;
+        });
+    else if (key == QLatin1String("lookups"))
+        std::stable_sort(v.begin(), v.end(), [](const W& a, const W& b) { return a.lookups > b.lookups; });
+    else if (key == QLatin1String("starred"))
+        std::stable_sort(v.begin(), v.end(), [](const W& a, const W& b) { return a.starred && !b.starred; });
+    else if (key == QLatin1String("review")) {
+        // The soonest review first; words not practised yet (New) after them.
+        const QHash<int, QDateTime> due = m_log->nextReviews();
+        std::stable_sort(v.begin(), v.end(), [&](const W& a, const W& b) {
+            const QDateTime da = due.value(a.id), db = due.value(b.id);
+            if (da.isValid() != db.isValid()) return da.isValid();
+            return da.isValid() && da < db;
+        });
+    }
 }
 
 void PracticeView::buildListRows(int first, int count)

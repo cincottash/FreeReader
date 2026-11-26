@@ -276,6 +276,10 @@ bool MainWindow::eventFilter(QObject* o, QEvent* e)
         QTimer::singleShot(0, this, &MainWindow::placeHelp);
         return false;
     }
+    // Every menu shows its items' tooltips (Qt's menus hide them unless asked): above all why an item is greyed out
+    // (the owner's request, 2026-11-26).
+    if (e->type() == QEvent::Polish)
+        if (auto* m = qobject_cast<QMenu*>(o)) m->setToolTipsVisible(true);
     // A mouse button set as a shortcut (Settings > Keyboard Shortcuts > Mouse), pressed anywhere in this window.
     if (e->type() != QEvent::MouseButtonPress && e->type() != QEvent::MouseButtonDblClick) return false;
     auto* w = qobject_cast<QWidget*>(o);
@@ -458,7 +462,7 @@ void MainWindow::buildCommands()
            tr("Off: selecting only selects. Right-click > Translate, or Ctrl+E."));
     toggle("use-gemini", tr("Use Gemini (Online)"), &Settings::useGemini,
            tr("Google's Gemini, asked first. The only engine that sends text over the internet: off, nothing is sent."));
-    toggle("use-lm-studio", tr("Use LM Studio (This Computer)"), &Settings::useLmStudio, tr("Asked when Gemini can't answer."));
+    toggle("use-lm-studio", tr("Use LM Studio (This Computer)"), &Settings::useLmStudio, tr("Asked when Gemini can't answer, or takes longer than 2.5 seconds."));
     toggle("use-dictionary", tr("Use the Offline Dictionary"), &Settings::useDictionary, tr("Single words, when nothing before it in the list answers."));
     toggle("use-offline-translator", tr("Use the Offline Translator"), &Settings::useOfflineTranslator,
            tr("Sentences and pages with no internet, when Gemini and LM Studio can't answer (a download in Settings)."));
@@ -472,6 +476,18 @@ void MainWindow::buildCommands()
     qApp->installEventFilter(this);   // mouse-button shortcuts
 }
 
+QString MainWindow::whyUnavailable(const QString& id) const
+{
+    if (id == QLatin1String("new-collection") || id == QLatin1String("library-grid") || id == QLatin1String("library-list"))
+        return tr("Only in the library.");
+    if (!isReading()) return tr("Open a book first.");
+    if (id == QLatin1String("back")) return tr("Nowhere to go back to yet: Back returns to where you were before a jump (a link, a search result, Go to Page).");
+    if (id == QLatin1String("copy") || id == QLatin1String("translate") || id == QLatin1String("explain"))
+        return tr("Select some text in the book first.");
+    if (id == QLatin1String("book-offline")) return tr("Gemini is off (Settings > Translation): no book's text is sent online.");
+    return {};
+}
+
 void MainWindow::buildMenus()
 {
     QMenuBar* bar = menuBar();
@@ -481,13 +497,21 @@ void MainWindow::buildMenus()
     };
     // A command that can't run now is greyed out while its menu is open; its shortcut keeps working the rest of the
     // time (the command checks again when it runs).
+    // Hovering a greyed-out command says why it can't run now (the owner's request, 2026-11-26).
     auto watch = [this](QMenu* m) {
         connect(m, &QMenu::aboutToShow, this, [this] {
-            for (auto& c : m_commands) c->action->setEnabled(c->isEnabled());
+            for (auto& c : m_commands) {
+                const bool on = c->isEnabled();
+                c->action->setEnabled(on);
+                c->action->setToolTip(on ? QString() : whyUnavailable(c->id));
+            }
             syncChecks();
         });
         connect(m, &QMenu::aboutToHide, this, [this] {
-            for (auto& c : m_commands) c->action->setEnabled(true);
+            for (auto& c : m_commands) {
+                c->action->setEnabled(true);
+                c->action->setToolTip(QString());
+            }
         });
     };
 
