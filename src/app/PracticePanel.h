@@ -27,7 +27,7 @@ public:
 signals:
     void closeRequested();
     void fullWindowRequested();   // its Maximize / Restore button
-    void widthDragging(int width);  // during the drag: the width asked for (the panel follows, the page holds its layout)
+    void widthDragging(int width);  // during the drag: the width asked for (the panel and the book's text follow)
     void widthDragged(int width);   // on release: the width asked for (the reader keeps it within bounds)
 
 protected:

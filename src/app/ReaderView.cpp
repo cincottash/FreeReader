@@ -246,9 +246,9 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     m_practicePanel->setFixedWidth(qBound(360, m_settings.practiceWidth, 1600));
     // Its left edge is dragged to make it wider or narrower (the owner's request, 2026-11-25): at least 360 px, and
     // the page keeps at least 360 px beside it (and the contents or search panel, when open).
-    // While dragging, the panel follows the mouse and the page keeps its layout, centered in the space left; the
-    // book's text is laid out again once, on release (at every pause of the drag it jumped about, and a guide line
-    // with the panel changing only on release didn't look like resizing: the owner's reports, 2026-11-25).
+    // While dragging, the panel follows the mouse and so does the book's text, one layout at a time (PageView::
+    // setHoldLayout); a guide line with the panel changing only on release didn't look like resizing, and text kept
+    // as it was stopped following once the page was narrower than its column (the owner's reports, 2026-11-25/26).
     auto clampWidth = [this](int wanted) {
         const int left = m_toc->isVisible() || m_search->isVisible() ? 320 : 0;
         const int least = m_practicePanel->narrowest();

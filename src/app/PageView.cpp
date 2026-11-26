@@ -237,7 +237,9 @@ void PageView::resizeEvent(QResizeEvent*)
 {
     emit resized();   // pop-ups placed next to text would point at the wrong place
     if (m_hold && m_engine->isOpen()) {
-        update();   // the same pages, centered in the new width (paintScreen)
+        // Laid out for this width now, or when the layout being made is ready (then for the width at that time).
+        if (!m_liveBusy) startLiveLayout();
+        update();   // meanwhile the last layout, in its own columns, centered (paintScreen)
         return;
     }
     if (m_geo.columnWidth <= 0 || !m_engine->isOpen()) {
@@ -290,10 +292,18 @@ void PageView::onLayoutReady(int spine)
         m_anchor.offset = cl->pages[size_t(last - last % c)].start;
         emit positionChanged(m_anchor, true);
     }
+    update();
+    if (m_hold) {
+        // Dragging a panel's edge: the next layout, for the width now (no neighbours: they'd be out of date at
+        // once).
+        m_liveBusy = false;
+        if (size().width() != m_geo.width) startLiveLayout();
+        emit readyChanged();
+        return;
+    }
     // Neighbours, so turning into them is instant.
     m_engine->request(spine + 1);
     m_engine->request(spine - 1);
-    update();
     emit readyChanged();
 }
 
@@ -339,16 +349,22 @@ void PageView::flushResize()
 
 void PageView::setHoldLayout(bool on)
 {
-    // Dragging the Practice panel's edge: the panel follows the mouse, and the book's text, which takes a moment to
-    // lay out, is laid out once on release. Laid out at every pause of the drag, the old pages were drawn at the
-    // new positions meanwhile and the text jumped about (the owner's reports, 2026-11-25).
+    // Dragging the Practice panel's edge: the panel follows the mouse, and so does the book's text, one layout at a
+    // time. Laid out at every pause of the drag (after the resize's pause), the old pages were drawn at the new
+    // positions meanwhile and the text jumped about; kept as it was until release, the text stopped following once
+    // the page was narrower than its column (the owner's reports, 2026-11-25 and 2026-11-26).
     if (m_hold == on) return;
     m_hold = on;
-    if (on) {
-        m_resizeTimer.stop();
-        return;
-    }
-    applyParams();   // nothing is laid out again when the size came back to where it was
+    m_resizeTimer.stop();
+    if (on) return;
+    m_liveBusy = false;
+    applyParams();   // the final width (nothing is laid out again when it is the one laid out last)
+}
+
+void PageView::startLiveLayout()
+{
+    applyParams();
+    m_liveBusy = current() == nullptr;   // the same parameters as before: nothing to wait for
 }
 
 bool PageView::nextScreen()

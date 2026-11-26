@@ -12,8 +12,8 @@
 #include <functional>
 
 // The panel's left edge: dragged left, the panel grows; right, it shrinks (the owner's request, 2026-11-25). While
-// it is dragged (`moving`) the panel follows the mouse and the book's page keeps its layout; on release (`done`)
-// the page is laid out once for its new width (laid out at every step it jumped about, 2026-11-25).
+// it is dragged (`moving`) the panel follows the mouse and the book's text is laid out again as it goes, one layout
+// at a time; on release (`done`) the width is kept.
 class PanelGrip : public QWidget {
 public:
     PanelGrip(QWidget* panel, std::function<void(int)> moving, std::function<void(int)> done)
