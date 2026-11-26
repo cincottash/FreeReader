@@ -197,6 +197,11 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     m_themeDots->layout()->setSpacing(0);
     h->addWidget(m_themeDots);
     h->addWidget(m_bookmarkButton);
+    // The bookmark added last, in any book (the owner's request, 2026-11-25): beside Bookmark This Page.
+    m_latestBookmarkButton = iconButton("bookmarkGo", tr("Go to Latest Bookmark (Ctrl+Shift+D)"), m_theme);
+    m_latestBookmarkButton->setProperty("testId", "latestBookmarkButton");
+    h->addWidget(m_latestBookmarkButton);
+    connect(m_latestBookmarkButton, &QToolButton::clicked, this, &ReaderView::latestBookmarkRequested);
     h->addWidget(m_notebookButton);
     // Practice: a button with its name, easy to find (the owner's request, 2026-11-23).
     m_practiceButton = new QToolButton;
@@ -238,7 +243,34 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     m_bilingual->hide();
     body->addWidget(m_bilingual);
     m_practicePanel = new PracticePanel;
-    m_practicePanel->setFixedWidth(480);
+    m_practicePanel->setFixedWidth(qBound(360, m_settings.practiceWidth, 1600));
+    // Its left edge is dragged to make it wider or narrower (the owner's request, 2026-11-25): at least 360 px, and
+    // the page keeps at least 360 px beside it (and the contents or search panel, when open).
+    // While dragging, the panel follows the mouse and so does the book's text, one layout at a time (PageView::
+    // setHoldLayout); a guide line with the panel changing only on release didn't look like resizing, and text kept
+    // as it was stopped following once the page was narrower than its column (the owner's reports, 2026-11-25/26).
+    auto clampWidth = [this](int wanted) {
+        const int left = m_toc->isVisible() || m_search->isVisible() ? 320 : 0;
+        const int least = m_practicePanel->narrowest();
+        return qBound(least, wanted, qMax(least, width() - left - 360));
+    };
+    connect(m_practicePanel, &PracticePanel::widthDragging, this, [this, clampWidth](int wanted) {
+        m_pages->setHoldLayout(true);
+        m_practicePanel->setFixedWidth(clampWidth(wanted));
+        // Placed now, not when the layout's posted request comes: on Windows that waits while the mouse keeps
+        // moving, and a panel made wider only grew past the window's right edge until the button was released
+        // (narrower, it visibly shrank in place, so that way looked live: the owner's report, 2026-11-26).
+        if (layout()) layout()->activate();
+    });
+    connect(m_practicePanel, &PracticePanel::widthDragged, this, [this, clampWidth](int wanted) {
+        const int w = clampWidth(wanted);
+        m_practicePanel->setFixedWidth(w);
+        if (layout()) layout()->activate();   // the page gets its final size now, before the hold ends
+        m_pages->setHoldLayout(false);
+        if (w == m_settings.practiceWidth) return;
+        m_settings.practiceWidth = w;
+        emit appearanceChanged();   // the settings file needs saving
+    });
     m_practicePanel->hide();
     m_practicePanel->setProperty("testId", "practicePanel");
     body->addWidget(m_practicePanel);
@@ -246,7 +278,9 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
         setPracticeVisible(false);
         m_pages->setFocus();
     });
-    connect(m_practicePanel, &PracticePanel::fullWindowRequested, this, &ReaderView::fullPracticeRequested);
+    // Maximize: the panel over the page area, in place (its button then says Restore, in the same spot). Before, it
+    // opened Practice in the whole window, whose way back sat elsewhere (the owner's report, 2026-11-25).
+    connect(m_practicePanel, &PracticePanel::fullWindowRequested, this, [this] { setPracticeMaximized(!m_practiceMaximized); });
     m_bilingualTimer.setSingleShot(true);
     m_bilingualTimer.setInterval(250);   // a quick run of page turns asks once, for the page it stops on
     connect(&m_bilingualTimer, &QTimer::timeout, this, &ReaderView::refreshBilingual);
@@ -307,6 +341,12 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
         m_settings.pageTurnMs = ms;
         m_settings.pageTurnMotion = motion;
         m_pages->setPageTurn(style, ms, motion);
+        emit appearanceChanged();
+    });
+    applyPageTurnSettings();
+    connect(m_panel, &AppearancePanel::turnArrowsChanged, this, [this](bool on) {
+        m_settings.pageTurnArrows = on;
+        m_pages->setTurnArrows(on);
         emit appearanceChanged();
     });
     connect(m_pages, &PageView::zoomRequested, this, [this](int steps) { stepTextSize(steps * 10); });
@@ -464,6 +504,7 @@ void ReaderView::setTheme(const Theme& t)
     m_tocButton->setIcon(icons::icon("toc", t.fg));
     m_searchButton->setIcon(icons::icon("search", t.fg));
     m_bookmarkButton->setIcon(icons::icon("bookmark", t.fg));
+    m_latestBookmarkButton->setIcon(icons::icon("bookmarkGo", t.fg));
     m_notebookButton->setIcon(icons::icon("panel", t.fg));
     m_spreadButton->setIcon(icons::icon("spread", t.fg));
     m_practiceButton->setIcon(icons::icon("cards", t.fg));
@@ -651,7 +692,7 @@ void ReaderView::makeRoom(bool right, int width)
         }
         return;
     }
-    const int other = m_notebook->isVisible() ? 340 : m_bilingual->isVisible() ? 380 : m_practicePanel->isVisible() ? 480 : 0;
+    const int other = m_notebook->isVisible() ? 340 : m_bilingual->isVisible() ? 380 : m_practicePanel->isVisible() ? m_practicePanel->width() : 0;
     if (other && width + other + page > this->width()) {
         if (m_notebook->isVisible()) setNotebookVisible(false);
         if (m_bilingual->isVisible()) setBilingualVisible(false);
@@ -1240,8 +1281,11 @@ void ReaderView::onTranslated(int id, const core::TranslationResult& r, const QS
         if (m_lookupIsWord) showWordCard(r);
         else m_translate->showResult(r, m_dictionaryFirst);
         updateLookupHighlight();
-        // Every lookup goes to the word log, with the place it was seen.
-        if (m_words && m_bookId) {
+        // Kept for a highlight of the same words right after (its meaning in the word log).
+        m_lastLookupResult = r;
+        // A lookup goes to the word log only when chosen (Practice > Add Looked-Up Words): by default the Word List
+        // is what was highlighted (the owner's choice, 2026-11-26), with the place it was seen.
+        if (m_words && m_bookId && m_settings.practiceLookups) {
             m_words->record(r, wordPlace(m_lookupSpine, m_lookupStart, m_lookupEnd, m_lookupSentence));
             emit wordLogged();
         }
@@ -1271,8 +1315,13 @@ int ReaderView::markHighlightedWord(const QString& highlighted, int spine, int s
     // Words and short phrases only (up to 4 words); a highlighted passage is a quote, not vocabulary.
     const QString text = core::vocabularyText(highlighted);
     if (text.isEmpty()) return 0;
-    // No lookup: the offline dictionary's meaning when it has one, else none yet.
-    core::TranslationResult meaning = m_translator ? m_translator->offlineMeaning(text, languageCode()) : core::TranslationResult();
+    // The meaning of the lookup just shown when it was of these words (highlighted from its card, or right after);
+    // else the offline dictionary's when it has one, else none yet.
+    core::TranslationResult meaning;
+    if (!m_lastLookupResult.isEmpty() && m_lastLookupResult.text.simplified().compare(text, Qt::CaseInsensitive) == 0)
+        meaning = m_lastLookupResult;
+    else if (m_translator)
+        meaning = m_translator->offlineMeaning(text, languageCode());
     meaning.text = text;
     const int id = m_words->mark(meaning, wordPlace(spine, start, end, core::contextAround(sentence, text)));
     if (id) emit wordLogged();
@@ -1341,6 +1390,11 @@ QMenu* ReaderView::buildSelectionMenu()
     QAction* dict = menu->addAction(tr("Dictionary"), this, [this] { showDictionary(); });
     dict->setProperty("testId", "menuDictionary");
     dict->setEnabled(words >= 1 && words <= 4);
+    // Greyed out: why, on hover (the owner's request, 2026-11-26).
+    if (!dict->isEnabled())
+        dict->setToolTip(tr("The dictionary looks up 1 to 4 words: %1 are selected. Translate gives the meaning of a longer passage.")
+                             .arg(QLocale().toString(words)));
+    menu->setToolTipsVisible(true);
     // Text to speech: the selection read in the book's language (the owner's request, 2026-11-23).
     QAction* aloud = menu->addAction(tr("Read Aloud"), this, [this] { readSelectionAloud(); });
     aloud->setProperty("testId", "menuReadAloud");
@@ -1849,7 +1903,67 @@ int ReaderView::toggleWordBookmark()
     const int id = m_notes->add(b);
     clearSelectionKeepingPopup();
     refreshAnnotations();
+    offerToRemoveEarlierBookmarks(id);
     return id;
+}
+
+QMessageBox* ReaderView::bookmarkQuestion(int earlier, const QString& where)
+{
+    auto* box = new QMessageBox(this);
+    box->setWindowTitle(tr("Bookmark Added"));
+    box->setIcon(QMessageBox::Question);
+    box->setText(earlier == 1 ? tr("This book also has a bookmark on %1. Remove it?").arg(where)
+                              : tr("This book also has %1 other bookmarks; the last one added is on %2. Remove it?").arg(QLocale().toString(earlier), where));
+    QPushButton* removeLast = box->addButton(tr("Remove Previous Bookmark"), QMessageBox::AcceptRole);
+    removeLast->setProperty("testId", "bookmarkRemovePrevious");
+    if (earlier > 1) box->addButton(tr("Remove All %1").arg(QLocale().toString(earlier)), QMessageBox::DestructiveRole)->setProperty("testId", "bookmarkRemoveAll");
+    QPushButton* keep = box->addButton(earlier == 1 ? tr("Keep Both") : tr("Keep All"), QMessageBox::RejectRole);
+    keep->setProperty("testId", "bookmarkKeep");
+    box->setDefaultButton(removeLast);
+    box->setEscapeButton(keep);
+    return box;
+}
+
+void ReaderView::applyPageTurnSettings()
+{
+    // From the settings (Settings > General > Page Turns, or Cancel there): the page and the Text and Layout panel.
+    m_panel->setPageTurn(m_settings.pageTurn, m_settings.pageTurnMs, m_settings.pageTurnMotion);
+    m_pages->setPageTurn(m_settings.pageTurn, m_settings.pageTurnMs, m_settings.pageTurnMotion);
+    m_panel->setTurnArrows(m_settings.pageTurnArrows);
+    m_pages->setTurnArrows(m_settings.pageTurnArrows);
+}
+
+void ReaderView::offerToRemoveEarlierBookmarks(int newId)
+{
+    // A new bookmark: remove the one before it? (the owner's request, 2026-11-26: a bookmark usually marks where
+    // reading got to, and the old one is then in the way). The one added last before it, or all of them.
+    if (!m_notes || !m_bookId || !newId) return;
+    QList<core::Annotation> earlier;
+    for (const core::Annotation& a : m_notes->forBook(m_bookId))
+        if (a.kind == core::Annotation::Bookmark && a.id != newId) earlier << a;
+    if (earlier.isEmpty()) return;
+    std::sort(earlier.begin(), earlier.end(), [](const core::Annotation& a, const core::Annotation& b) {
+        return a.created != b.created ? a.created > b.created : a.id > b.id;
+    });
+    const core::Annotation& last = earlier.first();
+    const QString where = !last.pageLabel.isEmpty() ? tr("page %1").arg(last.pageLabel)
+                                                    : QStringLiteral("“%1…”").arg(last.text.left(40).trimmed());
+    const int n = int(earlier.size());
+    BookmarkChoice choice = BookmarkChoice::Keep;
+    if (m_bookmarkAnswerForTests) {
+        choice = m_bookmarkAnswerForTests(n);
+    } else if (m_interactive) {
+        std::unique_ptr<QMessageBox> box(bookmarkQuestion(n, where));
+        box->exec();
+        const QString clicked = box->clickedButton() ? box->clickedButton()->property("testId").toString() : QString();
+        if (clicked == QLatin1String("bookmarkRemovePrevious")) choice = BookmarkChoice::RemovePrevious;
+        else if (clicked == QLatin1String("bookmarkRemoveAll")) choice = BookmarkChoice::RemoveAll;
+    }
+    if (choice == BookmarkChoice::Keep) return;
+    if (choice == BookmarkChoice::RemovePrevious) m_notes->remove(last.id);
+    else
+        for (const core::Annotation& a : earlier) m_notes->remove(a.id);
+    refreshAnnotations();
 }
 
 bool ReaderView::toggleBookmark()
@@ -1869,10 +1983,13 @@ bool ReaderView::toggleBookmark()
         b.cfi = m_engine->cfiFor(a);
         if (const auto ix = m_engine->index()) b.pageLabel = ix->pageLabel(a);
         b.chapter = chapterTitleAt(a);
-        m_notes->add(b);
+        const int id = m_notes->add(b);
+        refreshAnnotations();
+        offerToRemoveEarlierBookmarks(id);
+        return true;
     }
     refreshAnnotations();
-    return !existing;
+    return false;
 }
 
 void ReaderView::refreshAnnotations()
@@ -1989,12 +2106,21 @@ void ReaderView::setPracticeVisible(bool on)
     if (on && m_notebook->isVisible()) setNotebookVisible(false);
     if (on && m_bilingual->isVisible()) setBilingualVisible(false);
     if (on) emit rightPanelOpened();
-    if (on) makeRoom(true, 480);
+    // Never narrower than its contents (a width saved before, or in another interface language).
+    if (on && !m_practiceMaximized && m_practicePanel->width() < m_practicePanel->narrowest()) m_practicePanel->setFixedWidth(m_practicePanel->narrowest());
+    if (on) makeRoom(true, m_practicePanel->width());
     const bool was = m_practicePanel->isVisible();
+    if (!on && m_practiceMaximized) setPracticeMaximized(false);   // closed: the page comes back
     m_practicePanel->setVisible(on);
     {
         const QSignalBlocker b(m_practiceButton);
         m_practiceButton->setChecked(on);
+    }
+    if (on != was) {
+        // The page laid out for its new width now, not after the pause a window's resize waits for (part of the
+        // lag the owner saw on pressing Practice, 2026-11-26).
+        if (layout()) layout()->activate();
+        m_pages->flushResize();
     }
     if (on && !was) {
         updatePracticePage();
@@ -2006,6 +2132,28 @@ void ReaderView::setPracticeVisible(bool on)
         m_settings.showPractice = on;
         emit appearanceChanged();   // the settings file needs saving
     }
+}
+
+void ReaderView::setPracticeMaximized(bool on)
+{
+    if (on && !m_practicePanel->isVisible()) return;
+    if (on == m_practiceMaximized) return;
+    m_practiceMaximized = on;
+    m_practicePanel->setMaximized(on);
+    if (on) {
+        // Over the whole page area: the page is hidden (it keeps its place), the panel takes the room.
+        m_practicePanel->setMinimumWidth(0);
+        m_practicePanel->setMaximumWidth(QWIDGETSIZE_MAX);
+        m_practicePanel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        m_pages->hide();
+    } else {
+        m_practicePanel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+        m_practicePanel->setFixedWidth(qBound(m_practicePanel->narrowest(), m_settings.practiceWidth, 1600));
+        m_pages->show();
+        m_pages->setFocus();
+    }
+    // The Word List's book, lookups and next review, and Export, when there is room for them.
+    if (PracticeView* v = m_practicePanel->view()) v->setWide(on);
 }
 
 void ReaderView::updatePracticePage()

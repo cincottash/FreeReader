@@ -15,6 +15,7 @@ struct Settings {
     bool showNotebook = false;
     bool showBilingual = false;       // the English of the page in a panel on the right
     bool showPractice = false;        // the practice workspace on the right while reading
+    int practiceWidth = 480;          // its width, dragged at its left edge (px)
 
     // Reading
     Appearance look;                  // All Books; languages and books can override it (library database)
@@ -30,6 +31,7 @@ struct Settings {
     QString pageTurn = QStringLiteral("none");
     int pageTurnMs = 300;
     QString pageTurnMotion = QStringLiteral("smooth");
+    bool pageTurnArrows = true;   // faint arrows at the page's sides (Text and Layout > Arrows at the Sides)
 
     // Library
     bool libraryList = false;         // list view instead of covers
@@ -69,8 +71,20 @@ struct Settings {
     bool practiceSentenceFront = false;   // the sentence it came from on the front too
     bool practicePassages = false;
     bool practiceHighlights = true;   // highlighted words (up to 4) join the word log, without a lookup
+    // Looked-up words join the word log too (off: only highlights do, the owner's choice of 2026-11-26).
+    bool practiceLookups = false;
     int practiceNewPerDay = 20;       // no longer offered (every card is practised); kept so old files still read
     QString practiceOrder = QStringLiteral("random");   // random, alphabetical, newest, oldest, book
+    // How long a word or passage waits for Gemini, and for LM Studio, before the next engine answers (ms; 0: as
+    // long as it takes). Settings > Translation.
+    int geminiWaitMs = 2500;
+    int lmStudioWaitMs = 2500;
+    // The Word List's order: recent, newest, oldest, az, za, meaning, meaning-za, book, book-reverse, lookups,
+    // lookups-least, starred, review, review-latest.
+    QString wordListSort = QStringLiteral("recent");
+    // The Word List's column widths, dragged ("200,300,200,60,90,110"; empty: the defaults), beside the book and with
+    // room (the full window or the panel maximized).
+    QString wordListColumns, wordListColumnsWide;
 
     // Files
     QString lastFolder;

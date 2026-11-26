@@ -5,6 +5,7 @@
 #include "ReaderView.h"
 #include "LibraryView.h"
 #include "PracticeView.h"
+#include "StartupTrace.h"
 #include "LibrarySearchView.h"
 #include "StatisticsView.h"
 
@@ -182,6 +183,8 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     connect(m_reader, &ReaderView::translationSettingsRequested, this, [this] { showSettings(SettingsDialog::TranslationTab); });
     connect(m_start, &LibraryView::practiceRequested, this, [this] { showPractice(); });
     connect(m_start, &LibraryView::librarySearchRequested, this, [this](const QString& q) { showLibrarySearch(q); });
+    connect(m_start, &LibraryView::latestBookmarkRequested, this, &MainWindow::goToLatestBookmark);
+    connect(m_reader, &ReaderView::latestBookmarkRequested, this, &MainWindow::goToLatestBookmark);
     connect(m_librarySearch, &LibrarySearchView::backRequested, this, [this] {
         QWidget* to = m_beforeLibrarySearch == m_reader && m_engine->isOpen() ? static_cast<QWidget*>(m_reader) : static_cast<QWidget*>(m_start);
         m_stack->setCurrentWidget(to);
@@ -211,12 +214,14 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     connect(m_practiceSide, &PracticeView::settingsChanged, this, &MainWindow::saveSettingsSoon);
     // Show in Book from the workspace: the same book jumps there, beside the workspace.
     connect(m_practiceSide, &PracticeView::showInBookRequested, m_practice, &PracticeView::showInBookRequested);
-    // Open Full Window: Practice in the whole window, on this book (a session in the workspace ends).
-    connect(m_reader, &ReaderView::fullPracticeRequested, this, [this] {
-        m_practiceSide->endSession();
-        m_reader->setPracticeVisible(false);
-        m_practice->setOpenBook(m_reader->bookId(), m_library ? m_library->book(m_reader->bookId()).title : QString());
-        showPractice();
+    // Show Beside the Book (the full window's button): back to the book, Practice beside it on the same tab.
+    connect(m_practice, &PracticeView::besideBookRequested, this, [this] {
+        if (!m_engine->isOpen()) return;
+        const bool list = m_practice->page() == PracticeView::ListPage;
+        m_stack->setCurrentWidget(m_reader);
+        m_reader->setPracticeVisible(true);
+        if (list) m_practiceSide->showList();
+        m_reader->pages()->setFocus();
     });
     connect(m_practice, &PracticeView::backRequested, this, [this] {
         QWidget* to = m_beforePractice == m_reader && m_engine->isOpen() ? static_cast<QWidget*>(m_reader) : static_cast<QWidget*>(m_start);
@@ -232,6 +237,7 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
             return;
         }
         m_pendingJump = {cfi, spine, start, end};
+        m_reader->setPracticeMaximized(false);   // the page, to see the word on
         if (m_engine->isOpen() && m_reader->bookId() == bookId) {
             m_stack->setCurrentWidget(m_reader);
             applyPendingJump();
@@ -271,6 +277,10 @@ bool MainWindow::eventFilter(QObject* o, QEvent* e)
         QTimer::singleShot(0, this, &MainWindow::placeHelp);
         return false;
     }
+    // Every menu shows its items' tooltips (Qt's menus hide them unless asked): above all why an item is greyed out
+    // (the owner's request, 2026-11-26).
+    if (e->type() == QEvent::Polish)
+        if (auto* m = qobject_cast<QMenu*>(o)) m->setToolTipsVisible(true);
     // A mouse button set as a shortcut (Settings > Keyboard Shortcuts > Mouse), pressed anywhere in this window.
     if (e->type() != QEvent::MouseButtonPress && e->type() != QEvent::MouseButtonDblClick) return false;
     auto* w = qobject_cast<QWidget*>(o);
@@ -415,6 +425,9 @@ void MainWindow::buildCommands()
     }, reading, tr("Reads the selected words aloud in the book's language; again stops it."));
     addCommand(QStringLiteral("bookmark"), tr("Bookmark This Page"), QKeySequence(Qt::CTRL | Qt::Key_D), [this] { m_reader->toggleBookmark(); },
                reading, tr("Adds a bookmark, or removes the one on this page."));
+    // The bookmark added last, in any book, from anywhere (the owner's request, 2026-11-25).
+    addCommand(QStringLiteral("latest-bookmark"), tr("Go to Latest Bookmark"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_D),
+               [this] { goToLatestBookmark(); }, nullptr, tr("Opens the book with the bookmark you added last, at its page."));
     addCommand(QStringLiteral("notebook"), tr("Show or Hide Notebook"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_N),
                [this] { m_reader->setNotebookVisible(!m_reader->notebookVisible()); saveSettingsSoon(); }, reading,
                tr("The book's highlights, notes and bookmarks."));
@@ -450,7 +463,7 @@ void MainWindow::buildCommands()
            tr("Off: selecting only selects. Right-click > Translate, or Ctrl+E."));
     toggle("use-gemini", tr("Use Gemini (Online)"), &Settings::useGemini,
            tr("Google's Gemini, asked first. The only engine that sends text over the internet: off, nothing is sent."));
-    toggle("use-lm-studio", tr("Use LM Studio (This Computer)"), &Settings::useLmStudio, tr("Asked when Gemini can't answer."));
+    toggle("use-lm-studio", tr("Use LM Studio (This Computer)"), &Settings::useLmStudio, tr("Asked when Gemini can't answer, or takes too long (Settings > Translation)."));
     toggle("use-dictionary", tr("Use the Offline Dictionary"), &Settings::useDictionary, tr("Single words, when nothing before it in the list answers."));
     toggle("use-offline-translator", tr("Use the Offline Translator"), &Settings::useOfflineTranslator,
            tr("Sentences and pages with no internet, when Gemini and LM Studio can't answer (a download in Settings)."));
@@ -464,6 +477,18 @@ void MainWindow::buildCommands()
     qApp->installEventFilter(this);   // mouse-button shortcuts
 }
 
+QString MainWindow::whyUnavailable(const QString& id) const
+{
+    if (id == QLatin1String("new-collection") || id == QLatin1String("library-grid") || id == QLatin1String("library-list"))
+        return tr("Only in the library.");
+    if (!isReading()) return tr("Open a book first.");
+    if (id == QLatin1String("back")) return tr("Nowhere to go back to yet: Back returns to where you were before a jump (a link, a search result, Go to Page).");
+    if (id == QLatin1String("copy") || id == QLatin1String("translate") || id == QLatin1String("explain"))
+        return tr("Select some text in the book first.");
+    if (id == QLatin1String("book-offline")) return tr("Gemini is off (Settings > Translation): no book's text is sent online.");
+    return {};
+}
+
 void MainWindow::buildMenus()
 {
     QMenuBar* bar = menuBar();
@@ -473,13 +498,21 @@ void MainWindow::buildMenus()
     };
     // A command that can't run now is greyed out while its menu is open; its shortcut keeps working the rest of the
     // time (the command checks again when it runs).
+    // Hovering a greyed-out command says why it can't run now (the owner's request, 2026-11-26).
     auto watch = [this](QMenu* m) {
         connect(m, &QMenu::aboutToShow, this, [this] {
-            for (auto& c : m_commands) c->action->setEnabled(c->isEnabled());
+            for (auto& c : m_commands) {
+                const bool on = c->isEnabled();
+                c->action->setEnabled(on);
+                c->action->setToolTip(on ? QString() : whyUnavailable(c->id));
+            }
             syncChecks();
         });
         connect(m, &QMenu::aboutToHide, this, [this] {
-            for (auto& c : m_commands) c->action->setEnabled(true);
+            for (auto& c : m_commands) {
+                c->action->setEnabled(true);
+                c->action->setToolTip(QString());
+            }
         });
     };
 
@@ -534,6 +567,7 @@ void MainWindow::buildMenus()
     add(go, "search-book");
     add(go, "search-library");
     add(go, "bookmark");
+    add(go, "latest-bookmark");
     go->addSeparator();
     add(go, "practice");
     add(go, "statistics");
@@ -697,6 +731,9 @@ void MainWindow::applyTranslationSettings()
     m_lmStudio->setEnabled(m_settings.useLmStudio);
     m_lmStudio->setAddress(m_settings.lmStudioAddress);
     m_lmStudio->setModel(m_settings.lmStudioModel);
+    // How long a word or passage waits for each before the next engine answers (the owner's requests, 2026-11-26).
+    m_translator->setWait(m_gemini->name(), qMax(0, m_settings.geminiWaitMs));
+    m_translator->setWait(m_lmStudio->name(), qMax(0, m_settings.lmStudioWaitMs));
     m_translator->clearPauses();
     syncChecks();
 }
@@ -836,6 +873,11 @@ void MainWindow::ensureSettingsDialog()
             applyTranslationSettings();
             applyShortcuts();
             if (isReading()) m_reader->applyReadingOptions();
+            m_reader->applyPageTurnSettings();
+            saveSettingsSoon();
+        });
+        connect(m_settingsDialog, &SettingsDialog::pageTurnChanged, this, [this] {
+            m_reader->applyPageTurnSettings();   // the page and the Text and Layout panel
             saveSettingsSoon();
         });
         connect(m_settingsDialog, &SettingsDialog::languageChanged, this, &MainWindow::saveSettingsSoon);
@@ -1056,8 +1098,11 @@ void MainWindow::saveSettingsNow()
 
 void MainWindow::closeEvent(QCloseEvent* e)
 {
+    if (m_interactive) startupTrace("closing: book");
     m_reader->closeBook();
+    if (m_interactive) startupTrace("closing: settings");
     saveSettingsNow();
+    if (m_interactive) startupTrace("closing: done");
     e->accept();
 }
 
@@ -1128,6 +1173,7 @@ void MainWindow::endPreview()
 void MainWindow::showPractice(bool wordList)
 {
     if (m_stack->currentWidget() != m_practice) m_beforePractice = m_stack->currentWidget();
+    m_practice->setCanShowBesideBook(m_beforePractice == m_reader && m_engine->isOpen());
     m_stack->setCurrentWidget(m_practice);
     wordList ? m_practice->showList() : m_practice->showStart();
 }
@@ -1149,6 +1195,33 @@ void MainWindow::showLibrarySearch(const QString& query)
     if (!query.simplified().isEmpty()) m_librarySearch->setQuery(query);
     m_librarySearch->setFocus();
     if (auto* box = m_librarySearch->findChild<QLineEdit*>()) box->setFocus();
+}
+
+void MainWindow::goToLatestBookmark()
+{
+    const core::Annotation b = m_annotations ? m_annotations->latestBookmark() : core::Annotation();
+    if (b.id == 0) {
+        const QString none = tr("No bookmarks yet. Ctrl+D bookmarks the page you're reading.");
+        if (isReading()) m_reader->pages()->showNotice(none);
+        else m_start->setMessage(none);
+        return;
+    }
+    const core::LibraryBook book = m_library ? m_library->book(b.bookId) : core::LibraryBook();
+    if (book.id == 0 || !QFileInfo::exists(book.path)) {
+        m_start->setMessage(tr("The book with your latest bookmark wasn't found."));
+        m_stack->setCurrentWidget(m_start);
+        return;
+    }
+    // The bookmark's page (a word bookmark: its word's page, the word not selected, so no translation opens).
+    m_pendingJump = {b.cfi, b.spine, b.start, b.start};
+    m_reader->setPracticeMaximized(false);
+    if (m_engine->isOpen() && m_reader->bookId() == b.bookId) {
+        m_stack->setCurrentWidget(m_reader);
+        applyPendingJump();
+        m_reader->pages()->setFocus();
+    } else {
+        openBook(book.path);
+    }
 }
 
 void MainWindow::applyPendingJump()

@@ -3,6 +3,7 @@
 #include "core/services/Library.h"
 #include "OfflineDictionary.h"
 
+#include <QLocale>
 #include <QTimeZone>
 #include <QTimer>
 
@@ -43,9 +44,11 @@ int TranslationService::translate(const TranslationRequest& request)
         return id;
     }
     m_inFlight.insert(key, {id});
-    // One answer only: the first provider that can answer gives it; the next is asked only when one fails (no quick
-    // offline answer that Gemini's then replaces: the owner's request, 2026-11-23).
-    QTimer::singleShot(0, this, [this, id, request] { next(id, request, 0, {}); });
+    // One answer only: the first provider that can answer gives it; the next is asked only when one fails or an
+    // online one takes too long (no quick offline answer that Gemini's then replaces: the owner's requests,
+    // 2026-11-23 and 2026-11-26).
+    auto state = std::make_shared<Lookup>();
+    QTimer::singleShot(0, this, [this, id, request, state] { next(id, request, 0, {}, state); });
     return id;
 }
 
@@ -87,7 +90,16 @@ bool TranslationService::hasOfflineDictionary(const QString& language) const
     return false;
 }
 
-void TranslationService::next(int id, const TranslationRequest& request, size_t from, QStringList why)
+void TranslationService::recordFailure(const QString& name, TranslationFailure f)
+{
+    m_status.insert(name, failureText(f));
+    if (f == TranslationFailure::DailyLimit)
+        m_pausedUntil.insert(name, nextPacificMidnight(QDateTime::currentDateTimeUtc()));
+    else if (f == TranslationFailure::RateLimit)
+        m_pausedUntil.insert(name, QDateTime::currentDateTimeUtc().addSecs(60));
+}
+
+void TranslationService::next(int id, const TranslationRequest& request, size_t from, QStringList why, std::shared_ptr<Lookup> state)
 {
     for (size_t i = from; i < m_providers.size(); ++i) {
         TranslationProvider* p = m_providers[i];
@@ -103,33 +115,66 @@ void TranslationService::next(int id, const TranslationRequest& request, size_t 
         const QString name = p->name();
         const bool keep = p->cacheable();
         const bool reportsMisses = p->reportsMisses();
-        p->translate(request, [self, id, request, i, why, name, keep, reportsMisses](const TranslationResult& r, TranslationFailure f, const QString& detail) mutable {
+        // Answered (or failed) in time; or given up on, and the next provider asked meanwhile.
+        auto answered = std::make_shared<bool>(false);
+        auto gaveUp = std::make_shared<bool>(false);
+        if (const int waitMs = wait(name); waitMs > 0 && request.kind == TranslationRequest::Kind::Lookup) {
+            QTimer::singleShot(waitMs, this, [this, id, request, i, why, name, state, answered, gaveUp, waitMs]() mutable {
+                if (*answered || state->done) return;
+                *gaveUp = true;
+                ++state->late;
+                why << QStringLiteral("%1: %2").arg(name, tr("no answer within %1 seconds").arg(QLocale().toString(waitMs / 1000.0, 'g', 3)));
+                next(id, request, i + 1, why, state);
+            });
+        }
+        p->translate(request, [self, id, request, i, why, name, keep, reportsMisses, state, answered, gaveUp](const TranslationResult& r, TranslationFailure f, const QString& detail) mutable {
             if (!self) return;
-            if (f == TranslationFailure::None && !r.isEmpty()) {
+            *answered = true;
+            Q_UNUSED(detail);
+            const bool ok = f == TranslationFailure::None && !r.isEmpty();
+            if (ok) {
                 self->m_status.remove(name);
                 if (self->m_cache && keep) self->m_cache->cacheTranslation(request.cacheKey(), name, r.toJson());
+            } else if (!(f == TranslationFailure::NotFound && !reportsMisses)) {
+                self->recordFailure(name, f == TranslationFailure::None ? TranslationFailure::Failed : f);
+            }
+            if (*gaveUp) {
+                // Too late: another provider is answering or answered. Kept for next time (above), never shown over
+                // that answer; shown only when nothing after it could answer.
+                --state->late;
+                if (state->done || !state->exhausted) return;
+                if (ok) {
+                    TranslationResult out = r;
+                    out.keep = keep;
+                    state->done = true;
+                    self->finish(request, out, {});
+                } else if (state->late == 0) {
+                    state->done = true;
+                    self->finish(request, {}, state->exhaustedWhy);
+                }
+                return;
+            }
+            if (ok) {
                 TranslationResult out = r;
                 out.keep = keep;
+                state->done = true;
                 self->finish(request, out, {});
                 return;
             }
-            if (f == TranslationFailure::NotFound && !reportsMisses) {
-                self->next(id, request, i + 1, why);
-                return;
-            }
-            const QString text = failureText(f == TranslationFailure::None ? TranslationFailure::Failed : f);
-            self->m_status.insert(name, text);
-            if (f == TranslationFailure::DailyLimit)
-                self->m_pausedUntil.insert(name, nextPacificMidnight(QDateTime::currentDateTimeUtc()));
-            else if (f == TranslationFailure::RateLimit)
-                self->m_pausedUntil.insert(name, QDateTime::currentDateTimeUtc().addSecs(60));
-            why << QStringLiteral("%1: %2").arg(name, text);
-            Q_UNUSED(detail);
-            self->next(id, request, i + 1, why);
+            if (!(f == TranslationFailure::NotFound && !reportsMisses))
+                why << QStringLiteral("%1: %2").arg(name, failureText(f == TranslationFailure::None ? TranslationFailure::Failed : f));
+            self->next(id, request, i + 1, why, state);
         });
         return;
     }
     Q_UNUSED(id);
+    if (state->late > 0) {
+        // Nothing after the online provider given up on could answer: its answer, when it comes, after all.
+        state->exhausted = true;
+        state->exhaustedWhy = why.join(QLatin1Char('\n'));
+        return;
+    }
+    state->done = true;
     finish(request, {}, why.join(QLatin1Char('\n')));
 }
 

@@ -385,6 +385,16 @@ QList<QPair<int, QString>> WordLog::booksWithWords() const
     return out;
 }
 
+QHash<int, QDateTime> WordLog::nextReviews() const
+{
+    QHash<int, QDateTime> out;
+    if (!isOpen()) return out;
+    QSqlQuery q(QSqlDatabase::database(m_connection));
+    if (q.exec(QStringLiteral("SELECT word_id, MIN(due) FROM cards WHERE suspended=0 AND state<>0 GROUP BY word_id")))
+        while (q.next()) out.insert(q.value(0).toInt(), fromIso(q.value(1).toString()));
+    return out;
+}
+
 QList<PracticeCard> WordLog::cardsFor(int wordId) const
 {
     QList<PracticeCard> out;

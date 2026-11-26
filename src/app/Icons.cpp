@@ -17,10 +17,16 @@ const QHash<QString, QString>& shapes()
         {"search", "<circle cx='11' cy='11' r='6.5'/><path d='M16 16l4.5 4.5'/>"},
         {"toc", "<path d='M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01'/>"},
         {"bookmark", "<path d='M7 4h10v16l-5-4-5 4z'/>"},
+        // Go to Latest Bookmark: a bookmark with an arrow on it.
+        {"bookmarkGo", "<path d='M7 4h10v16l-5-4-5 4z'/><path d='M9.5 10h5M12.5 8l2 2-2 2'/>"},
         {"panel", "<rect x='3.5' y='4.5' width='17' height='15' rx='2.5'/><path d='M14.5 4.5v15'/>"},
         {"commands", "<rect x='3.5' y='5.5' width='17' height='13' rx='2.5'/><path d='M7 10l3 2-3 2M12 14h5'/>"},
         {"fullscreen", "<path d='M4 9V5.5A1.5 1.5 0 015.5 4H9M15 4h3.5A1.5 1.5 0 0120 5.5V9M20 15v3.5a1.5 1.5 0 01-1.5 1.5H15M9 20H5.5A1.5 1.5 0 014 18.5V15'/>"},
         {"exitFullscreen", "<path d='M9 4v3.5A1.5 1.5 0 017.5 9H4M20 9h-3.5A1.5 1.5 0 0115 7.5V4M15 20v-3.5a1.5 1.5 0 011.5-1.5H20M4 15h3.5A1.5 1.5 0 019 16.5V20'/>"},
+        // A panel made bigger or smaller (two diagonal arrows, out or in): not the full screen's corners, so the two
+        // buttons side by side aren't mistaken for each other (the owner's report, 2026-11-25).
+        {"expand", "<path d='M14 4h6v6M20 4l-6.5 6.5M10 20H4v-6M4 20l6.5-6.5'/>"},
+        {"collapse", "<path d='M20 4l-6.5 6.5M13.5 5v5.5H19M4 20l6.5-6.5M10.5 19v-5.5H5'/>"},
         {"chevronLeft", "<path d='M14.5 6l-6 6 6 6'/>"},
         {"chevronRight", "<path d='M9.5 6l6 6-6 6'/>"},
         {"close", "<path d='M6 6l12 12M18 6L6 18'/>"},

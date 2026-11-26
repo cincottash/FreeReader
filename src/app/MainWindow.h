@@ -49,6 +49,8 @@ public:
     ~MainWindow() override;
 
     void openBook(const QString& path);
+    // The bookmark added last, in any book: that book opens at its page (Go > Go to Latest Bookmark, Ctrl+Shift+D).
+    void goToLatestBookmark();
     bool isSettled() const;              // a book is shown and ready, or the start screen is shown
     bool isReading() const;
     QString lastError() const { return m_lastError; }
@@ -83,6 +85,9 @@ public:
     CommandPalette* palette() const { return m_palette; }
     core::BookEngine* engine() const { return m_engine; }
     Command* command(const QString& id) const;
+    // Why a command is greyed out in the menus now (its tooltip there); empty when it isn't.
+    QString whyUnavailable(const QString& id) const;
+    const std::vector<std::unique_ptr<Command>>& commands() const { return m_commands; }
     void runCommand(const QString& id);
     void saveSettingsSoon();
     void saveSettingsNow();

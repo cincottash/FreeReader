@@ -18,6 +18,7 @@
 #include "core/services/WordLog.h"
 
 #include <QDateTime>
+#include <QSet>
 #include <QWidget>
 
 #include <functional>
@@ -61,6 +62,8 @@ public:
     // The practice workspace while reading.
     void setCompact(bool on);
     bool isCompact() const { return m_compact; }
+    // Compact but with room (the panel maximized over the page): the Word List's other columns and Export too.
+    void setWide(bool on);
     // The book being read (0: none): chosen in Words From and the Word List the next time either is shown.
     void setOpenBook(int bookId, const QString& title);
     // The pages showing now (one spine item, offsets start..end), for This Page in the Word List.
@@ -73,6 +76,19 @@ public:
     void setListBook(int choice);
     int listBook() const;
     QStringList listWords() const;   // the words the Word List shows (tests)
+    // The Word List's pages (as many words a page as it has room for): 0-based; out of range is clamped.
+    void showListPage(int page);
+    int listPage() const { return m_listPage; }
+    // The Word List's order (a Settings::wordListSort key: "meaning", "meaning-za" and so on); kept in the settings.
+    void setListSort(const QString& key);
+    QString listSort() const;
+    // The Word List's column widths back to their defaults, for the room it has now (its headings' right-click).
+    void resetListColumns();
+    int listPageCount() const { return m_listPages; }
+    // A word's right-click menu in the Word List (Go to Word, Change Meaning); the caller owns it (tests).
+    class QMenu* wordMenuForRow(int row);
+    // The full window's button back to the book, with Practice beside it: shown when there is a book to go back to.
+    void setCanShowBesideBook(bool on);
 
     // Session (also driven by tests)
     bool startSession();        // false when there is nothing to practise
@@ -94,6 +110,7 @@ public:
 
 signals:
     void backRequested();
+    void besideBookRequested();   // the full window's Show Beside the Book
     void showInBookRequested(int bookId, const QString& cfi, int spine, int start, int end);
     void settingsChanged();
 
@@ -115,11 +132,42 @@ private:
     QStringList acceptedAnswers() const;
     QString languageName() const;
     QTreeWidgetItem* currentListItem() const;
+    void goToWord(QTreeWidgetItem* it);
+    void starSelected();
+    void startOverSelected();
+    void deleteSelected();
+    int listRowsPerPage() const;
+    void buildListRows(int first, int count);   // the rows of the page showing (only those are made)
+    void sortListEntries();                       // m_listEntries in the order chosen
+    bool listIsWide() const;                      // the full window, or the panel maximized
+    void fitListColumns();                        // the kept widths, or the meaning filling the rest
+    bool listColumnsKept() const;                 // widths dragged for this room
+    QList<int> wideColumnWidths(int room) const;  // with room: each column for its entries, the rest shared
+    bool m_fittingColumns = false;
+    QComboBox* m_listSort = nullptr;
+    void updatePageNumbers();
+    class QToolButton* m_prevPage = nullptr;
+    class QToolButton* m_nextPage = nullptr;
+    QWidget* m_pageNumbers = nullptr;   // the pages' numbers between Previous and Next
+    int m_listPage = 0, m_listPages = 1;
+    QList<core::WordEntry> m_listEntries;   // every word the Word List has (search and book applied), in order
+    bool m_listDirty = true;                 // the rows showing need making again
+    int m_builtPage = -1, m_builtPer = 0;    // the page and rows a page the rows showing were made for
+    mutable int m_rowHeight = 0;             // a row's height, once measured (every row is as tall)
+    QSet<int> m_keepSelected;                // word ids selected again when the rows are made again
+    int m_keepCurrent = 0;
+    QString m_numbersMade;                   // what the page numbers showing were made for
+    int m_wheel = 0;
+    class QMenu* wordMenu(QTreeWidgetItem* it);
+    class QToolButton* m_beside = nullptr;
+    bool m_canShowBeside = false;
 
     void showMeaningOnCard();
     void fillBookChoices(QComboBox* box, bool thisPage);
 
     bool m_compact = false;
+    bool m_wide = false;
+    void applyListColumns();
     int m_openBook = 0;
     QString m_openTitle;
     int m_pageSpine = -1, m_pageStart = 0, m_pageEnd = 0;
@@ -153,6 +201,7 @@ private:
     QCheckBox* m_passages;
     QCheckBox* m_starred;
     QCheckBox* m_highlights;
+    QCheckBox* m_lookups = nullptr;   // looked-up words join the word log too
     QCheckBox* m_typed;
     QCheckBox* m_sentenceFront;
     QComboBox* m_order;
@@ -185,7 +234,7 @@ private:
     // List
     QLineEdit* m_search;
     QComboBox* m_listBook;
-    QTreeWidget* m_list;
+    QTreeWidget* m_list = nullptr;
     QLabel* m_listCount;
 
     // Session state

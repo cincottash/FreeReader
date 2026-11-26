@@ -289,7 +289,7 @@ endif()
 file(GLOB FONT_FILES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/resources/fonts/*.ttf)
 # The app's own text in other languages (src/app/InterfaceLanguage.h): a few kB each, always built in.
 file(GLOB LANGUAGE_FILES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/resources/languages/*.json)
-qt_add_resources(freereader_ui resources PREFIX "/" BASE resources FILES resources/icon.svg resources/check-light.svg resources/check-dark.svg ${FONT_FILES} ${LANGUAGE_FILES})
+qt_add_resources(freereader_ui resources PREFIX "/" BASE resources FILES resources/icon.svg resources/check-light.svg resources/check-dark.svg resources/chevron-light.svg resources/chevron-dark.svg ${FONT_FILES} ${LANGUAGE_FILES})
 # Qt's own text in those languages (Yes and No in message boxes, Cut, Copy and Paste in text fields), from the Qt it
 # is built with; where Qt has no translations folder, that text stays in English.
 set(QT_TRANSLATION_FILES "")

@@ -29,12 +29,17 @@ public:
     void showBelow(const QPoint& topRight);
     // Page turns (for all books, from the settings).
     void setPageTurn(const QString& style, int ms, const QString& motion);
+    void setTurnArrows(bool on);   // Arrows at the Sides
+    // The page turn animations and motions, for this panel and Settings > General.
+    static void addPageTurnStyles(class QComboBox* box);
+    static void addPageTurnMotions(class QComboBox* box);
 
 signals:
     void valueChanged(const QString& key, const QJsonValue& value);
     void resetRequested(int scope);
     void themesRequested();
     void pageTurnChanged(const QString& style, int ms, const QString& motion);
+    void turnArrowsChanged(bool on);
 
 protected:
     void keyPressEvent(QKeyEvent*) override;
@@ -59,4 +64,5 @@ private:
     QSlider* m_turnSpeed;
     QLabel* m_turnSpeedValue;
     QComboBox* m_turnMotion;
+    class QCheckBox* m_turnArrows = nullptr;
 };

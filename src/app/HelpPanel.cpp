@@ -205,7 +205,8 @@ QString HelpPanel::html() const
               .arg(link(QStringLiteral("bilingual"), tr("Show %1 Alongside").arg(core::languages::displayName(core::languages::readerLanguage())))),
           tr("<b>Where answers come from,</b> in this order: Google's Gemini (online, free), LM Studio on your computer, "
              "your Word List, then the offline dictionaries and the offline translator. Each can be switched off in "
-             "Settings ▸ Translation."),
+             "Settings ▸ Translation. When Gemini or LM Studio takes longer than its <b>Wait</b> time there over a word "
+             "or passage (2.5 seconds at first), the next one answers instead."),
           tr("<b>Keep text private:</b> Gemini is the only engine that sends text over the internet. Turn off <b>Use "
              "Gemini</b> for every book, or <b>Keep This Book Offline</b> for one.")});
 
@@ -221,7 +222,8 @@ QString HelpPanel::html() const
     list({tr("<b>Highlight:</b> the color dots at the top of the right-click menu. Right-click a highlight to change its "
              "color, add a note or remove it."),
           tr("<b>Notes:</b> right-click, <b>Add Note…</b>."),
-          tr("<b>Bookmarks:</b> Ctrl+D bookmarks the page; right-click a word for <b>Bookmark Here</b>."),
+          tr("<b>Bookmarks:</b> Ctrl+D bookmarks the page; right-click a word for <b>Bookmark Here</b>. <b>Go to Latest "
+             "Bookmark</b> (Ctrl+Shift+D) opens the one you added last, in any book."),
           tr("<b>The Notebook</b> (%1, Ctrl+Shift+N) lists the book's highlights, notes and bookmarks; export them as "
              "Markdown, plain text, CSV, TSV or JSON.").arg(link(QStringLiteral("notebook"), tr("Show Notebook"))),
           tr("<b>Search:</b> %1 (Ctrl+F) or %2 (Ctrl+Shift+F). Accents and capitals don't matter.")
@@ -237,7 +239,7 @@ QString HelpPanel::html() const
           tr("<b>In the library:</b> %1 opens Practice in the whole window.").arg(link(QStringLiteral("practice"), tr("Practice Words"))),
           tr("Choose the directions (the book's language first, yours first, definition, a sentence with a gap), flip the "
              "card or type the answer, and the order."),
-          tr("<b>Word List:</b> %1: search, change a meaning, Show in Book, and <b>Export…</b> for Anki.")
+          tr("<b>Word List:</b> %1: search, sort, change a meaning, Show in Book, and <b>Export…</b> for Anki.")
               .arg(link(QStringLiteral("word-list"), tr("Open the Word List"))),
           tr("<b>Statistics:</b> %1: time read, days in a row, words and reviews.").arg(link(QStringLiteral("statistics"), tr("Open Statistics")))});
 

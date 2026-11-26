@@ -46,6 +46,8 @@ public:
     void remove(int id);
     Annotation get(int id) const;
     QList<Annotation> forBook(int bookId) const;    // in reading order
+    // The bookmark added last, in any book (id 0 when there is none): Go to Latest Bookmark.
+    Annotation latestBookmark() const;
     QList<Annotation> inChapter(int bookId, int spine) const;
     // Highlights overlapping [start, end) in a chapter.
     QList<Annotation> highlightsAt(int bookId, int spine, int start, int end) const;

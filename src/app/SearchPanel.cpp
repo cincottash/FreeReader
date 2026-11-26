@@ -23,7 +23,7 @@ SearchPanel::SearchPanel(QWidget* parent) : QFrame(parent)
     box->setContentsMargins(16, 0, 16, 0);
     box->setSpacing(6);
     m_edit = new QLineEdit;
-    m_edit->setPlaceholderText(tr("Words to find"));
+    m_edit->setPlaceholderText(tr("Words to Find"));
     m_edit->setClearButtonEnabled(true);
     m_edit->setProperty("testId", "searchBox");
     box->addWidget(m_edit);

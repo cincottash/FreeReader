@@ -14,6 +14,7 @@
 
 #include <QAction>
 #include <QCheckBox>
+#include <QDoubleSpinBox>
 #include <QComboBox>
 #include <QDesktopServices>
 #include <QDir>
@@ -32,6 +33,7 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QGridLayout>
+#include "AppearancePanel.h"
 #include <QMap>
 #include <QSignalBlocker>
 #include <QSlider>
@@ -144,6 +146,22 @@ void SettingsDialog::begin()
 {
     m_before = std::make_shared<Settings>(m_settings);
     m_message->hide();
+    fillPageTurns();   // changed in the Text and Layout panel meanwhile, perhaps
+}
+
+void SettingsDialog::fillPageTurns()
+{
+    if (!m_turnStyle) return;
+    const QSignalBlocker b1(m_turnStyle), b2(m_turnSpeed), b3(m_turnMotion), b4(m_turnArrows);
+    m_turnStyle->setCurrentIndex(qMax(0, m_turnStyle->findData(m_settings.pageTurn)));
+    m_turnSpeed->setValue(m_settings.pageTurnMs);
+    m_turnMotion->setCurrentIndex(qMax(0, m_turnMotion->findData(m_settings.pageTurnMotion)));
+    m_turnArrows->setChecked(m_settings.pageTurnArrows);
+    const bool on = m_settings.pageTurn != QLatin1String("none");
+    m_turnSpeed->setEnabled(on);
+    m_turnSpeedValue->setEnabled(on);
+    m_turnMotion->setEnabled(on);
+    m_turnSpeedValue->setText(QStringLiteral("%1 s").arg(QLocale().toString(m_settings.pageTurnMs / 1000.0, 'f', 2)));
 }
 
 void SettingsDialog::reject()
@@ -164,6 +182,11 @@ void SettingsDialog::reject()
         s.shortcuts = b.shortcuts;
         s.mouseShortcuts = b.mouseShortcuts;
         s.libraryFolders = b.libraryFolders;
+        s.pageTurn = b.pageTurn;
+        s.pageTurnMs = b.pageTurnMs;
+        s.pageTurnMotion = b.pageTurnMotion;
+        s.pageTurnArrows = b.pageTurnArrows;
+        fillPageTurns();
         const bool audio = s.speechRatePct != b.speechRatePct || s.speechVolumePct != b.speechVolumePct || s.speechVoices != b.speechVoices;
         s.speechRatePct = b.speechRatePct;
         s.speechVolumePct = b.speechVolumePct;
@@ -240,7 +263,7 @@ QWidget* SettingsDialog::buildTranslationTab()
     auto* gemini = fieldGrid();
     m_keyEdit = new QLineEdit;
     m_keyEdit->setEchoMode(QLineEdit::Password);
-    m_keyEdit->setPlaceholderText(tr("Paste a Gemini API key"));
+    m_keyEdit->setPlaceholderText(tr("Paste a Gemini API Key"));
     m_keyEdit->setProperty("testId", "keyEdit");
     m_keyEdit->setFixedWidth(fieldWidth);
     auto* save = new QPushButton(tr("Save Key"));
@@ -270,13 +293,32 @@ QWidget* SettingsDialog::buildTranslationTab()
     gemini->addWidget(fieldLabel(tr("Model")), 2, 0);
     gemini->addWidget(m_model, 2, 1);
     gemini->addLayout(buttons({test}), 2, 2);
+    // How long a word or passage waits for an engine before the next one answers (the owner's requests,
+    // 2026-11-26). 0: as long as it takes.
+    auto waitBox = [this](const char* id, const QString& engine) {
+        auto* box = new QDoubleSpinBox;
+        box->setProperty("testId", id);
+        box->setRange(0, 30);
+        box->setSingleStep(0.5);
+        box->setDecimals(1);
+        box->setSuffix(tr(" seconds"));
+        box->setSpecialValueText(tr("No Limit"));
+        box->setToolTip(tr("A word or passage %1 hasn't answered by then is answered by the next engine instead; %1's "
+                           "answer, when it comes, is kept for next time. Explain This Sentence and the paragraphs "
+                           "alongside always wait.").arg(engine));
+        return box;
+    };
+    m_geminiWait = waitBox("geminiWait", QStringLiteral("Gemini"));
+    gemini->addWidget(fieldLabel(tr("Wait")), 3, 0);
+    gemini->addWidget(m_geminiWait, 3, 1, Qt::AlignLeft);
     lay->addLayout(gemini);
     m_geminiResult = muted(QString());
     m_geminiResult->setProperty("testId", "geminiResult");
     lay->addWidget(m_geminiResult);
 
     lay->addWidget(sectionTitle(tr("LM STUDIO (ON THIS COMPUTER)")));
-    lay->addWidget(muted(tr("Asked when Gemini can't answer (offline, or today's free lookups are used up). LM Studio's server "
+    lay->addWidget(muted(tr("Asked when Gemini can't answer (offline, today's free lookups are used up, or no answer to a word or "
+                            "passage within its Wait time). LM Studio's server "
                             "must be running. With a model chosen, LM Studio loads it the first time it's needed (that "
                             "takes a moment, and uses the graphics card's memory until LM Studio unloads it).")));
     m_useLm = new QCheckBox(tr("Use LM Studio"));
@@ -304,7 +346,17 @@ QWidget* SettingsDialog::buildTranslationTab()
     lm->addWidget(fieldLabel(tr("Model")), 1, 0);
     lm->addWidget(m_lmModel, 1, 1);
     lm->addLayout(buttons({lmTest}), 1, 2);
+    m_lmWait = waitBox("lmStudioWait", QStringLiteral("LM Studio"));
+    lm->addWidget(fieldLabel(tr("Wait")), 2, 0);
+    lm->addWidget(m_lmWait, 2, 1, Qt::AlignLeft);
     lay->addLayout(lm);
+    for (auto [box, field] : {std::pair{m_geminiWait, &Settings::geminiWaitMs}, std::pair{m_lmWait, &Settings::lmStudioWaitMs}})
+        connect(box, &QDoubleSpinBox::valueChanged, this, [this, field](double seconds) {
+            const int ms = int(seconds * 1000 + 0.5);
+            if (m_settings.*field == ms) return;
+            m_settings.*field = ms;
+            emit translationChanged();
+        });
     // One column for the labels of both sections, so the four boxes line up.
     int labelWidth = 0;
     for (QLabel* l : fieldLabels) labelWidth = qMax(labelWidth, l->sizeHint().width());
@@ -485,7 +537,9 @@ QWidget* SettingsDialog::buildTranslationTab()
 
 void SettingsDialog::refreshTranslation()
 {
-    const QSignalBlocker b1(m_useGemini), b2(m_useLm), b3(m_auto), b5(m_model);
+    const QSignalBlocker b1(m_useGemini), b2(m_useLm), b3(m_auto), b5(m_model), b6(m_geminiWait), b7(m_lmWait);
+    m_geminiWait->setValue(m_settings.geminiWaitMs / 1000.0);
+    m_lmWait->setValue(m_settings.lmStudioWaitMs / 1000.0);
     m_useGemini->setChecked(m_settings.useGemini);
     m_useLm->setChecked(m_settings.useLmStudio);
     m_auto->setChecked(m_settings.translateOnSelect);
@@ -1108,6 +1162,8 @@ void SettingsDialog::fill()
         auto* edit = new QKeySequenceEdit(c->action->shortcut());
         edit->setMaximumSequenceLength(1);
         edit->setClearButtonEnabled(true);
+        // Qt's own hint is "Press shortcut": in Title Case, and in the app's language, like every label.
+        if (auto* box = edit->findChild<QLineEdit*>()) box->setPlaceholderText(tr("Press a Shortcut"));
         edit->setProperty("commandId", c->id);
         edit->setMinimumHeight(edit->sizeHint().height());
         // The row as tall as the editor (the theme pads text fields), so its text isn't cut off.
@@ -1305,8 +1361,9 @@ QWidget* SettingsDialog::buildGeneralTab()
     connect(change, &QPushButton::clicked, this, &SettingsDialog::changeDataFolderRequested);
 
     lay->addWidget(sectionTitle(tr("LIBRARY FOLDERS")));
-    lay->addWidget(muted(tr("Each time FreeReader starts, the books put in these folders (or their subfolders) since are "
-                            "added to the library. A book already in the library isn't added twice.")));
+    // In plain words (the owner's request, 2026-11-26: the wording before read awkwardly).
+    lay->addWidget(muted(tr("FreeReader checks these folders, and the folders inside them, every time it starts, and adds "
+                            "any new books it finds. Books already in the library are skipped.")));
     // The list in a frame, its buttons beside it (not floating below).
     auto* foldersRow = new QHBoxLayout;
     foldersRow->setSpacing(10);
@@ -1319,7 +1376,7 @@ QWidget* SettingsDialog::buildGeneralTab()
     auto* folderButtons = new QVBoxLayout;
     folderButtons->setSpacing(6);
     auto* addFolder = new QPushButton(tr("Add Folder…"));
-    addFolder->setToolTip(tr("A folder of books: its books are added now and its new books at every start."));
+    addFolder->setToolTip(tr("Choose a folder of books. Its books are added now, and new ones each time FreeReader starts."));
     addFolder->setProperty("testId", "addLibraryFolder");
     m_removeFolder = new QPushButton(tr("Remove Folder"));
     m_removeFolder->setToolTip(tr("FreeReader stops checking this folder. Its books stay in the library."));
@@ -1349,6 +1406,54 @@ QWidget* SettingsDialog::buildGeneralTab()
     resetLook->setProperty("testId", "resetLook");
     lookRow->addWidget(resetLook, 0, Qt::AlignTop);
     lay->addLayout(lookRow);
+
+    // Page turns here too, not only in the Text and Layout panel (the owner's request, 2026-11-26: "I would expect
+    // the animation settings to be in the settings"). The same settings: a change shows at once in both.
+    lay->addWidget(sectionTitle(tr("PAGE TURNS")));
+    auto* turns = new QGridLayout;
+    turns->setHorizontalSpacing(10);
+    turns->setVerticalSpacing(8);
+    turns->setColumnStretch(3, 1);
+    m_turnStyle = new QComboBox;
+    m_turnStyle->setProperty("testId", "settingsPageTurn");
+    AppearancePanel::addPageTurnStyles(m_turnStyle);
+    turns->addWidget(new QLabel(tr("Animation")), 0, 0);
+    turns->addWidget(m_turnStyle, 0, 1, 1, 2, Qt::AlignLeft);
+    m_turnSpeed = new QSlider(Qt::Horizontal);
+    m_turnSpeed->setRange(100, 1000);
+    m_turnSpeed->setSingleStep(50);
+    m_turnSpeed->setPageStep(100);
+    m_turnSpeed->setFixedWidth(page->fontMetrics().averageCharWidth() * 30);
+    m_turnSpeed->setProperty("testId", "settingsPageTurnMs");
+    m_turnSpeed->setToolTip(tr("How long one page turn takes."));
+    m_turnSpeedValue = new QLabel;
+    m_turnSpeedValue->setProperty("testId", "settingsPageTurnMsValue");
+    turns->addWidget(new QLabel(tr("Duration")), 1, 0);
+    turns->addWidget(m_turnSpeed, 1, 1);
+    turns->addWidget(m_turnSpeedValue, 1, 2);
+    m_turnMotion = new QComboBox;
+    m_turnMotion->setProperty("testId", "settingsPageTurnMotion");
+    AppearancePanel::addPageTurnMotions(m_turnMotion);
+    turns->addWidget(new QLabel(tr("Motion")), 2, 0);
+    turns->addWidget(m_turnMotion, 2, 1, 1, 2, Qt::AlignLeft);
+    m_turnArrows = new QCheckBox(tr("Arrows at the Sides"));
+    m_turnArrows->setProperty("testId", "settingsPageTurnArrows");
+    m_turnArrows->setToolTip(tr("A faint arrow at each side of the page, where a click turns it."));
+    turns->addWidget(m_turnArrows, 3, 1, 1, 2);
+    lay->addLayout(turns);
+    auto sendTurns = [this] {
+        m_settings.pageTurn = m_turnStyle->currentData().toString();
+        m_settings.pageTurnMs = qRound(m_turnSpeed->value() / 50.0) * 50;
+        m_settings.pageTurnMotion = m_turnMotion->currentData().toString();
+        m_settings.pageTurnArrows = m_turnArrows->isChecked();
+        fillPageTurns();   // the duration's label, and what an animation of None greys out
+        emit pageTurnChanged();
+    };
+    connect(m_turnStyle, &QComboBox::activated, this, sendTurns);
+    connect(m_turnMotion, &QComboBox::activated, this, sendTurns);
+    connect(m_turnSpeed, &QSlider::valueChanged, this, sendTurns);
+    connect(m_turnArrows, &QCheckBox::toggled, this, sendTurns);
+    fillPageTurns();   // as the settings are now (Duration and Motion greyed out with no animation)
     lay->addStretch(1);
     connect(resetLook, &QPushButton::clicked, this, [this] {
         m_lookReset = true;
@@ -1364,32 +1469,40 @@ QWidget* SettingsDialog::buildGeneralTab()
 void SettingsDialog::buildPackRows()
 {
     auto* lay = static_cast<QVBoxLayout*>(m_packBox->layout());
-    while (QLayoutItem* it = lay->takeAt(0)) {
-        if (QWidget* w = it->widget()) w->deleteLater();
-        if (QLayout* l = it->layout()) {
-            while (QLayoutItem* c = l->takeAt(0)) {
-                if (c->widget()) c->widget()->deleteLater();
-                delete c;
+    // Everything made before goes, layouts inside layouts included (their labels would stay on the page).
+    std::function<void(QLayout*)> clear = [&](QLayout* l) {
+        while (QLayoutItem* it = l->takeAt(0)) {
+            if (QWidget* w = it->widget()) {
+                w->hide();
+                w->deleteLater();
             }
+            if (QLayout* inner = it->layout()) clear(inner);
+            delete it;
         }
-        delete it;
-    }
+    };
+    clear(lay);
     m_packRows.clear();
+    // One grid for every pack: the names and what each pack holds on the left, then a column for the download
+    // buttons (all as wide as the widest, one above the other) and one for Uninstall. Each pack's buttons in the
+    // middle of its two lines. Before, each row placed its own buttons at the right edge, so a row with Uninstall
+    // and one without didn't line up (the owner's report, 2026-11-26).
+    auto* grid = new QGridLayout;
+    grid->setHorizontalSpacing(10);
+    grid->setVerticalSpacing(1);
+    grid->setColumnStretch(0, 1);
+    lay->addLayout(grid);
+    int gridRow = 0;
     for (const core::languages::LanguagePack& p : core::languages::packsFor(m_settings.readerLanguage)) {
         PackRow r;
         r.language = p.language;
-        auto* row = new QHBoxLayout;
-        row->setSpacing(10);
-        auto* texts = new QVBoxLayout;
-        texts->setSpacing(1);
+        if (gridRow > 0) grid->setRowMinimumHeight(gridRow - 1, 10);   // room between packs
         auto* name = new QLabel(p.language == p.reader ? tr("%1 (Definitions Only)").arg(core::languages::displayTitle(p.language))
                                                        : core::languages::displayTitle(p.language));
         name->setStyleSheet(QStringLiteral("font-weight: 600;"));
-        texts->addWidget(name);
         r.status = muted(QString());
         r.status->setProperty("testId", QStringLiteral("packStatus-") + p.language);
-        texts->addWidget(r.status);
-        row->addLayout(texts, 1);
+        grid->addWidget(name, gridRow, 0);
+        grid->addWidget(r.status, gridRow + 1, 0);
         r.get = new QPushButton;
         r.get->setObjectName(QStringLiteral("Suggested"));
         r.get->setProperty("testId", QStringLiteral("packDownload-") + p.language);
@@ -1397,14 +1510,14 @@ void SettingsDialog::buildPackRows()
         r.remove = new QPushButton(tr("Uninstall"));
         r.remove->setProperty("testId", QStringLiteral("packRemove-") + p.language);
         r.remove->setToolTip(tr("Deletes this pack's files from the app data folder. It can be downloaded again."));
-        row->addWidget(r.get, 0, Qt::AlignTop);
-        row->addWidget(r.remove, 0, Qt::AlignTop);
-        lay->addLayout(row);
+        grid->addWidget(r.get, gridRow, 1, 2, 1, Qt::AlignVCenter);
+        grid->addWidget(r.remove, gridRow, 2, 2, 1, Qt::AlignVCenter);
         r.progress = new QProgressBar;
         r.progress->setProperty("testId", QStringLiteral("packProgress-") + p.language);
         r.progress->setTextVisible(true);
         r.progress->hide();
-        lay->addWidget(r.progress);
+        grid->addWidget(r.progress, gridRow + 2, 0, 1, 3);
+        gridRow += 4;   // name, contents, progress, and a gap
         const QString language = p.language;
         connect(r.get, &QPushButton::clicked, this, [this, language] {
             if (m_packLanguage == language) cancelPackDownload();
@@ -1811,7 +1924,8 @@ void SettingsDialog::fillLibraryFolders()
         if (!QFileInfo(f).isDir()) it->setText(it->text() + tr("  (not found now)"));
     }
     if (m_settings.libraryFolders.isEmpty()) {
-        auto* it = new QListWidgetItem(tr("No folders yet: Add Folder… picks one."), m_libraryFolders);
+        // In Title Case, as every label (the owner's rule, repeated 2026-11-26); the button beside it says how to add one.
+        auto* it = new QListWidgetItem(tr("No Folders Added Yet"), m_libraryFolders);
         it->setFlags(Qt::NoItemFlags);
     }
     if (m_removeFolder) m_removeFolder->setEnabled(false);

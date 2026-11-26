@@ -20,6 +20,7 @@ void fields(Settings& s, F&& f)
     f("show_notebook", s.showNotebook);
     f("show_bilingual", s.showBilingual);
     f("show_practice", s.showPractice);
+    f("practice_width", s.practiceWidth);
     f("text_size_pct", s.look.textSizePct);
     f("line_spacing_pct", s.look.lineSpacingPct);
     f("margin_px", s.look.marginPx);
@@ -39,6 +40,7 @@ void fields(Settings& s, F&& f)
     f("page_turn", s.pageTurn);
     f("page_turn_ms", s.pageTurnMs);
     f("page_turn_motion", s.pageTurnMotion);
+    f("page_turn_arrows", s.pageTurnArrows);
     f("translate_on_select", s.translateOnSelect);
     f("offline_books", s.offlineBooks);
     f("page_directions", s.pageDirections);
@@ -60,8 +62,14 @@ void fields(Settings& s, F&& f)
     f("practice_sentence_front", s.practiceSentenceFront);
     f("practice_passages", s.practicePassages);
     f("practice_highlights", s.practiceHighlights);
+    f("practice_lookups", s.practiceLookups);
     f("practice_new_per_day", s.practiceNewPerDay);
     f("practice_order", s.practiceOrder);
+    f("word_list_sort", s.wordListSort);
+    f("word_list_columns", s.wordListColumns);
+    f("word_list_columns_wide", s.wordListColumnsWide);
+    f("gemini_wait_ms", s.geminiWaitMs);
+    f("lm_studio_wait_ms", s.lmStudioWaitMs);
     f("last_folder", s.lastFolder);
     f("shortcuts", s.shortcuts);
     f("mouse_shortcuts", s.mouseShortcuts);
@@ -107,8 +115,11 @@ bool Settings::load(const QString& path)
     if (!core::languages::readerLanguages().contains(readerLanguage)) readerLanguage = QStringLiteral("en");
     speechRatePct = qBound(-100, speechRatePct, 100);
     speechVolumePct = qBound(0, speechVolumePct, 100);
-    if (!QStringList{"none", "slide", "cover", "fade", "curl"}.contains(pageTurn)) pageTurn = QStringLiteral("none");
-    if (!QStringList{"smooth", "even", "gentle"}.contains(pageTurnMotion)) pageTurnMotion = QStringLiteral("smooth");
+    if (!QStringList{"none", "slide", "cover", "fade", "curl", "uncover", "flip", "card"}.contains(pageTurn)) pageTurn = QStringLiteral("none");
+    // The keys of PageView::motions().
+    if (!QStringList{"smooth", "even", "gentle", "soft", "quick", "snappy", "rounded", "speeding", "ease", "strong", "overshoot", "windup",
+                     "springy", "bounce"}.contains(pageTurnMotion))
+        pageTurnMotion = QStringLiteral("smooth");
     {
         QStringList keep;
         for (const QString& d : practiceDirections)

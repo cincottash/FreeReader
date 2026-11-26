@@ -9,7 +9,9 @@
 #include "core/layout/PageRenderer.h"
 #include "core/position/Position.h"
 
+#include <QEasingCurve>
 #include <QElapsedTimer>
+#include <QStringList>
 #include <QPixmap>
 #include <QTimer>
 #include <QWidget>
@@ -53,6 +55,13 @@ public:
     bool nextScreen();
     bool previousScreen();
     void flushResize();   // apply a resize still waiting in its short delay
+    // While a panel beside the page is dragged wider or narrower: the page is laid out for its new width as the drag
+    // goes, one layout at a time (the next starts when the last is ready, for the width then; none wait for the
+    // pause a window's resize waits for), the last layout drawn in its own columns meanwhile; and once more when
+    // the hold ends.
+    void setHoldLayout(bool on);
+    bool holdsLayout() const { return m_hold; }
+    int laidOutWidth() const { return m_geo.width; }   // the page width the text was laid out for last (tests)
 
     bool hasSelection() const { return m_selEnd != m_selStart; }
     QString selectedText() const;
@@ -84,6 +93,17 @@ public:
     // Page turn animation (Settings > the Text and Layout panel): style none / slide / cover / fade / curl, how long
     // a turn takes, and how it moves (smooth / even / gentle).
     void setPageTurn(const QString& style, int ms, const QString& motion);
+    static QEasingCurve::Type easingFor(const QString& motion);   // a Motion key: its curve
+    static QStringList motions();                                  // every Motion key, in the menu's order
+    // Faint arrows at the sides, always (a click there turns the page); off: only when pointed at.
+    void setTurnArrows(bool on)
+    {
+        m_turnArrows = on;
+        update();
+    }
+    bool turnArrows() const { return m_turnArrows; }
+    // Whether a point is where a click turns the page (-1 the left side, 1 the right, 0 not), for tests.
+    int turnSideAt(const QPointF& pos) const { return hoverSide(pos); }
     bool isAnimating() const;
     // A short message over the page for a moment ("Margins: 72 px").
     void showNotice(const QString& text);
@@ -125,6 +145,7 @@ private:
     struct Geometry {
         int columns = 1;
         float columnWidth = 600, pageHeight = 800, gap = 64, left = 32, top = 48;
+        int width = 0;   // the page width it was made for
     };
     Geometry geometryFor(QSize size) const;
     void applyParams();
@@ -135,6 +156,8 @@ private:
     int columnAt(const QPointF& pos) const;
     layout::Hit hitAt(const QPointF& pos, int* column = nullptr) const;
     int hoverSide(const QPointF& pos) const;   // -1 left arrow, 1 right arrow, 0 none
+    bool inTurnBand(qreal y) const;            // the middle of the height, where the sides turn pages
+    bool m_turnArrows = true;
     void turnFromSide(int side);               // the turn an edge (or arrow) gives: forward on the right, or on the left right to left
     bool m_rtl = false;
     void onLayoutReady(int spine);
@@ -150,6 +173,10 @@ private:
     QTimer m_resizeTimer;
     core::Position m_anchor;
     std::shared_ptr<const layout::ChapterLayout> m_shown;   // last layout painted (kept while a new one is made)
+    Geometry m_shownGeo;                                     // the geometry m_shown was laid out for
+    bool m_hold = false;                                     // setHoldLayout
+    bool m_liveBusy = false;                                 // held: a layout is being made
+    void startLiveLayout();
     QElapsedTimer m_waiting;
 
     // Selection (one chapter at a time)

@@ -9,6 +9,7 @@
 #include "core/services/BookEngine.h"
 
 #include <QContextMenuEvent>
+#include <QHash>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPainter>
@@ -59,9 +60,27 @@ void PageView::setPageTurn(const QString& style, int ms, const QString& motion)
 {
     m_turnStyle = style;
     m_turn->setDuration(qBound(100, ms, 1000));
-    m_turn->setEasingCurve(motion == QLatin1String("even")     ? QEasingCurve::Linear
-                           : motion == QLatin1String("gentle") ? QEasingCurve::InOutSine
-                                                               : QEasingCurve::OutCubic);
+    m_turn->setEasingCurve(easingFor(motion));
+}
+
+QEasingCurve::Type PageView::easingFor(const QString& motion)
+{
+    // How a turn speeds up and slows down (Text and Layout > Motion; many more since the owner's request of
+    // 2026-11-26). Unknown keys: Smooth.
+    static const QHash<QString, QEasingCurve::Type> curves{
+        {QStringLiteral("smooth"), QEasingCurve::OutCubic},     {QStringLiteral("even"), QEasingCurve::Linear},
+        {QStringLiteral("gentle"), QEasingCurve::InOutSine},    {QStringLiteral("soft"), QEasingCurve::OutSine},
+        {QStringLiteral("quick"), QEasingCurve::OutQuint},      {QStringLiteral("snappy"), QEasingCurve::OutExpo},
+        {QStringLiteral("rounded"), QEasingCurve::OutCirc},     {QStringLiteral("speeding"), QEasingCurve::InCubic},
+        {QStringLiteral("ease"), QEasingCurve::InOutCubic},     {QStringLiteral("strong"), QEasingCurve::InOutQuint},
+        {QStringLiteral("overshoot"), QEasingCurve::OutBack},   {QStringLiteral("windup"), QEasingCurve::InOutBack},
+        {QStringLiteral("springy"), QEasingCurve::OutElastic},  {QStringLiteral("bounce"), QEasingCurve::OutBounce}};
+    return curves.value(motion, QEasingCurve::OutCubic);
+}
+
+QStringList PageView::motions()
+{
+    return {"smooth", "even", "gentle", "soft", "quick", "snappy", "rounded", "speeding", "ease", "strong", "overshoot", "windup", "springy", "bounce"};
 }
 
 bool PageView::isAnimating() const { return m_turn->state() == QAbstractAnimation::Running || !m_toPix.isNull(); }
@@ -117,7 +136,11 @@ void PageView::paintTurn(QPainter& p)
     // Turning back is turning forward played backwards: the new screen is the one being turned away.
     const QPixmap& a = m_turnDir > 0 ? m_fromPix : m_toPix;   // the page that leaves (forward)
     const QPixmap& b = m_turnDir > 0 ? m_toPix : m_fromPix;   // the page that arrives (forward)
-    const double s = m_turnDir > 0 ? t : 1.0 - t;
+    double s = m_turnDir > 0 ? t : 1.0 - t;
+    // Overshoot, Wind-Up and Springy go past the ends (s below 0 or above 1): the sliding styles show that, the
+    // others stay within the turn.
+    static const QStringList pastTheEnds{QStringLiteral("slide"), QStringLiteral("cover"), QStringLiteral("uncover"), QStringLiteral("card")};
+    if (!pastTheEnds.contains(m_turnStyle)) s = qBound(0.0, s, 1.0);
     const qreal w = width(), h = height();
     p.setRenderHint(QPainter::SmoothPixmapTransform);
     auto shadow = [&](qreal x, qreal width, bool toRight, qreal strength) {
@@ -142,6 +165,39 @@ void PageView::paintTurn(QPainter& p)
         p.setOpacity(s);
         p.drawPixmap(QPointF(0, 0), b);
         p.setOpacity(1);
+    } else if (m_turnStyle == QLatin1String("uncover")) {
+        // Cover the other way: the old page slides away, the new one lies under it.
+        p.drawPixmap(QPointF(0, 0), b);
+        const qreal x = -s * w * dir;
+        if (m_rtl) shadow(x, 24, false, 1.0 - s * 0.5);
+        else shadow(x + w, 24, true, 1.0 - s * 0.5);
+        p.drawPixmap(QPointF(x, 0), a);
+    } else if (m_turnStyle == QLatin1String("flip") || m_turnStyle == QLatin1String("card")) {
+        // In perspective, about an upright axis: a hardcover page swings over on its spine (the left edge; the
+        // right one right to left) and the new page lies under it; a card turns over about its middle, the new
+        // page on its back.
+        const bool card = m_turnStyle == QLatin1String("card");
+        auto turned = [&](const QPixmap& pm, qreal axisX, qreal degrees, qreal darken) {
+            QTransform tr;
+            tr.translate(axisX, h / 2);
+            tr.rotate(degrees, Qt::YAxis, qMax<qreal>(1024, w * 1.6));
+            tr.translate(-axisX, -h / 2);
+            p.save();
+            p.setTransform(tr, true);
+            p.drawPixmap(QPointF(0, 0), pm);
+            if (darken > 0) p.fillRect(QRectF(0, 0, w, h), QColor(0, 0, 0, int(140 * darken)));
+            p.restore();
+        };
+        if (card) {
+            // The first half the old page turns edge-on, the second the new one turns to face the reader.
+            const qreal deg = s < 0.5 ? s * 180 : s * 180 - 180;
+            const qreal darken = s < 0.5 ? s * 2 * 0.5 : (1 - s) * 2 * 0.5;
+            turned(s < 0.5 ? a : b, w / 2, deg * dir, darken);
+        } else {
+            p.drawPixmap(QPointF(0, 0), b);
+            shadow(m_rtl ? w * s : w * (1 - s), qMin<qreal>(64, w * 0.2), m_rtl, 1.0 - s);
+            turned(a, m_rtl ? w : 0, -s * 90 * dir, s * 0.6);
+        }
     } else {   // curl: the page folds back from the right edge, its back lying over the page that is left
         const qreal x = w * (1 - s);              // the fold
         const qreal flap = qMin(w - x, x);        // the folded part, lying left of the fold
@@ -205,6 +261,7 @@ PageView::Geometry PageView::geometryFor(QSize size) const
     g.left = std::floor((float(size.width()) - used) / 2.f);
     g.top = 44;
     g.pageHeight = qMax(120.f, float(size.height()) - g.top - 48.f);   // the bottom margin also holds the Back chip
+    g.width = size.width();
     return g;
 }
 
@@ -235,6 +292,12 @@ void PageView::applyParams()
 void PageView::resizeEvent(QResizeEvent*)
 {
     emit resized();   // pop-ups placed next to text would point at the wrong place
+    if (m_hold && m_engine->isOpen()) {
+        // Laid out for this width now, or when the layout being made is ready (then for the width at that time).
+        if (!m_liveBusy) startLiveLayout();
+        update();   // meanwhile the last layout, in its own columns, centered (paintScreen)
+        return;
+    }
     if (m_geo.columnWidth <= 0 || !m_engine->isOpen()) {
         applyParams();
         return;
@@ -278,16 +341,25 @@ void PageView::onLayoutReady(int spine)
     const auto cl = current();
     if (!cl) return;
     m_shown = cl;
+    m_shownGeo = m_geo;
     if (m_anchor.offset == kEndOfChapter && !cl->pages.empty()) {
         const int c = qMax(1, m_geo.columns);
         const int last = int(cl->pages.size()) - 1;
         m_anchor.offset = cl->pages[size_t(last - last % c)].start;
         emit positionChanged(m_anchor, true);
     }
+    update();
+    if (m_hold) {
+        // Dragging a panel's edge: the next layout, for the width now (no neighbours: they'd be out of date at
+        // once).
+        m_liveBusy = false;
+        if (size().width() != m_geo.width) startLiveLayout();
+        emit readyChanged();
+        return;
+    }
     // Neighbours, so turning into them is instant.
     m_engine->request(spine + 1);
     m_engine->request(spine - 1);
-    update();
     emit readyChanged();
 }
 
@@ -329,6 +401,26 @@ void PageView::flushResize()
     if (!m_resizeTimer.isActive()) return;
     m_resizeTimer.stop();
     applyParams();
+}
+
+void PageView::setHoldLayout(bool on)
+{
+    // Dragging the Practice panel's edge: the panel follows the mouse, and so does the book's text, one layout at a
+    // time. Laid out at every pause of the drag (after the resize's pause), the old pages were drawn at the new
+    // positions meanwhile and the text jumped about; kept as it was until release, the text stopped following once
+    // the page was narrower than its column (the owner's reports, 2026-11-25 and 2026-11-26).
+    if (m_hold == on) return;
+    m_hold = on;
+    m_resizeTimer.stop();
+    if (on) return;
+    m_liveBusy = false;
+    applyParams();   // the final width (nothing is laid out again when it is the one laid out last)
+}
+
+void PageView::startLiveLayout()
+{
+    applyParams();
+    m_liveBusy = current() == nullptr;   // the same parameters as before: nothing to wait for
 }
 
 bool PageView::nextScreen()
@@ -385,8 +477,18 @@ float PageView::turnZone() const
     return qBound(24.f, m_geo.left - 8.f, 56.f);
 }
 
+bool PageView::inTurnBand(qreal y) const
+{
+    // Only the middle of the page's height turns pages (the owner's report, 2026-11-26: a click a little below
+    // the Practice button, at the top right, turned the page): the middle 60 %, at least 80 px from the top and
+    // the bottom.
+    const qreal h = height();
+    return y >= qMax<qreal>(80, h * 0.2) && y <= qMin<qreal>(h - 80, h * 0.8);
+}
+
 int PageView::hoverSide(const QPointF& pos) const
 {
+    if (!inTurnBand(pos.y())) return 0;
     const float zone = turnZone();
     if (pos.x() < zone && (m_rtl ? canGoNext() : canGoPrevious())) return -1;
     if (pos.x() > width() - zone && (m_rtl ? canGoPrevious() : canGoNext())) return 1;
@@ -406,16 +508,27 @@ void PageView::paintEvent(QPaintEvent*)
     if (!m_toPix.isNull()) paintTurn(p);
     else paintScreen(p);
 
-    if (m_hover != 0 && m_toPix.isNull()) {
+    if (m_toPix.isNull() && m_engine->isOpen()) {
         const float zone = turnZone();
         const float cx = qMax(zone / 2, 24.f);   // the whole arrow shows, even beside a narrow strip
-        const QPointF c(m_hover < 0 ? cx : width() - cx, height() / 2.0);
         p.setRenderHint(QPainter::Antialiasing);
-        p.setPen(QPen(m_theme.line, 1));
-        p.setBrush(m_theme.surface);
-        p.drawEllipse(c, 22, 22);
-        const QIcon ic = icons::icon(m_hover < 0 ? "chevronLeft" : "chevronRight", m_theme.fg, 22);
-        ic.paint(&p, QRect(int(c.x()) - 11, int(c.y()) - 11, 22, 22));
+        for (int side : {-1, 1}) {
+            const QPointF c(side < 0 ? cx : width() - cx, height() / 2.0);
+            if (m_hover == side) {
+                // Pointed at: the arrow in a circle.
+                p.setPen(QPen(m_theme.line, 1));
+                p.setBrush(m_theme.surface);
+                p.drawEllipse(c, 22, 22);
+                const QIcon ic = icons::icon(side < 0 ? "chevronLeft" : "chevronRight", m_theme.fg, 22);
+                ic.paint(&p, QRect(int(c.x()) - 11, int(c.y()) - 11, 22, 22));
+            } else if (m_turnArrows && (side < 0 ? (m_rtl ? canGoNext() : canGoPrevious()) : (m_rtl ? canGoPrevious() : canGoNext()))) {
+                // Always there, faintly: a click at the side turns the page (the owner's request, 2026-11-26).
+                const QIcon ic = icons::icon(side < 0 ? "chevronLeft" : "chevronRight", m_theme.muted, 22);
+                p.setOpacity(0.55);
+                ic.paint(&p, QRect(int(c.x()) - 11, int(c.y()) - 11, 22, 22));
+                p.setOpacity(1);
+            }
+        }
     }
     if (!m_notice.isEmpty()) {
         p.setRenderHint(QPainter::Antialiasing);
@@ -436,6 +549,7 @@ void PageView::paintEvent(QPaintEvent*)
 void PageView::paintScreen(QPainter& p)
 {
     auto cl = current();
+    const bool fresh = cl != nullptr;
     if (!cl) cl = (m_shown && m_shown->spine == m_anchor.spine) ? m_shown : nullptr;
     if (!cl) {
         if (m_engine->isOpen() && m_waiting.elapsed() > 250) {
@@ -443,6 +557,19 @@ void PageView::paintScreen(QPainter& p)
             p.drawText(rect(), Qt::AlignCenter, tr("Laying out pages…"));
         }
         return;
+    }
+    // The pages are drawn with the geometry they were laid out for: the last layout, while the new one is being
+    // made, keeps its own columns (drawn with the new ones, the text jumped about). In a width other than the one
+    // they were made for (a panel's edge being dragged, or the new layout not ready yet), they are centered.
+    struct Restore {
+        Geometry& target;
+        Geometry saved;
+        ~Restore() { target = saved; }
+    } restore{m_geo, m_geo};
+    if (!fresh) m_geo = m_shownGeo;
+    if (m_geo.width != width()) {
+        const float used = m_geo.columnWidth * float(m_geo.columns) + m_geo.gap * float(m_geo.columns - 1);
+        m_geo.left = qMax(qMin(float(m_look.marginPx), m_geo.left), std::floor((float(width()) - used) / 2.f));
     }
     const layout::RenderColors colors{m_theme.fg, m_theme.muted, m_theme.accent, m_theme.line, m_theme.surface};
     std::vector<layout::Overlay> overlays;

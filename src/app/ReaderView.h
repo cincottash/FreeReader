@@ -133,6 +133,15 @@ public:
     bool toggleBookmark();
     // A bookmark on the selected word (its first word), or off again when it has one. Returns its id (0 when removed).
     int toggleWordBookmark();
+    // After a new bookmark, when the book has others: remove the one added last before it, all of them, or keep
+    // them (asked in a message box; tests answer with setBookmarkAnswerForTests, given how many there are).
+    enum class BookmarkChoice { Keep, RemovePrevious, RemoveAll };
+    void setBookmarkAnswerForTests(std::function<BookmarkChoice(int earlier)> answer) { m_bookmarkAnswerForTests = std::move(answer); }
+    // The page turn animation and the arrows at the sides, from the settings (both the page and the Text and
+    // Layout panel).
+    void applyPageTurnSettings();
+    // That question (the caller owns it; pictures show it without running it).
+    class QMessageBox* bookmarkQuestion(int earlier, const QString& where);
     int wordBookmarkAtSelection() const;                         // true when the page is bookmarked now
     bool pageIsBookmarked() const;
     void goToAnnotation(int annotationId);
@@ -141,6 +150,13 @@ public:
     bool notebookVisible() const;
     void setNotebookVisible(bool on);
     void refreshAnnotations();
+
+private:
+    core::TranslationResult m_lastLookupResult;   // the last word or passage looked up (a highlight of it keeps its meaning)
+    void offerToRemoveEarlierBookmarks(int newId);
+    std::function<BookmarkChoice(int)> m_bookmarkAnswerForTests;
+
+public:
 
     // The bilingual view: the English of the paragraphs on the screen, in a panel on the right.
     bool bilingualVisible() const;
@@ -152,6 +168,9 @@ public:
     // this book or all books, beside the page. One panel on the right at a time.
     void setPracticeView(PracticeView* view);
     PracticePanel* practicePanel() const { return m_practicePanel; }
+    // The practice panel over the whole page area (its Maximize button), or back beside the page.
+    void setPracticeMaximized(bool on);
+    bool practiceMaximized() const { return m_practiceMaximized; }
     bool practiceVisible() const;
     void setPracticeVisible(bool on);
     // Two pages side by side, or one (the header's button): the Columns setting, Two or One.
@@ -189,6 +208,7 @@ public:
 signals:
     void rightPanelOpened();   // the Notebook, English alongside or the practice workspace (one panel on the right)
     void libraryRequested();
+    void latestBookmarkRequested();   // the header's Go to Latest Bookmark
     void fullScreenRequested();
     void imageRequested(const QString& path);
     void settingsLinkClicked();
@@ -197,7 +217,6 @@ signals:
     void moreThemesRequested(const QPoint& windowPos);   // below-right corner of the button, window coordinates
     void translationSettingsRequested();
     void wordLogged();
-    void fullPracticeRequested();   // the workspace's Open Full Window
 
 protected:
     void resizeEvent(QResizeEvent*) override;
@@ -321,10 +340,12 @@ private:
     SearchPanel* m_search;
     QToolButton* m_searchButton;
     QToolButton* m_bookmarkButton;
+    QToolButton* m_latestBookmarkButton;
     QToolButton* m_notebookButton;
     QToolButton* m_spreadButton;
     QToolButton* m_practiceButton;
     PracticePanel* m_practicePanel;
+    bool m_practiceMaximized = false;        // the panel over the whole page area (its Maximize button)
     void updatePracticePage();   // the pages showing, for the workspace's This Page
     void syncSpreadButton();
     int m_searchId = 0;

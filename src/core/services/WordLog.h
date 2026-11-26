@@ -9,6 +9,7 @@
 #include "core/practice/Scheduler.h"
 
 #include <QDateTime>
+#include <QHash>
 #include <QList>
 #include <QString>
 #include <QStringList>
@@ -88,6 +89,9 @@ public:
     void remove(int id);                             // with its cards and their history
     int count() const;
     QList<QPair<int, QString>> booksWithWords() const;   // (book id, title), by title
+    // The soonest review of every word practised already (cards neither new nor suspended), by word id: one query
+    // for the Word List's Next Review order.
+    QHash<int, QDateTime> nextReviews() const;
 
     // Practice. `bookId` 0: all books. Passages are left out unless `passages`.
     struct Filter {

@@ -101,7 +101,9 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 - Answers come from one engine at a time, always in this order: **Google's Gemini** (free tier, no card needed),
   then **LM Studio** on your own computer (optional), then what your **Word List** already says, then the **offline
   dictionaries** and the **offline translator**. The next one is asked only when the one before can't answer or is
-  switched off (**Settings ▸ Translation**). Every Gemini and LM Studio answer is kept, so looking up the same words
+  switched off (**Settings ▸ Translation**), or when Gemini or LM Studio takes longer than its **Wait** time there
+  over a word or passage (2.5 seconds at first): its late answer doesn't replace the one showing, and is kept for
+  next time. Every Gemini and LM Studio answer is kept, so looking up the same words
   again costs nothing and works offline; a kept answer follows the same order (Gemini's is used while Gemini is on).
 - **Set it up once:** get a free key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey), then
   paste it in **Settings ▸ Translation ▸ All Translation Options…**. The key is kept in Windows Credential Manager
@@ -156,8 +158,9 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 - **Practice while you read:** the **Practice** button in the reader's header (or Ctrl+P) opens a practice
   workspace beside the page, the way Kindle shows its notes beside the book. It has the flashcards and the
   **Word List** of **This Page** (the words you looked up or highlighted on the pages showing), this book or all
-  books, with their meanings. It stays open as you turn pages, and new words show in it at once. The button at
-  its top right opens Practice in the whole window.
+  books, with their meanings. It stays open as you turn pages, and new words show in it at once. Drag its left
+  edge to make it wider. **Maximize** at its top right spreads it over the page; the same button, now
+  **Restore**, puts it back.
 - **Practice Words** (at the bottom of the library's left column, or Ctrl+P there) turns the words you looked up or
   highlighted into flashcards (a highlighted word is never looked up for this: the offline dictionary fills in its
   meaning, or its card has a **Look Up Meaning** button). Each session goes through all your cards in the **Order**
@@ -165,8 +168,12 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
   later in the same session.
 - Choose the directions: Spanish → English, English → Spanish, Definition → Word, or the book's sentence with a
   gap. Flip the card, or type the answer (missing accents are accepted but pointed out).
-- **Word List:** every word with its meaning, book and page. Search, change a meaning, star, **Show in Book**,
-  and **Export…** a file Anki can import.
+- **Word List:** every word with its meaning, book and page, in pages as long as the list has room for, numbered
+  below it (‹ 1 2 3 … ›; the mouse wheel turns them too). Search, double-click a meaning to change it, and
+  **Export…** a file Anki can import. Double-click a word to see it in the book; right-click it for everything
+  else: Go to Word, Change Meaning, Copy, Star, Start Over and Delete. **Sort** them by when you looked them up or
+  added them, A to Z or Z to A, meaning, book order, how often you looked them up, starred first or next review (or
+  click a column's heading, and again for the other way round). Drag a column's border to change its width.
 
 <details>
 <summary>Practice in the whole window</summary>
@@ -188,6 +195,8 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
   highlighted or cleared, so it doesn't look like a highlight.
 - **Bookmark This Page** (Ctrl+D, or the bookmark button), or **Bookmark Here** (right-click a word): a bookmark on
   that word, marked with a small ribbon. Going to it from the Notebook selects the word.
+- **Go to Latest Bookmark** (Ctrl+Shift+D, or the bookmark-with-an-arrow button in the reader's and the library's
+  header): the book with the bookmark you added last opens at its page, whichever book you're in.
 - **Notebook** (Ctrl+Shift+N): the book's highlights, notes and bookmarks in reading order, filtered by kind or
   color. Click one to go there; **Export…** saves them as Markdown, plain text, CSV or TSV (for spreadsheets), or
   JSON (for other tools).
@@ -236,8 +245,10 @@ hyphenation. **Apply To** decides which books a change is for: all books, all bo
 this one. Over the page, Ctrl+wheel changes the text size and Ctrl+Shift+wheel the margins; Ctrl+[ and Ctrl+] narrow
 and widen the margins too.
 
-**Page Turns** in the same panel animates turning the page: Slide, Cover, Fade or Page Curl, with its duration and
-how it moves.
+**Page Turns** in the same panel (and in **Settings ▸ General**) animates turning the page: Slide, Cover, Uncover,
+Fade, Page Curl, Hardcover Flip or Card Flip (or None), with its duration and one of 14 motions (Smooth, Even,
+Gentle, Bounce, Springy, Overshoot and more). A click at the middle of either side turns the page; faint **Arrows at
+the Sides** show where (they can be turned off there).
 
 ## Themes
 
@@ -268,6 +279,7 @@ or forward button, with Ctrl, Shift or Alt if you like (**Next Page** and **Prev
 | Translate Selection | Ctrl+E |
 | Search This Book… | Ctrl+F |
 | Bookmark This Page | Ctrl+D |
+| Go to Latest Bookmark | Ctrl+Shift+D |
 | Show or Hide Notebook | Ctrl+Shift+N |
 | Practice Words | Ctrl+P |
 | Back | Alt+Left, Backspace |

@@ -7,6 +7,7 @@
 #include "ThemePicker.h"
 #include "ReaderView.h"
 #include "Settings.h"
+#include "StartupTrace.h"
 #include "Theme.h"
 
 #include "core/format/FormatPlugin.h"
@@ -39,6 +40,8 @@
 #include <cstdio>
 #include <functional>
 #include <memory>
+
+#include <cstdlib>
 
 #ifdef Q_OS_LINUX
 // An AppImage carries only the X11 ("xcb") and offscreen display plug-ins. Many Wayland desktops tell every Qt
@@ -240,12 +243,17 @@ static int screenshot(QCommandLineParser& cli, const QString& out)
     return 0;
 }
 
+static void traceExit() { startupTrace("process ends"); }
+
 int main(int argc, char* argv[])
 {
+    startupTrace("start");
+    std::atexit(traceExit);   // after everything made later is gone
 #ifdef Q_OS_LINUX
     if (!chooseDisplayPlugin()) return 1;
 #endif
     QApplication app(argc, argv);
+    startupTrace("QApplication made");
     QApplication::setApplicationName(QStringLiteral(APP_NAME));
     QApplication::setOrganizationName(QStringLiteral(APP_ORG));
     QApplication::setApplicationVersion(QStringLiteral(APP_VERSION));
@@ -256,7 +264,9 @@ int main(int argc, char* argv[])
     QApplication::setFont(ui);
     core::registerBuiltInFormats();
     registerBundledFonts();
+    startupTrace("fonts registered");
     applyTheme(app, Theme::midnight());
+    startupTrace("theme applied");
 
     QCommandLineParser cli;
     cli.setApplicationDescription(QStringLiteral("An e-book reader for DRM-free books."));
@@ -289,15 +299,20 @@ int main(int argc, char* argv[])
     if (cli.isSet(QStringLiteral("check-speech"))) return checkSpeech(cli.value(QStringLiteral("check-speech")));
     if (cli.isSet(QStringLiteral("screenshot"))) return screenshot(cli, cli.value(QStringLiteral("screenshot")));
 
+    startupTrace("normal start");
     if (appdata::resolve(cli.value(QStringLiteral("data-folder")), nullptr).isEmpty()) return 0;
+    startupTrace("data folder found");
     Settings settings;
     settings.load(appdata::settingsFile());
     // The app's own text in the reader's language (nothing to do for English).
     installInterfaceLanguage(settings.readerLanguage, appdata::folder());
+    startupTrace("settings read");
     core::Library library;
     QString err;
     library.open(QDir(appdata::folder()).filePath(QStringLiteral("library.sqlite")), &err);
+    startupTrace("library opened");
     auto w = std::make_unique<MainWindow>(settings, &library, true);
+    startupTrace("window made");
     // Another language for the app's text (the welcome, or Settings > General > Restart Now): a new window in it, with
     // the book that was open, then the old one goes (after the new one shows, so the app never has no window).
     std::function<void(MainWindow*)> watch;
@@ -319,6 +334,13 @@ int main(int argc, char* argv[])
     };
     watch(w.get());
     w->show();
+    startupTrace("window shown");
+    QTimer::singleShot(0, &app, [] { startupTrace("running"); });
+    QTimer::singleShot(3000, &app, [] { startupTrace("running after 3 s"); });
     if (!cli.positionalArguments().isEmpty()) w->openBook(cli.positionalArguments().first());
-    return app.exec();
+    const int code = app.exec();
+    startupTrace("event loop ended");
+    w.reset();
+    startupTrace("window gone");
+    return code;
 }
