@@ -173,7 +173,7 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
   **Export…** a file Anki can import. Double-click a word to see it in the book; right-click it for everything
   else: Go to Word, Change Meaning, Copy, Star, Start Over and Delete. **Sort** them by when you looked them up or
   added them, A to Z or Z to A, meaning, book order, how often you looked them up, starred first or next review (or
-  click a column's heading).
+  click a column's heading, and again for the other way round). Drag a column's border to change its width.
 
 <details>
 <summary>Practice in the whole window</summary>

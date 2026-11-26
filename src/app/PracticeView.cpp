@@ -846,8 +846,10 @@ QWidget* PracticeView::buildList()
     m_listSort->setToolTip(tr("The order of the words (also: click a column's heading)"));
     for (const auto& [key, label] : std::initializer_list<std::pair<const char*, QString>>{
              {"recent", tr("Recently Looked Up")}, {"newest", tr("Newest First")}, {"oldest", tr("Oldest First")},
-             {"az", tr("A to Z")}, {"za", tr("Z to A")}, {"meaning", tr("Meaning A to Z")}, {"book", tr("Book Order")},
-             {"lookups", tr("Most Looked Up")}, {"starred", tr("Starred First")}, {"review", tr("Next Review")}})
+             {"az", tr("A to Z")}, {"za", tr("Z to A")}, {"meaning", tr("Meaning A to Z")}, {"meaning-za", tr("Meaning Z to A")},
+             {"book", tr("Book Order")}, {"book-reverse", tr("Book Order, Last First")}, {"lookups", tr("Most Looked Up")},
+             {"lookups-least", tr("Least Looked Up")}, {"starred", tr("Starred First")}, {"review", tr("Next Review")},
+             {"review-latest", tr("Next Review, Latest First")}})
         m_listSort->addItem(label, QString::fromLatin1(key));
     m_listSort->setCurrentIndex(qMax(0, m_listSort->findData(m_settings.wordListSort)));
     auto* countLine = new QHBoxLayout;
@@ -859,22 +861,17 @@ QWidget* PracticeView::buildList()
     countLine->addWidget(m_listSort);
     lay->addLayout(countLine);
     connect(m_listSort, &QComboBox::currentIndexChanged, this, [this] { setListSort(m_listSort->currentData().toString()); });
-    // A heading: its order; the same heading again, the other way round (Word: A to Z, Z to A).
+    // A heading: its order; the same heading again, the other way round.
     m_list->header()->setSectionsClickable(true);
     m_list->header()->setSortIndicatorShown(true);
     connect(m_list->header(), &QHeaderView::sectionClicked, this, [this](int column) {
-        const QString now = m_settings.wordListSort;
-        QString key;
-        switch (column) {
-        case 0: key = now == QLatin1String("az") ? QStringLiteral("za") : QStringLiteral("az"); break;
-        case 1: key = QStringLiteral("meaning"); break;
-        case 2:
-        case 3: key = QStringLiteral("book"); break;
-        case 4: key = QStringLiteral("lookups"); break;
-        case 5: key = QStringLiteral("review"); break;
-        default: return;
-        }
-        setListSort(key);
+        // Every heading, and again the other way round (the owner's request, 2026-11-26: only Word did). Book and
+        // Page both go by the place in the book.
+        static const char* const pairs[][2] = {{"az", "za"},       {"meaning", "meaning-za"}, {"book", "book-reverse"},
+                                               {"book", "book-reverse"}, {"lookups", "lookups-least"}, {"review", "review-latest"}};
+        if (column < 0 || column >= int(std::size(pairs))) return;
+        const QString first = QString::fromLatin1(pairs[column][0]), second = QString::fromLatin1(pairs[column][1]);
+        setListSort(m_settings.wordListSort == first ? second : first);
     });
     // The pages' numbers under the list, as a search engine lists its result pages (the owner's request,
     // 2026-11-25): ‹ 1 2 3 … ›, the page showing in the text's color.
@@ -1167,9 +1164,11 @@ void PracticeView::sortListEntries()
                                     : tr("The order of the words (also: click a column's heading)"));
     // The heading's arrow on the column the order goes by (none for the orders no column shows).
     static const QHash<QString, QPair<int, Qt::SortOrder>> columns{
-        {QStringLiteral("az"), {0, Qt::AscendingOrder}},   {QStringLiteral("za"), {0, Qt::DescendingOrder}},
-        {QStringLiteral("meaning"), {1, Qt::AscendingOrder}}, {QStringLiteral("book"), {3, Qt::AscendingOrder}},
-        {QStringLiteral("lookups"), {4, Qt::DescendingOrder}}, {QStringLiteral("review"), {5, Qt::AscendingOrder}}};
+        {QStringLiteral("az"), {0, Qt::AscendingOrder}},          {QStringLiteral("za"), {0, Qt::DescendingOrder}},
+        {QStringLiteral("meaning"), {1, Qt::AscendingOrder}},     {QStringLiteral("meaning-za"), {1, Qt::DescendingOrder}},
+        {QStringLiteral("book"), {3, Qt::AscendingOrder}},        {QStringLiteral("book-reverse"), {3, Qt::DescendingOrder}},
+        {QStringLiteral("lookups"), {4, Qt::DescendingOrder}},    {QStringLiteral("lookups-least"), {4, Qt::AscendingOrder}},
+        {QStringLiteral("review"), {5, Qt::AscendingOrder}},      {QStringLiteral("review-latest"), {5, Qt::DescendingOrder}}};
     const auto col = columns.value(key, {-1, Qt::AscendingOrder});
     m_list->header()->setSortIndicator(col.first, col.second);
     if (key == QLatin1String("recent")) return;   // as the word log gives them
@@ -1177,37 +1176,36 @@ void PracticeView::sortListEntries()
     auto alpha = [&](const QString& a, const QString& b) { return QString::localeAwareCompare(folded(a), folded(b)); };
     auto& v = m_listEntries;
     using W = core::WordEntry;
-    if (key == QLatin1String("newest"))
-        std::stable_sort(v.begin(), v.end(), [](const W& a, const W& b) { return a.added > b.added; });
-    else if (key == QLatin1String("oldest"))
-        std::stable_sort(v.begin(), v.end(), [](const W& a, const W& b) { return a.added < b.added; });
-    else if (key == QLatin1String("az") || key == QLatin1String("za")) {
-        const bool up = key == QLatin1String("az");
-        std::stable_sort(v.begin(), v.end(), [&](const W& a, const W& b) {
-            const int c = alpha(a.headword(), b.headword());
-            return up ? c < 0 : c > 0;
-        });
-    } else if (key == QLatin1String("meaning"))
-        std::stable_sort(v.begin(), v.end(), [&](const W& a, const W& b) { return alpha(a.translation, b.translation) < 0; });
-    else if (key == QLatin1String("book"))
-        std::stable_sort(v.begin(), v.end(), [&](const W& a, const W& b) {
+    // Each order's "comes first" rule; the second of a pair (a heading clicked again) is the same rule the other way.
+    std::function<bool(const W&, const W&)> before;
+    const QString base = key.section(QLatin1Char('-'), 0, 0);
+    if (key == QLatin1String("newest")) before = [](const W& a, const W& b) { return a.added > b.added; };
+    else if (key == QLatin1String("oldest")) before = [](const W& a, const W& b) { return a.added < b.added; };
+    else if (key == QLatin1String("az") || key == QLatin1String("za")) before = [&](const W& a, const W& b) { return alpha(a.headword(), b.headword()) < 0; };
+    else if (base == QLatin1String("meaning")) before = [&](const W& a, const W& b) { return alpha(a.translation, b.translation) < 0; };
+    else if (base == QLatin1String("book"))
+        before = [&](const W& a, const W& b) {
             if (a.bookTitle != b.bookTitle) return alpha(a.bookTitle, b.bookTitle) < 0;
             if (a.spine != b.spine) return a.spine < b.spine;
             return a.start < b.start;
-        });
-    else if (key == QLatin1String("lookups"))
-        std::stable_sort(v.begin(), v.end(), [](const W& a, const W& b) { return a.lookups > b.lookups; });
-    else if (key == QLatin1String("starred"))
-        std::stable_sort(v.begin(), v.end(), [](const W& a, const W& b) { return a.starred && !b.starred; });
-    else if (key == QLatin1String("review")) {
-        // The soonest review first; words not practised yet (New) after them.
+        };
+    else if (base == QLatin1String("lookups")) before = [](const W& a, const W& b) { return a.lookups > b.lookups; };
+    else if (key == QLatin1String("starred")) before = [](const W& a, const W& b) { return a.starred && !b.starred; };
+    else if (base == QLatin1String("review")) {
+        // The soonest review first (latest, the other way); words not practised yet (New) after them either way.
         const QHash<int, QDateTime> due = m_log->nextReviews();
+        const bool latest = key == QLatin1String("review-latest");
         std::stable_sort(v.begin(), v.end(), [&](const W& a, const W& b) {
             const QDateTime da = due.value(a.id), db = due.value(b.id);
             if (da.isValid() != db.isValid()) return da.isValid();
-            return da.isValid() && da < db;
+            return da.isValid() && (latest ? db < da : da < db);
         });
+        return;
     }
+    if (!before) return;
+    const bool reversed = key == QLatin1String("za") || key.contains(QLatin1Char('-'));
+    if (reversed) std::stable_sort(v.begin(), v.end(), [&](const W& a, const W& b) { return before(b, a); });
+    else std::stable_sort(v.begin(), v.end(), before);
 }
 
 void PracticeView::buildListRows(int first, int count)

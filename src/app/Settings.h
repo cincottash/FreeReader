@@ -78,7 +78,8 @@ struct Settings {
     // long as it takes). Settings > Translation.
     int geminiWaitMs = 2500;
     int lmStudioWaitMs = 2500;
-    // The Word List's order: recent, newest, oldest, az, za, meaning, book, lookups, starred, review.
+    // The Word List's order: recent, newest, oldest, az, za, meaning, meaning-za, book, book-reverse, lookups,
+    // lookups-least, starred, review, review-latest.
     QString wordListSort = QStringLiteral("recent");
     // The Word List's column widths, dragged ("200,300,200,60,90,110"; empty: the defaults), beside the book and with
     // room (the full window or the panel maximized).

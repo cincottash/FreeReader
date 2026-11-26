@@ -79,8 +79,7 @@ public:
     // The Word List's pages (as many words a page as it has room for): 0-based; out of range is clamped.
     void showListPage(int page);
     int listPage() const { return m_listPage; }
-    // The Word List's order (Settings::wordListSort keys: recent, newest, oldest, az, za, meaning, book, lookups,
-    // starred, review); kept in the settings.
+    // The Word List's order (a Settings::wordListSort key: "meaning", "meaning-za" and so on); kept in the settings.
     void setListSort(const QString& key);
     QString listSort() const;
     // The Word List's column widths back to their defaults, for the room it has now (its headings' right-click).
