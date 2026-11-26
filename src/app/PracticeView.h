@@ -142,6 +142,7 @@ private:
     bool listIsWide() const;                      // the full window, or the panel maximized
     void fitListColumns();                        // the kept widths, or the meaning filling the rest
     bool listColumnsKept() const;                 // widths dragged for this room
+    QList<int> wideColumnWidths(int room) const;  // with room: each column for its entries, the rest shared
     bool m_fittingColumns = false;
     QComboBox* m_listSort = nullptr;
     void updatePageNumbers();

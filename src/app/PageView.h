@@ -91,6 +91,15 @@ public:
     // Page turn animation (Settings > the Text and Layout panel): style none / slide / cover / fade / curl, how long
     // a turn takes, and how it moves (smooth / even / gentle).
     void setPageTurn(const QString& style, int ms, const QString& motion);
+    // Faint arrows at the sides, always (a click there turns the page); off: only when pointed at.
+    void setTurnArrows(bool on)
+    {
+        m_turnArrows = on;
+        update();
+    }
+    bool turnArrows() const { return m_turnArrows; }
+    // Whether a point is where a click turns the page (-1 the left side, 1 the right, 0 not), for tests.
+    int turnSideAt(const QPointF& pos) const { return hoverSide(pos); }
     bool isAnimating() const;
     // A short message over the page for a moment ("Margins: 72 px").
     void showNotice(const QString& text);
@@ -143,6 +152,8 @@ private:
     int columnAt(const QPointF& pos) const;
     layout::Hit hitAt(const QPointF& pos, int* column = nullptr) const;
     int hoverSide(const QPointF& pos) const;   // -1 left arrow, 1 right arrow, 0 none
+    bool inTurnBand(qreal y) const;            // the middle of the height, where the sides turn pages
+    bool m_turnArrows = true;
     void turnFromSide(int side);               // the turn an edge (or arrow) gives: forward on the right, or on the left right to left
     bool m_rtl = false;
     void onLayoutReady(int spine);

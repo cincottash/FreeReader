@@ -231,10 +231,18 @@ AppearancePanel::AppearancePanel(QWidget* parent) : QFrame(parent)
     m_turnStyle->addItem(tr("Cover"), QStringLiteral("cover"));
     m_turnStyle->addItem(tr("Fade"), QStringLiteral("fade"));
     m_turnStyle->addItem(tr("Page Curl"), QStringLiteral("curl"));
+    // The styles other e-readers offer (the owner's request, 2026-11-26: Apple Books' Curl, Slide and Fast Fade,
+    // Kotobee's Page Flip, Hardcover Flip, Card Flip, Stack and Fade, Moon+ Reader's page flips, Kindle's on or off).
+    m_turnStyle->addItem(tr("Uncover"), QStringLiteral("uncover"));
+    m_turnStyle->addItem(tr("Hardcover Flip"), QStringLiteral("flip"));
+    m_turnStyle->addItem(tr("Card Flip"), QStringLiteral("card"));
     m_turnStyle->setItemData(1, tr("The new page pushes the old one aside."), Qt::ToolTipRole);
     m_turnStyle->setItemData(2, tr("The new page slides in over the old one."), Qt::ToolTipRole);
     m_turnStyle->setItemData(3, tr("The old page fades into the new one."), Qt::ToolTipRole);
     m_turnStyle->setItemData(4, tr("The page folds back like paper."), Qt::ToolTipRole);
+    m_turnStyle->setItemData(5, tr("The old page slides away, showing the new one under it."), Qt::ToolTipRole);
+    m_turnStyle->setItemData(6, tr("The page swings over on its spine, like a stiff page in a hardcover book."), Qt::ToolTipRole);
+    m_turnStyle->setItemData(7, tr("The page turns over like a card, the new page on its back."), Qt::ToolTipRole);
     turnGrid->addWidget(rowLabel(tr("Animation")), 0, 0);
     turnGrid->addWidget(m_turnStyle, 0, 1, 1, 2);
     m_turnSpeed = new QSlider(Qt::Horizontal);
@@ -254,6 +262,12 @@ AppearancePanel::AppearancePanel(QWidget* parent) : QFrame(parent)
     m_turnMotion->addItem(tr("Gentle (Slow Start and End)"), QStringLiteral("gentle"));
     turnGrid->addWidget(rowLabel(tr("Motion")), 2, 0);
     turnGrid->addWidget(m_turnMotion, 2, 1, 1, 2);
+    // Faint arrows at the page's sides: a click there turns the page (the owner's request, 2026-11-26).
+    m_turnArrows = new QCheckBox(tr("Arrows at the Sides"));
+    m_turnArrows->setProperty("testId", "pageTurnArrows");
+    m_turnArrows->setToolTip(tr("A faint arrow at each side of the page, where a click turns it."));
+    turnGrid->addWidget(m_turnArrows, 3, 1, 1, 2);
+    connect(m_turnArrows, &QCheckBox::toggled, this, &AppearancePanel::turnArrowsChanged);
     lay->addLayout(turnGrid);
     auto sendTurn = [this] {
         const bool on = m_turnStyle->currentData().toString() != QLatin1String("none");
@@ -354,6 +368,12 @@ void AppearancePanel::setPageTurn(const QString& style, int ms, const QString& m
     m_turnSpeed->setEnabled(on);
     m_turnMotion->setEnabled(on);
     m_turnSpeedValue->setText(QStringLiteral("%1 s").arg(QLocale().toString(ms / 1000.0, 'f', 2)));
+}
+
+void AppearancePanel::setTurnArrows(bool on)
+{
+    const QSignalBlocker b(m_turnArrows);
+    m_turnArrows->setChecked(on);
 }
 
 void AppearancePanel::setScope(Scope s)

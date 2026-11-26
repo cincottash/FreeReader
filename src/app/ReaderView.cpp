@@ -343,6 +343,13 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
         m_pages->setPageTurn(style, ms, motion);
         emit appearanceChanged();
     });
+    m_panel->setTurnArrows(m_settings.pageTurnArrows);
+    m_pages->setTurnArrows(m_settings.pageTurnArrows);
+    connect(m_panel, &AppearancePanel::turnArrowsChanged, this, [this](bool on) {
+        m_settings.pageTurnArrows = on;
+        m_pages->setTurnArrows(on);
+        emit appearanceChanged();
+    });
     connect(m_pages, &PageView::zoomRequested, this, [this](int steps) { stepTextSize(steps * 10); });
     connect(m_pages, &PageView::marginsRequested, this, [this](int steps) { stepMargins(steps * 16); });
     connect(m_panel, &AppearancePanel::themesRequested, this, [this] {

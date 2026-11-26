@@ -40,6 +40,7 @@ void fields(Settings& s, F&& f)
     f("page_turn", s.pageTurn);
     f("page_turn_ms", s.pageTurnMs);
     f("page_turn_motion", s.pageTurnMotion);
+    f("page_turn_arrows", s.pageTurnArrows);
     f("translate_on_select", s.translateOnSelect);
     f("offline_books", s.offlineBooks);
     f("page_directions", s.pageDirections);
@@ -114,7 +115,7 @@ bool Settings::load(const QString& path)
     if (!core::languages::readerLanguages().contains(readerLanguage)) readerLanguage = QStringLiteral("en");
     speechRatePct = qBound(-100, speechRatePct, 100);
     speechVolumePct = qBound(0, speechVolumePct, 100);
-    if (!QStringList{"none", "slide", "cover", "fade", "curl"}.contains(pageTurn)) pageTurn = QStringLiteral("none");
+    if (!QStringList{"none", "slide", "cover", "fade", "curl", "uncover", "flip", "card"}.contains(pageTurn)) pageTurn = QStringLiteral("none");
     if (!QStringList{"smooth", "even", "gentle"}.contains(pageTurnMotion)) pageTurnMotion = QStringLiteral("smooth");
     {
         QStringList keep;

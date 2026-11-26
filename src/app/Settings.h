@@ -31,6 +31,7 @@ struct Settings {
     QString pageTurn = QStringLiteral("none");
     int pageTurnMs = 300;
     QString pageTurnMotion = QStringLiteral("smooth");
+    bool pageTurnArrows = true;   // faint arrows at the page's sides (Text and Layout > Arrows at the Sides)
 
     // Library
     bool libraryList = false;         // list view instead of covers
