@@ -473,17 +473,18 @@ layout::Hit PageView::hitAt(const QPointF& pos, int* column) const
 float PageView::turnZone() const
 {
     // Only a strip at the window's edge turns pages (the owner's request, 2026-11-23: clicks in the white margin
-    // beside the text turned pages by mistake): 56 px, less when the margin is narrower, at least 24.
-    return qBound(24.f, m_geo.left - 8.f, 56.f);
+    // beside the text turned pages by mistake): 80 px, less when the margin is narrower (it stops 8 px short of the
+    // text), at least 40. It was 56 px at most until 2026-11-26: a little too thin (the owner's report).
+    return qBound(40.f, m_geo.left - 8.f, 80.f);
 }
 
 bool PageView::inTurnBand(qreal y) const
 {
     // Only the middle of the page's height turns pages (the owner's report, 2026-11-26: a click a little below
-    // the Practice button, at the top right, turned the page): the middle 60 %, at least 80 px from the top and
-    // the bottom.
+    // the Practice button, at the top right, turned the page): the middle 75 % (60 % at first was a little short,
+    // the owner's report of the same day), at least 60 px from the top and the bottom.
     const qreal h = height();
-    return y >= qMax<qreal>(80, h * 0.2) && y <= qMin<qreal>(h - 80, h * 0.8);
+    return y >= qMax<qreal>(60, h * 0.125) && y <= qMin<qreal>(h - 60, h * 0.875);
 }
 
 int PageView::hoverSide(const QPointF& pos) const

@@ -240,6 +240,12 @@ if(TARGET Qt6::TextToSpeech)
     target_link_libraries(freereader_ui PUBLIC Qt6::TextToSpeech)
     target_compile_definitions(freereader_ui PUBLIC HAVE_TEXT_TO_SPEECH)
 endif()
+# A log of where each start and close got to (FreeReader-startup.log in the temporary folder), for builds made to
+# find a start that shows no window; never in a release.
+option(STARTUP_TRACE "Write FreeReader-startup.log (local diagnostic builds only)" OFF)
+if(STARTUP_TRACE)
+    target_compile_definitions(freereader_ui PUBLIC FREEREADER_STARTUP_TRACE)
+endif()
 
 set(SOURCES src/app/main.cpp)
 if(WIN32)
