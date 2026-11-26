@@ -278,6 +278,12 @@ QWidget* PracticeView::buildStart()
                                 "The offline dictionary fills in the meaning when it knows the word."));
     m_highlights->setProperty("testId", "practiceHighlights");
     lay->addWidget(m_highlights);
+    // Off at first: the Word List is what was highlighted, not everything looked up (the owner's choice, 2026-11-26).
+    m_lookups = new QCheckBox(tr("Add Looked-Up Words to the Word Log"));
+    m_lookups->setToolTip(tr("Off: only highlighted words are saved for practice. On: every word or passage translated "
+                             "is saved too."));
+    m_lookups->setProperty("testId", "practiceLookups");
+    lay->addWidget(m_lookups);
 
     lay->addWidget(sectionTitle(tr("HOW")));
     m_typed = new QCheckBox(tr("Type the Answer (Instead of Flipping the Card)"));
@@ -321,11 +327,12 @@ QWidget* PracticeView::buildStart()
         m_settings.practicePassages = m_passages->isChecked();
         m_settings.practiceOrder = m_order->currentData().toString();
         m_settings.practiceHighlights = m_highlights->isChecked();
+        m_settings.practiceLookups = m_lookups->isChecked();
         emit settingsChanged();
         refreshCounts();
     };
     for (QCheckBox* c : m_dir) connect(c, &QCheckBox::toggled, this, saveOptions);
-    for (QCheckBox* c : {m_passages, m_starred, m_typed, m_sentenceFront, m_highlights}) connect(c, &QCheckBox::toggled, this, saveOptions);
+    for (QCheckBox* c : {m_passages, m_starred, m_typed, m_sentenceFront, m_highlights, m_lookups}) connect(c, &QCheckBox::toggled, this, saveOptions);
     connect(m_order, &QComboBox::currentIndexChanged, this, saveOptions);
     connect(m_book, &QComboBox::currentIndexChanged, this, [this] { refreshCounts(); });
     connect(m_start, &QPushButton::clicked, this, [this] { startSession(); });
@@ -351,8 +358,9 @@ void PracticeView::showStart()
         c->setChecked(m_settings.practiceDirections.contains(c->property("direction").toString()));
     }
     {
-        const QSignalBlocker b1(m_typed), b2(m_sentenceFront), b3(m_passages), b4(m_order), b5(m_book), b6(m_highlights);
+        const QSignalBlocker b1(m_typed), b2(m_sentenceFront), b3(m_passages), b4(m_order), b5(m_book), b6(m_highlights), b7(m_lookups);
         m_highlights->setChecked(m_settings.practiceHighlights);
+        m_lookups->setChecked(m_settings.practiceLookups);
         m_typed->setChecked(m_settings.practiceTyped);
         m_sentenceFront->setChecked(m_settings.practiceSentenceFront);
         m_passages->setChecked(m_settings.practicePassages);
@@ -793,10 +801,34 @@ QWidget* PracticeView::buildList()
     m_list->setUniformRowHeights(true);
     m_list->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_list->setHeaderLabels({tr("Word"), tr("Meaning"), tr("Book"), tr("Page"), tr("Looked Up"), tr("Next Review")});
-    m_list->header()->setSectionResizeMode(1, QHeaderView::Stretch);
-    m_list->header()->setStretchLastSection(false);
-    m_list->setColumnWidth(0, 200);
-    m_list->setColumnWidth(2, 200);
+    // Every column border is dragged to change its width (the owner's request, 2026-11-26: the meaning stretched to
+    // fill the list, and a stretching column can't be dragged); the widths are kept, one set beside the book and one
+    // with room (fitListColumns). The last column takes what is left.
+    QHeaderView* heading = m_list->header();
+    heading->setSectionResizeMode(QHeaderView::Interactive);
+    heading->setStretchLastSection(true);
+    heading->setMinimumSectionSize(36);
+    heading->setTextElideMode(Qt::ElideRight);
+    m_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    connect(heading, &QHeaderView::sectionResized, this, [this](int column, int, int) {
+        // A border dragged (the last column only follows the others, and the fitting below isn't a choice).
+        if (m_fittingColumns || column == m_list->columnCount() - 1) return;
+        QStringList widths;
+        for (int c = 0; c < m_list->columnCount(); ++c) widths << QString::number(m_list->columnWidth(c));
+        QString& kept = listIsWide() ? m_settings.wordListColumnsWide : m_settings.wordListColumns;
+        if (kept == widths.join(QLatin1Char(','))) return;
+        kept = widths.join(QLatin1Char(','));
+        emit settingsChanged();
+    });
+    heading->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(heading, &QWidget::customContextMenuRequested, this, [this, heading](const QPoint& at) {
+        auto* menu = new QMenu(this);
+        menu->setAttribute(Qt::WA_DeleteOnClose);
+        QAction* reset = menu->addAction(tr("Reset Column Widths"), this, &PracticeView::resetListColumns);
+        reset->setProperty("testId", "wordListResetColumns");
+        if (m_interactive) menu->popup(heading->mapToGlobal(at));
+        else menu->deleteLater();
+    });
     // Only the meaning can be changed, by double-clicking it (or right-click > Change Meaning). Double-clicking the word or the page goes
     // to the word in the book: before, any cell opened an editor, which looked broken there (2026-11-25).
     m_list->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -1341,14 +1373,53 @@ void PracticeView::setWide(bool on)
     applyListColumns();
 }
 
+bool PracticeView::listIsWide() const { return !m_compact || m_wide; }
+
 void PracticeView::applyListColumns()
 {
-    // Word, meaning and page fit beside the book; the book, lookups and next review (and Export) when there is
-    // room: the full window, or the panel maximized.
-    const bool narrow = m_compact && !m_wide;
-    m_exportButton->setVisible(!narrow);
-    for (int c : {2, 4, 5}) m_list->setColumnHidden(c, narrow);
-    m_list->setColumnWidth(0, narrow ? 150 : 200);
+    // Every column, beside the book too (the owner's request, 2026-11-26: the book, lookups and next review showed
+    // only with the panel maximized); Export when there is room: the full window, or the panel maximized.
+    m_exportButton->setVisible(listIsWide());
+    fitListColumns();
+}
+
+void PracticeView::fitListColumns()
+{
+    // The widths dragged before for this room (beside the book, or with room); else the meaning takes what the
+    // others leave (at least 80 or 100 px: then the list scrolls sideways).
+    m_fittingColumns = true;
+    const bool wide = listIsWide();
+    const QStringList kept = (wide ? m_settings.wordListColumnsWide : m_settings.wordListColumns).split(QLatin1Char(','), Qt::SkipEmptyParts);
+    if (kept.size() == m_list->columnCount()) {
+        for (int c = 0; c + 1 < m_list->columnCount(); ++c) m_list->setColumnWidth(c, qMax(36, kept[c].toInt()));
+    } else {
+        // Word, (meaning), book, page, looked up, next review.
+        // Beside the book, all six fit the panel's usual 480 px (narrower, the list scrolls sideways).
+        const QList<int> w = wide ? QList<int>{200, 0, 200, 60, 90, 110} : QList<int>{96, 0, 88, 40, 54, 74};
+        int others = 0;
+        for (int c = 0; c < m_list->columnCount(); ++c)
+            if (c != 1) {
+                m_list->setColumnWidth(c, w[c]);
+                others += w[c];
+            }
+        const int room = m_list->viewport()->width() > 50 ? m_list->viewport()->width() : (wide ? 900 : 440);
+        m_list->setColumnWidth(1, qMax(wide ? 100 : 80, room - others));
+    }
+    m_fittingColumns = false;
+}
+
+bool PracticeView::listColumnsKept() const
+{
+    return !(listIsWide() ? m_settings.wordListColumnsWide : m_settings.wordListColumns).isEmpty();
+}
+
+void PracticeView::resetListColumns()
+{
+    QString& kept = listIsWide() ? m_settings.wordListColumnsWide : m_settings.wordListColumns;
+    if (kept.isEmpty()) return;
+    kept.clear();
+    fitListColumns();
+    emit settingsChanged();
 }
 
 void PracticeView::setOpenBook(int bookId, const QString& title)
@@ -1398,9 +1469,13 @@ bool PracticeView::eventFilter(QObject* o, QEvent* e)
             // Another height, another number of rows a page: the page that has the first word shown now. Only the
             // page numbers when the rows a page stay the same (a panel made wider or narrower).
             showListPage(m_listPage * qMax(1, m_builtPer) / listRowsPerPage());
+            // Another width: the meaning fills it again, unless widths were dragged.
+            if (!listColumnsKept()) fitListColumns();
         } else if (e->type() == QEvent::Wheel && m_listPages > 1) {
             // The wheel turns the pages (there is no scrolling within one).
             auto* w = static_cast<QWheelEvent*>(e);
+            // Sideways (a tilted wheel, a touchpad): the columns scroll, when they don't all fit.
+            if (w->angleDelta().y() == 0) return QWidget::eventFilter(o, e);
             m_wheel += w->angleDelta().y();
             if (qAbs(m_wheel) >= 120) {
                 showListPage(m_listPage + (m_wheel < 0 ? 1 : -1));

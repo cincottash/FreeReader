@@ -133,6 +133,12 @@ public:
     bool toggleBookmark();
     // A bookmark on the selected word (its first word), or off again when it has one. Returns its id (0 when removed).
     int toggleWordBookmark();
+    // After a new bookmark, when the book has others: remove the one added last before it, all of them, or keep
+    // them (asked in a message box; tests answer with setBookmarkAnswerForTests, given how many there are).
+    enum class BookmarkChoice { Keep, RemovePrevious, RemoveAll };
+    void setBookmarkAnswerForTests(std::function<BookmarkChoice(int earlier)> answer) { m_bookmarkAnswerForTests = std::move(answer); }
+    // That question (the caller owns it; pictures show it without running it).
+    class QMessageBox* bookmarkQuestion(int earlier, const QString& where);
     int wordBookmarkAtSelection() const;                         // true when the page is bookmarked now
     bool pageIsBookmarked() const;
     void goToAnnotation(int annotationId);
@@ -141,6 +147,13 @@ public:
     bool notebookVisible() const;
     void setNotebookVisible(bool on);
     void refreshAnnotations();
+
+private:
+    core::TranslationResult m_lastLookupResult;   // the last word or passage looked up (a highlight of it keeps its meaning)
+    void offerToRemoveEarlierBookmarks(int newId);
+    std::function<BookmarkChoice(int)> m_bookmarkAnswerForTests;
+
+public:
 
     // The bilingual view: the English of the paragraphs on the screen, in a panel on the right.
     bool bilingualVisible() const;

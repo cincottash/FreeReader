@@ -83,6 +83,8 @@ public:
     // starred, review); kept in the settings.
     void setListSort(const QString& key);
     QString listSort() const;
+    // The Word List's column widths back to their defaults, for the room it has now (its headings' right-click).
+    void resetListColumns();
     int listPageCount() const { return m_listPages; }
     // A word's right-click menu in the Word List (Go to Word, Change Meaning); the caller owns it (tests).
     class QMenu* wordMenuForRow(int row);
@@ -138,6 +140,10 @@ private:
     int listRowsPerPage() const;
     void buildListRows(int first, int count);   // the rows of the page showing (only those are made)
     void sortListEntries();                       // m_listEntries in the order chosen
+    bool listIsWide() const;                      // the full window, or the panel maximized
+    void fitListColumns();                        // the kept widths, or the meaning filling the rest
+    bool listColumnsKept() const;                 // widths dragged for this room
+    bool m_fittingColumns = false;
     QComboBox* m_listSort = nullptr;
     void updatePageNumbers();
     class QToolButton* m_prevPage = nullptr;
@@ -195,6 +201,7 @@ private:
     QCheckBox* m_passages;
     QCheckBox* m_starred;
     QCheckBox* m_highlights;
+    QCheckBox* m_lookups = nullptr;   // looked-up words join the word log too
     QCheckBox* m_typed;
     QCheckBox* m_sentenceFront;
     QComboBox* m_order;

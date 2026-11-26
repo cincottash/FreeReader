@@ -70,6 +70,8 @@ struct Settings {
     bool practiceSentenceFront = false;   // the sentence it came from on the front too
     bool practicePassages = false;
     bool practiceHighlights = true;   // highlighted words (up to 4) join the word log, without a lookup
+    // Looked-up words join the word log too (off: only highlights do, the owner's choice of 2026-11-26).
+    bool practiceLookups = false;
     int practiceNewPerDay = 20;       // no longer offered (every card is practised); kept so old files still read
     QString practiceOrder = QStringLiteral("random");   // random, alphabetical, newest, oldest, book
     // How long a word or passage waits for Gemini, and for LM Studio, before the next engine answers (ms; 0: as
@@ -78,6 +80,9 @@ struct Settings {
     int lmStudioWaitMs = 2500;
     // The Word List's order: recent, newest, oldest, az, za, meaning, book, lookups, starred, review.
     QString wordListSort = QStringLiteral("recent");
+    // The Word List's column widths, dragged ("200,300,200,60,90,110"; empty: the defaults), beside the book and with
+    // room (the full window or the panel maximized).
+    QString wordListColumns, wordListColumnsWide;
 
     // Files
     QString lastFolder;

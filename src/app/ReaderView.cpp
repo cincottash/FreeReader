@@ -1275,8 +1275,11 @@ void ReaderView::onTranslated(int id, const core::TranslationResult& r, const QS
         if (m_lookupIsWord) showWordCard(r);
         else m_translate->showResult(r, m_dictionaryFirst);
         updateLookupHighlight();
-        // Every lookup goes to the word log, with the place it was seen.
-        if (m_words && m_bookId) {
+        // Kept for a highlight of the same words right after (its meaning in the word log).
+        m_lastLookupResult = r;
+        // A lookup goes to the word log only when chosen (Practice > Add Looked-Up Words): by default the Word List
+        // is what was highlighted (the owner's choice, 2026-11-26), with the place it was seen.
+        if (m_words && m_bookId && m_settings.practiceLookups) {
             m_words->record(r, wordPlace(m_lookupSpine, m_lookupStart, m_lookupEnd, m_lookupSentence));
             emit wordLogged();
         }
@@ -1306,8 +1309,13 @@ int ReaderView::markHighlightedWord(const QString& highlighted, int spine, int s
     // Words and short phrases only (up to 4 words); a highlighted passage is a quote, not vocabulary.
     const QString text = core::vocabularyText(highlighted);
     if (text.isEmpty()) return 0;
-    // No lookup: the offline dictionary's meaning when it has one, else none yet.
-    core::TranslationResult meaning = m_translator ? m_translator->offlineMeaning(text, languageCode()) : core::TranslationResult();
+    // The meaning of the lookup just shown when it was of these words (highlighted from its card, or right after);
+    // else the offline dictionary's when it has one, else none yet.
+    core::TranslationResult meaning;
+    if (!m_lastLookupResult.isEmpty() && m_lastLookupResult.text.simplified().compare(text, Qt::CaseInsensitive) == 0)
+        meaning = m_lastLookupResult;
+    else if (m_translator)
+        meaning = m_translator->offlineMeaning(text, languageCode());
     meaning.text = text;
     const int id = m_words->mark(meaning, wordPlace(spine, start, end, core::contextAround(sentence, text)));
     if (id) emit wordLogged();
@@ -1889,7 +1897,58 @@ int ReaderView::toggleWordBookmark()
     const int id = m_notes->add(b);
     clearSelectionKeepingPopup();
     refreshAnnotations();
+    offerToRemoveEarlierBookmarks(id);
     return id;
+}
+
+QMessageBox* ReaderView::bookmarkQuestion(int earlier, const QString& where)
+{
+    auto* box = new QMessageBox(this);
+    box->setWindowTitle(tr("Bookmark Added"));
+    box->setIcon(QMessageBox::Question);
+    box->setText(earlier == 1 ? tr("This book also has a bookmark on %1. Remove it?").arg(where)
+                              : tr("This book also has %1 other bookmarks; the last one added is on %2. Remove it?").arg(QLocale().toString(earlier), where));
+    QPushButton* removeLast = box->addButton(tr("Remove Previous Bookmark"), QMessageBox::AcceptRole);
+    removeLast->setProperty("testId", "bookmarkRemovePrevious");
+    if (earlier > 1) box->addButton(tr("Remove All %1").arg(QLocale().toString(earlier)), QMessageBox::DestructiveRole)->setProperty("testId", "bookmarkRemoveAll");
+    QPushButton* keep = box->addButton(earlier == 1 ? tr("Keep Both") : tr("Keep All"), QMessageBox::RejectRole);
+    keep->setProperty("testId", "bookmarkKeep");
+    box->setDefaultButton(removeLast);
+    box->setEscapeButton(keep);
+    return box;
+}
+
+void ReaderView::offerToRemoveEarlierBookmarks(int newId)
+{
+    // A new bookmark: remove the one before it? (the owner's request, 2026-11-26: a bookmark usually marks where
+    // reading got to, and the old one is then in the way). The one added last before it, or all of them.
+    if (!m_notes || !m_bookId || !newId) return;
+    QList<core::Annotation> earlier;
+    for (const core::Annotation& a : m_notes->forBook(m_bookId))
+        if (a.kind == core::Annotation::Bookmark && a.id != newId) earlier << a;
+    if (earlier.isEmpty()) return;
+    std::sort(earlier.begin(), earlier.end(), [](const core::Annotation& a, const core::Annotation& b) {
+        return a.created != b.created ? a.created > b.created : a.id > b.id;
+    });
+    const core::Annotation& last = earlier.first();
+    const QString where = !last.pageLabel.isEmpty() ? tr("page %1").arg(last.pageLabel)
+                                                    : QStringLiteral("“%1…”").arg(last.text.left(40).trimmed());
+    const int n = int(earlier.size());
+    BookmarkChoice choice = BookmarkChoice::Keep;
+    if (m_bookmarkAnswerForTests) {
+        choice = m_bookmarkAnswerForTests(n);
+    } else if (m_interactive) {
+        std::unique_ptr<QMessageBox> box(bookmarkQuestion(n, where));
+        box->exec();
+        const QString clicked = box->clickedButton() ? box->clickedButton()->property("testId").toString() : QString();
+        if (clicked == QLatin1String("bookmarkRemovePrevious")) choice = BookmarkChoice::RemovePrevious;
+        else if (clicked == QLatin1String("bookmarkRemoveAll")) choice = BookmarkChoice::RemoveAll;
+    }
+    if (choice == BookmarkChoice::Keep) return;
+    if (choice == BookmarkChoice::RemovePrevious) m_notes->remove(last.id);
+    else
+        for (const core::Annotation& a : earlier) m_notes->remove(a.id);
+    refreshAnnotations();
 }
 
 bool ReaderView::toggleBookmark()
@@ -1909,10 +1968,13 @@ bool ReaderView::toggleBookmark()
         b.cfi = m_engine->cfiFor(a);
         if (const auto ix = m_engine->index()) b.pageLabel = ix->pageLabel(a);
         b.chapter = chapterTitleAt(a);
-        m_notes->add(b);
+        const int id = m_notes->add(b);
+        refreshAnnotations();
+        offerToRemoveEarlierBookmarks(id);
+        return true;
     }
     refreshAnnotations();
-    return !existing;
+    return false;
 }
 
 void ReaderView::refreshAnnotations()

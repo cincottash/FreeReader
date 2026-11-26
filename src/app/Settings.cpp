@@ -61,9 +61,12 @@ void fields(Settings& s, F&& f)
     f("practice_sentence_front", s.practiceSentenceFront);
     f("practice_passages", s.practicePassages);
     f("practice_highlights", s.practiceHighlights);
+    f("practice_lookups", s.practiceLookups);
     f("practice_new_per_day", s.practiceNewPerDay);
     f("practice_order", s.practiceOrder);
     f("word_list_sort", s.wordListSort);
+    f("word_list_columns", s.wordListColumns);
+    f("word_list_columns_wide", s.wordListColumnsWide);
     f("gemini_wait_ms", s.geminiWaitMs);
     f("lm_studio_wait_ms", s.lmStudioWaitMs);
     f("last_folder", s.lastFolder);
