@@ -159,6 +159,7 @@ void SettingsDialog::fillPageTurns()
     m_turnArrows->setChecked(m_settings.pageTurnArrows);
     const bool on = m_settings.pageTurn != QLatin1String("none");
     m_turnSpeed->setEnabled(on);
+    m_turnSpeedValue->setEnabled(on);
     m_turnMotion->setEnabled(on);
     m_turnSpeedValue->setText(QStringLiteral("%1 s").arg(QLocale().toString(m_settings.pageTurnMs / 1000.0, 'f', 2)));
 }
@@ -262,7 +263,7 @@ QWidget* SettingsDialog::buildTranslationTab()
     auto* gemini = fieldGrid();
     m_keyEdit = new QLineEdit;
     m_keyEdit->setEchoMode(QLineEdit::Password);
-    m_keyEdit->setPlaceholderText(tr("Paste a Gemini API key"));
+    m_keyEdit->setPlaceholderText(tr("Paste a Gemini API Key"));
     m_keyEdit->setProperty("testId", "keyEdit");
     m_keyEdit->setFixedWidth(fieldWidth);
     auto* save = new QPushButton(tr("Save Key"));
@@ -1161,6 +1162,8 @@ void SettingsDialog::fill()
         auto* edit = new QKeySequenceEdit(c->action->shortcut());
         edit->setMaximumSequenceLength(1);
         edit->setClearButtonEnabled(true);
+        // Qt's own hint is "Press shortcut": in Title Case, and in the app's language, like every label.
+        if (auto* box = edit->findChild<QLineEdit*>()) box->setPlaceholderText(tr("Press a Shortcut"));
         edit->setProperty("commandId", c->id);
         edit->setMinimumHeight(edit->sizeHint().height());
         // The row as tall as the editor (the theme pads text fields), so its text isn't cut off.
@@ -1466,32 +1469,40 @@ QWidget* SettingsDialog::buildGeneralTab()
 void SettingsDialog::buildPackRows()
 {
     auto* lay = static_cast<QVBoxLayout*>(m_packBox->layout());
-    while (QLayoutItem* it = lay->takeAt(0)) {
-        if (QWidget* w = it->widget()) w->deleteLater();
-        if (QLayout* l = it->layout()) {
-            while (QLayoutItem* c = l->takeAt(0)) {
-                if (c->widget()) c->widget()->deleteLater();
-                delete c;
+    // Everything made before goes, layouts inside layouts included (their labels would stay on the page).
+    std::function<void(QLayout*)> clear = [&](QLayout* l) {
+        while (QLayoutItem* it = l->takeAt(0)) {
+            if (QWidget* w = it->widget()) {
+                w->hide();
+                w->deleteLater();
             }
+            if (QLayout* inner = it->layout()) clear(inner);
+            delete it;
         }
-        delete it;
-    }
+    };
+    clear(lay);
     m_packRows.clear();
+    // One grid for every pack: the names and what each pack holds on the left, then a column for the download
+    // buttons (all as wide as the widest, one above the other) and one for Uninstall. Each pack's buttons in the
+    // middle of its two lines. Before, each row placed its own buttons at the right edge, so a row with Uninstall
+    // and one without didn't line up (the owner's report, 2026-11-26).
+    auto* grid = new QGridLayout;
+    grid->setHorizontalSpacing(10);
+    grid->setVerticalSpacing(1);
+    grid->setColumnStretch(0, 1);
+    lay->addLayout(grid);
+    int gridRow = 0;
     for (const core::languages::LanguagePack& p : core::languages::packsFor(m_settings.readerLanguage)) {
         PackRow r;
         r.language = p.language;
-        auto* row = new QHBoxLayout;
-        row->setSpacing(10);
-        auto* texts = new QVBoxLayout;
-        texts->setSpacing(1);
+        if (gridRow > 0) grid->setRowMinimumHeight(gridRow - 1, 10);   // room between packs
         auto* name = new QLabel(p.language == p.reader ? tr("%1 (Definitions Only)").arg(core::languages::displayTitle(p.language))
                                                        : core::languages::displayTitle(p.language));
         name->setStyleSheet(QStringLiteral("font-weight: 600;"));
-        texts->addWidget(name);
         r.status = muted(QString());
         r.status->setProperty("testId", QStringLiteral("packStatus-") + p.language);
-        texts->addWidget(r.status);
-        row->addLayout(texts, 1);
+        grid->addWidget(name, gridRow, 0);
+        grid->addWidget(r.status, gridRow + 1, 0);
         r.get = new QPushButton;
         r.get->setObjectName(QStringLiteral("Suggested"));
         r.get->setProperty("testId", QStringLiteral("packDownload-") + p.language);
@@ -1499,14 +1510,14 @@ void SettingsDialog::buildPackRows()
         r.remove = new QPushButton(tr("Uninstall"));
         r.remove->setProperty("testId", QStringLiteral("packRemove-") + p.language);
         r.remove->setToolTip(tr("Deletes this pack's files from the app data folder. It can be downloaded again."));
-        row->addWidget(r.get, 0, Qt::AlignTop);
-        row->addWidget(r.remove, 0, Qt::AlignTop);
-        lay->addLayout(row);
+        grid->addWidget(r.get, gridRow, 1, 2, 1, Qt::AlignVCenter);
+        grid->addWidget(r.remove, gridRow, 2, 2, 1, Qt::AlignVCenter);
         r.progress = new QProgressBar;
         r.progress->setProperty("testId", QStringLiteral("packProgress-") + p.language);
         r.progress->setTextVisible(true);
         r.progress->hide();
-        lay->addWidget(r.progress);
+        grid->addWidget(r.progress, gridRow + 2, 0, 1, 3);
+        gridRow += 4;   // name, contents, progress, and a gap
         const QString language = p.language;
         connect(r.get, &QPushButton::clicked, this, [this, language] {
             if (m_packLanguage == language) cancelPackDownload();
@@ -1913,7 +1924,8 @@ void SettingsDialog::fillLibraryFolders()
         if (!QFileInfo(f).isDir()) it->setText(it->text() + tr("  (not found now)"));
     }
     if (m_settings.libraryFolders.isEmpty()) {
-        auto* it = new QListWidgetItem(tr("No folders added yet. Click Add Folder… to choose one."), m_libraryFolders);
+        // In Title Case, as every label (the owner's rule, repeated 2026-11-26); the button beside it says how to add one.
+        auto* it = new QListWidgetItem(tr("No Folders Added Yet"), m_libraryFolders);
         it->setFlags(Qt::NoItemFlags);
     }
     if (m_removeFolder) m_removeFolder->setEnabled(false);

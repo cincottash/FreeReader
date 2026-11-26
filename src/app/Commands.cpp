@@ -97,7 +97,7 @@ void CommandPalette::showCommands()
 {
     m_prompt = nullptr;
     m_title->setText(tr("Commands"));
-    m_edit->setPlaceholderText(tr("Type to search commands"));
+    m_edit->setPlaceholderText(tr("Type to Search Commands"));
     m_edit->clear();
     m_error->hide();
     m_list->show();

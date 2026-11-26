@@ -57,7 +57,7 @@ LibrarySearchView::LibrarySearchView(core::Library* library, QWidget* parent) : 
     body->setSpacing(8);
     auto* row = new QHBoxLayout;
     m_edit = new QLineEdit;
-    m_edit->setPlaceholderText(tr("A word or phrase to find in every book"));
+    m_edit->setPlaceholderText(tr("A Word or Phrase to Find in Every Book"));
     m_edit->setClearButtonEnabled(true);
     m_edit->setProperty("testId", "librarySearchBox");
     m_go = new QPushButton(tr("Search"));

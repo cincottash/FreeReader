@@ -436,7 +436,7 @@ QWidget* PracticeView::buildCard()
 
     auto* typeRow = new QHBoxLayout;
     m_answer = new QLineEdit;
-    m_answer->setPlaceholderText(tr("Type the answer"));
+    m_answer->setPlaceholderText(tr("Type the Answer"));
     m_answer->setProperty("testId", "cardAnswer");
     m_check = new QPushButton(tr("Check"));
     m_check->setProperty("testId", "cardCheck");
@@ -785,7 +785,7 @@ QWidget* PracticeView::buildList()
     lay->setSpacing(8);
     auto* top = new QHBoxLayout;
     m_search = new QLineEdit;
-    m_search->setPlaceholderText(tr("Search words and meanings"));
+    m_search->setPlaceholderText(tr("Search Words and Meanings"));
     m_search->setClearButtonEnabled(true);
     m_search->setProperty("testId", "wordSearch");
     m_listBook = new ElidingComboBox;

@@ -47,6 +47,7 @@ QToolButton#Icon:hover { background: @hover; }
 QToolButton#Icon:checked { background: @hl; }
 QPushButton#Primary { background: @accent; color: @accentFg; border: 0; border-radius: 10px; padding: 10px 18px; font-weight: 600; }
 QPushButton#Primary:hover { background: @accentHover; }
+QPushButton#Primary:disabled { background: @line; color: @muted; }
 QPushButton#Chip { background: @pop; color: @fg; border: 1px solid @line; border-radius: 16px; padding: 6px 14px; }
 QPushButton#Chip:hover { border-color: @accent; }
 QPushButton#Chip:checked { background: @hl; border-color: @accent; }
@@ -83,6 +84,10 @@ QComboBox QAbstractItemView { background: @pop; border: 1px solid @line; selecti
 QSlider::groove:horizontal { height: 4px; background: @line; border-radius: 2px; }
 QSlider::sub-page:horizontal { background: @accent; border-radius: 2px; }
 QSlider::handle:horizontal { background: @fg; width: 14px; height: 14px; margin: -5px 0; border-radius: 7px; }
+QPushButton:disabled, QComboBox:disabled, QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled, QLabel:disabled, QCheckBox:disabled, QRadioButton:disabled { color: @muted; }
+QComboBox:disabled { background: transparent; }
+QSlider::sub-page:horizontal:disabled { background: @line; }
+QSlider::handle:horizontal:disabled { background: @muted; }
 QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid @muted; border-radius: 4px; background: @input; }
 QCheckBox::indicator:hover { border-color: @accent; }
 QCheckBox::indicator:checked { background: @accent; border-color: @accent; image: url(@check); }
