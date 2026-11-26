@@ -257,6 +257,10 @@ ReaderView::ReaderView(core::BookEngine* engine, core::Library* library, Setting
     connect(m_practicePanel, &PracticePanel::widthDragging, this, [this, clampWidth](int wanted) {
         m_pages->setHoldLayout(true);
         m_practicePanel->setFixedWidth(clampWidth(wanted));
+        // Placed now, not when the layout's posted request comes: on Windows that waits while the mouse keeps
+        // moving, and a panel made wider only grew past the window's right edge until the button was released
+        // (narrower, it visibly shrank in place, so that way looked live: the owner's report, 2026-11-26).
+        if (layout()) layout()->activate();
     });
     connect(m_practicePanel, &PracticePanel::widthDragged, this, [this, clampWidth](int wanted) {
         const int w = clampWidth(wanted);
@@ -2029,6 +2033,12 @@ void ReaderView::setPracticeVisible(bool on)
     {
         const QSignalBlocker b(m_practiceButton);
         m_practiceButton->setChecked(on);
+    }
+    if (on != was) {
+        // The page laid out for its new width now, not after the pause a window's resize waits for (part of the
+        // lag the owner saw on pressing Practice, 2026-11-26).
+        if (layout()) layout()->activate();
+        m_pages->flushResize();
     }
     if (on && !was) {
         updatePracticePage();

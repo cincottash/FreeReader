@@ -18,6 +18,7 @@
 #include "core/services/WordLog.h"
 
 #include <QDateTime>
+#include <QSet>
 #include <QWidget>
 
 #include <functional>
@@ -131,10 +132,19 @@ private:
     void startOverSelected();
     void deleteSelected();
     int listRowsPerPage() const;
+    void buildListRows(int first, int count);   // the rows of the page showing (only those are made)
+    void updatePageNumbers();
     class QToolButton* m_prevPage = nullptr;
     class QToolButton* m_nextPage = nullptr;
     QWidget* m_pageNumbers = nullptr;   // the pages' numbers between Previous and Next
     int m_listPage = 0, m_listPages = 1;
+    QList<core::WordEntry> m_listEntries;   // every word the Word List has (search and book applied), in order
+    bool m_listDirty = true;                 // the rows showing need making again
+    int m_builtPage = -1, m_builtPer = 0;    // the page and rows a page the rows showing were made for
+    mutable int m_rowHeight = 0;             // a row's height, once measured (every row is as tall)
+    QSet<int> m_keepSelected;                // word ids selected again when the rows are made again
+    int m_keepCurrent = 0;
+    QString m_numbersMade;                   // what the page numbers showing were made for
     int m_wheel = 0;
     class QMenu* wordMenu(QTreeWidgetItem* it);
     class QToolButton* m_beside = nullptr;

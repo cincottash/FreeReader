@@ -1017,17 +1017,27 @@ void PracticeView::showList()
     fillList();
 }
 
+namespace {
+
+// The Word column's text: a star for a starred word, a passage's start.
+QString wordLabel(const core::WordEntry& w)
+{
+    return (w.starred ? QStringLiteral("★ ") : QString()) + (w.passage ? w.text.left(60) + QStringLiteral("…") : w.headword());
+}
+
+}  // namespace
+
 void PracticeView::fillList()
 {
-    const QSignalBlocker b(m_list);
+    // The words matching are kept; rows are made only for the page showing. A row for every word (hidden when on
+    // another page), each with a query for its next review, took over a second with the owner's 2,600 words, at
+    // every opening of Practice and every step of dragging the panel's edge (2026-11-26).
     // The same words stay selected (after Star or Start Over).
-    QSet<int> selected;
-    for (QTreeWidgetItem* it : m_list->selectedItems()) selected.insert(it->data(0, Qt::UserRole).toInt());
-    const int current = m_list->currentItem() ? m_list->currentItem()->data(0, Qt::UserRole).toInt() : 0;
-    m_list->clear();
+    m_keepSelected.clear();
+    for (QTreeWidgetItem* it : m_list->selectedItems()) m_keepSelected.insert(it->data(0, Qt::UserRole).toInt());
+    m_keepCurrent = m_list->currentItem() ? m_list->currentItem()->data(0, Qt::UserRole).toInt() : 0;
     const QString needle = core::practice::foldAccents(m_search->text().trimmed().toLower());
-    const QDateTime t = now();
-    int shown = 0;
+    m_listEntries.clear();
     const int choice = m_listBook->currentData().toInt();
     QList<core::WordEntry> all = m_log->words(choice == kThisPage ? m_openBook : choice);
     if (choice == kThisPage) {
@@ -1044,55 +1054,95 @@ void PracticeView::fillList()
                                                              w.alternatives.join(QLatin1Char(' '))).toLower());
             if (!hay.contains(needle)) continue;
         }
+        m_listEntries << w;
+    }
+    const int shown = int(m_listEntries.size());
+    m_listCount->setText(shown == int(all.size()) ? count(shown, tr("word"), tr("words"))
+                                                   : tr("%1 of %2").arg(QLocale().toString(shown), count(int(all.size()), tr("word"), tr("words"))));
+    if (choice == kThisPage && all.isEmpty())
+        m_listCount->setText(tr("No words on this page yet. Translate or highlight one and it shows here."));
+    m_listDirty = true;
+    showListPage(m_listPage);
+}
+
+void PracticeView::buildListRows(int first, int count)
+{
+    const QSignalBlocker b(m_list);
+    m_list->setUpdatesEnabled(false);
+    m_list->clear();
+    const QDateTime t = now();
+    const int end = qMin(int(m_listEntries.size()), first + count);
+    for (int i = first; i < end; ++i) {
+        const core::WordEntry& w = m_listEntries[i];
         QString next = tr("New");
         QDateTime soonest;
         for (const core::PracticeCard& c : m_log->cardsFor(w.id))
             if (!c.suspended && c.memory.state != core::practice::CardState::New && (!soonest.isValid() || c.memory.due < soonest)) soonest = c.memory.due;
         if (soonest.isValid()) next = soonest <= t ? tr("Due") : tr("In %1").arg(core::practice::Scheduler::describeInterval(t, soonest));
-        QString word = (w.starred ? QStringLiteral("★ ") : QString()) + (w.passage ? w.text.left(60) + QStringLiteral("…") : w.headword());
-        auto* it = new QTreeWidgetItem(m_list, {word, w.translation, w.bookTitle, w.pageLabel, QLocale().toString(w.lookups), next});
+        auto* it = new QTreeWidgetItem(m_list, {wordLabel(w), w.translation, w.bookTitle, w.pageLabel, QLocale().toString(w.lookups), next});
         it->setData(0, Qt::UserRole, w.id);
         it->setFlags(it->flags() | Qt::ItemIsEditable);
         it->setToolTip(0, w.text == w.headword() ? w.sentence : tr("As read: %1\n%2").arg(w.text, w.sentence));
         it->setToolTip(1, tr("Double-click to change the meaning."));
-        if (selected.contains(w.id)) it->setSelected(true);
-        if (w.id == current) m_list->setCurrentItem(it, 0, QItemSelectionModel::NoUpdate);
-        ++shown;
+        if (m_keepSelected.contains(w.id)) it->setSelected(true);
+        if (w.id == m_keepCurrent) m_list->setCurrentItem(it, 0, QItemSelectionModel::NoUpdate);
     }
-    m_listCount->setText(shown == int(all.size()) ? count(shown, tr("word"), tr("words"))
-                                                   : tr("%1 of %2").arg(QLocale().toString(shown), count(int(all.size()), tr("word"), tr("words"))));
-    if (choice == kThisPage && all.isEmpty())
-        m_listCount->setText(tr("No words on this page yet. Translate or highlight one and it shows here."));
-    showListPage(m_listPage);
+    m_list->setUpdatesEnabled(true);
+    m_list->scrollToTop();
+    m_keepSelected.clear();
+    m_keepCurrent = 0;
 }
 
 int PracticeView::listRowsPerPage() const
 {
-    // As many rows as the list has room for (the rows are all as tall); before it is laid out, 25.
-    const int row = m_list->topLevelItemCount() ? m_list->sizeHintForRow(0) : 0;
+    // As many rows as the list has room for (the rows are all as tall); before a row was measured or the list
+    // laid out, 25.
+    if (m_list->topLevelItemCount()) m_rowHeight = m_list->sizeHintForRow(0);
     const int room = m_list->viewport()->height();
-    if (row <= 0 || room < row * 3) return 25;
-    return qMax(3, room / row);
+    if (m_rowHeight <= 0 || room < m_rowHeight * 3) return 25;
+    return qMax(3, room / m_rowHeight);
 }
 
 void PracticeView::showListPage(int page)
 {
-    const int n = m_list->topLevelItemCount();
-    const int per = listRowsPerPage();
+    const int n = int(m_listEntries.size());
+    int per = listRowsPerPage();
     m_listPages = qMax(1, (n + per - 1) / per);
     m_listPage = qBound(0, page, m_listPages - 1);
-    const int first = m_listPage * per;
-    m_list->setUpdatesEnabled(false);
-    for (int i = 0; i < n; ++i) m_list->topLevelItem(i)->setHidden(i < first || i >= first + per);
-    m_list->setUpdatesEnabled(true);
-    m_list->scrollToTop();
+    if (m_listDirty || m_builtPage != m_listPage || m_builtPer != per) {
+        buildListRows(m_listPage * per, per);
+        // The first rows made measure a row: the page again with as many as fit.
+        if (const int measured = listRowsPerPage(); measured != per) {
+            const int firstWord = m_listPage * per;
+            per = measured;
+            m_listPages = qMax(1, (n + per - 1) / per);
+            m_listPage = qBound(0, firstWord / per, m_listPages - 1);
+            buildListRows(m_listPage * per, per);
+        }
+        m_listDirty = false;
+        m_builtPage = m_listPage;
+        m_builtPer = per;
+    }
+    updatePageNumbers();
+}
+
+void PracticeView::updatePageNumbers()
+{
     const bool paged = m_listPages > 1;
     m_prevPage->setVisible(paged);
     m_nextPage->setVisible(paged);
     m_pageNumbers->setVisible(paged);
     m_prevPage->setEnabled(m_listPage > 0);
     m_nextPage->setEnabled(m_listPage < m_listPages - 1);
-    // Up to 10 numbers (fewer when the list is narrow), around the page showing.
+    // Up to 10 numbers (fewer when the list is narrow), around the page showing. Made again only when they change
+    // (not at every step of dragging the panel's edge).
+    const int room = (m_list->width() > 0 ? m_list->width() : 400) - 2 * 34;
+    const int most = qBound(3, room / 30, 10);
+    const int shown = qMin(most, m_listPages);
+    const int from = qBound(0, m_listPage - shown / 2, m_listPages - shown);
+    const QString made = paged ? QStringLiteral("%1 %2 %3 %4").arg(from).arg(shown).arg(m_listPage).arg(m_listPages) : QStringLiteral("-");
+    if (made == m_numbersMade) return;
+    m_numbersMade = made;
     for (QPushButton* b : m_pageNumbers->findChildren<QPushButton*>(Qt::FindDirectChildrenOnly)) {
         // Out of the row at once, deleted later (a click on one of them runs this).
         m_pageNumbers->layout()->removeWidget(b);
@@ -1101,10 +1151,6 @@ void PracticeView::showListPage(int page)
         b->deleteLater();
     }
     if (!paged) return;
-    const int room = (m_list->width() > 0 ? m_list->width() : 400) - 2 * 34;
-    const int most = qBound(3, room / 30, 10);
-    const int shown = qMin(most, m_listPages);
-    const int from = qBound(0, m_listPage - shown / 2, m_listPages - shown);
     for (int p = from; p < from + shown; ++p) {
         auto* b = new QPushButton(QLocale().toString(p + 1));
         const bool here = p == m_listPage;
@@ -1228,7 +1274,7 @@ int PracticeView::listBook() const { return m_listBook->currentData().toInt(); }
 QStringList PracticeView::listWords() const
 {
     QStringList out;
-    for (int i = 0; i < m_list->topLevelItemCount(); ++i) out << m_list->topLevelItem(i)->text(0);
+    for (const core::WordEntry& w : m_listEntries) out << wordLabel(w);
     return out;
 }
 
@@ -1236,14 +1282,9 @@ bool PracticeView::eventFilter(QObject* o, QEvent* e)
 {
     if (m_list && o == m_list->viewport()) {
         if (e->type() == QEvent::Resize) {
-            // Another height, another number of rows a page: the page that has the first word shown now.
-            int first = 0;
-            for (int i = 0; i < m_list->topLevelItemCount(); ++i)
-                if (!m_list->topLevelItem(i)->isHidden()) {
-                    first = i;
-                    break;
-                }
-            showListPage(first / listRowsPerPage());
+            // Another height, another number of rows a page: the page that has the first word shown now. Only the
+            // page numbers when the rows a page stay the same (a panel made wider or narrower).
+            showListPage(m_listPage * qMax(1, m_builtPer) / listRowsPerPage());
         } else if (e->type() == QEvent::Wheel && m_listPages > 1) {
             // The wheel turns the pages (there is no scrolling within one).
             auto* w = static_cast<QWheelEvent*>(e);
