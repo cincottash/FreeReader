@@ -13,6 +13,9 @@
 
 void startupTrace(const char* stage)
 {
+#ifndef FREEREADER_STARTUP_TRACE
+    (void)stage;   // a release: no log
+#else
     const char* tmp = std::getenv("TEMP");
     if (!tmp) tmp = std::getenv("TMPDIR");
     if (!tmp) tmp = "/tmp";
@@ -38,4 +41,5 @@ void startupTrace(const char* stage)
 #endif
     std::fprintf(f, "%s.%03d  pid %d  %s\n", when, ms, pid, stage);
     std::fclose(f);
+#endif
 }

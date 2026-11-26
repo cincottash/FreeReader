@@ -156,7 +156,7 @@ private:
     int columnAt(const QPointF& pos) const;
     layout::Hit hitAt(const QPointF& pos, int* column = nullptr) const;
     int hoverSide(const QPointF& pos) const;   // -1 left arrow, 1 right arrow, 0 none
-    bool inTurnBand(qreal y) const;            // the middle of the height, where the sides turn pages
+    bool inTurnBand(qreal y) const;            // the middle 75 % of the height, where the sides turn pages
     bool m_turnArrows = true;
     void turnFromSide(int side);               // the turn an edge (or arrow) gives: forward on the right, or on the left right to left
     bool m_rtl = false;
