@@ -183,6 +183,8 @@ private:
     QCheckBox* m_useLm;
     QLineEdit* m_lmAddress;
     QComboBox* m_lmModel;
+    class QDoubleSpinBox* m_geminiWait = nullptr;   // how long a lookup waits for Gemini
+    class QDoubleSpinBox* m_lmWait = nullptr;       // and for LM Studio
     QLabel* m_lmResult;
     QCheckBox* m_bookOffline;
     QLabel* m_offlineCount;

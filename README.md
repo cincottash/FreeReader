@@ -101,8 +101,9 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 - Answers come from one engine at a time, always in this order: **Google's Gemini** (free tier, no card needed),
   then **LM Studio** on your own computer (optional), then what your **Word List** already says, then the **offline
   dictionaries** and the **offline translator**. The next one is asked only when the one before can't answer or is
-  switched off (**Settings ▸ Translation**), or when Gemini takes longer than 2.5 seconds over a word or passage: its
-  late answer doesn't replace the one showing, and is kept for next time. Every Gemini and LM Studio answer is kept, so looking up the same words
+  switched off (**Settings ▸ Translation**), or when Gemini or LM Studio takes longer than its **Wait** time there
+  over a word or passage (2.5 seconds at first): its late answer doesn't replace the one showing, and is kept for
+  next time. Every Gemini and LM Studio answer is kept, so looking up the same words
   again costs nothing and works offline; a kept answer follows the same order (Gemini's is used while Gemini is on).
 - **Set it up once:** get a free key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey), then
   paste it in **Settings ▸ Translation ▸ All Translation Options…**. The key is kept in Windows Credential Manager

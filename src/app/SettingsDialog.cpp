@@ -14,6 +14,7 @@
 
 #include <QAction>
 #include <QCheckBox>
+#include <QDoubleSpinBox>
 #include <QComboBox>
 #include <QDesktopServices>
 #include <QDir>
@@ -270,6 +271,24 @@ QWidget* SettingsDialog::buildTranslationTab()
     gemini->addWidget(fieldLabel(tr("Model")), 2, 0);
     gemini->addWidget(m_model, 2, 1);
     gemini->addLayout(buttons({test}), 2, 2);
+    // How long a word or passage waits for an engine before the next one answers (the owner's requests,
+    // 2026-11-26). 0: as long as it takes.
+    auto waitBox = [this](const char* id, const QString& engine) {
+        auto* box = new QDoubleSpinBox;
+        box->setProperty("testId", id);
+        box->setRange(0, 30);
+        box->setSingleStep(0.5);
+        box->setDecimals(1);
+        box->setSuffix(tr(" seconds"));
+        box->setSpecialValueText(tr("No Limit"));
+        box->setToolTip(tr("A word or passage %1 hasn't answered by then is answered by the next engine instead; %1's "
+                           "answer, when it comes, is kept for next time. Explain This Sentence and the paragraphs "
+                           "alongside always wait.").arg(engine));
+        return box;
+    };
+    m_geminiWait = waitBox("geminiWait", QStringLiteral("Gemini"));
+    gemini->addWidget(fieldLabel(tr("Wait")), 3, 0);
+    gemini->addWidget(m_geminiWait, 3, 1, Qt::AlignLeft);
     lay->addLayout(gemini);
     m_geminiResult = muted(QString());
     m_geminiResult->setProperty("testId", "geminiResult");
@@ -277,7 +296,7 @@ QWidget* SettingsDialog::buildTranslationTab()
 
     lay->addWidget(sectionTitle(tr("LM STUDIO (ON THIS COMPUTER)")));
     lay->addWidget(muted(tr("Asked when Gemini can't answer (offline, today's free lookups are used up, or no answer to a word or "
-                            "passage within 2.5 seconds). LM Studio's server "
+                            "passage within its Wait time). LM Studio's server "
                             "must be running. With a model chosen, LM Studio loads it the first time it's needed (that "
                             "takes a moment, and uses the graphics card's memory until LM Studio unloads it).")));
     m_useLm = new QCheckBox(tr("Use LM Studio"));
@@ -305,7 +324,17 @@ QWidget* SettingsDialog::buildTranslationTab()
     lm->addWidget(fieldLabel(tr("Model")), 1, 0);
     lm->addWidget(m_lmModel, 1, 1);
     lm->addLayout(buttons({lmTest}), 1, 2);
+    m_lmWait = waitBox("lmStudioWait", QStringLiteral("LM Studio"));
+    lm->addWidget(fieldLabel(tr("Wait")), 2, 0);
+    lm->addWidget(m_lmWait, 2, 1, Qt::AlignLeft);
     lay->addLayout(lm);
+    for (auto [box, field] : {std::pair{m_geminiWait, &Settings::geminiWaitMs}, std::pair{m_lmWait, &Settings::lmStudioWaitMs}})
+        connect(box, &QDoubleSpinBox::valueChanged, this, [this, field](double seconds) {
+            const int ms = int(seconds * 1000 + 0.5);
+            if (m_settings.*field == ms) return;
+            m_settings.*field = ms;
+            emit translationChanged();
+        });
     // One column for the labels of both sections, so the four boxes line up.
     int labelWidth = 0;
     for (QLabel* l : fieldLabels) labelWidth = qMax(labelWidth, l->sizeHint().width());
@@ -486,7 +515,9 @@ QWidget* SettingsDialog::buildTranslationTab()
 
 void SettingsDialog::refreshTranslation()
 {
-    const QSignalBlocker b1(m_useGemini), b2(m_useLm), b3(m_auto), b5(m_model);
+    const QSignalBlocker b1(m_useGemini), b2(m_useLm), b3(m_auto), b5(m_model), b6(m_geminiWait), b7(m_lmWait);
+    m_geminiWait->setValue(m_settings.geminiWaitMs / 1000.0);
+    m_lmWait->setValue(m_settings.lmStudioWaitMs / 1000.0);
     m_useGemini->setChecked(m_settings.useGemini);
     m_useLm->setChecked(m_settings.useLmStudio);
     m_auto->setChecked(m_settings.translateOnSelect);

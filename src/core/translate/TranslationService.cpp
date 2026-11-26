@@ -118,12 +118,12 @@ void TranslationService::next(int id, const TranslationRequest& request, size_t 
         // Answered (or failed) in time; or given up on, and the next provider asked meanwhile.
         auto answered = std::make_shared<bool>(false);
         auto gaveUp = std::make_shared<bool>(false);
-        if (p->sendsTextOnline() && request.kind == TranslationRequest::Kind::Lookup && m_onlineWaitMs > 0) {
-            QTimer::singleShot(m_onlineWaitMs, this, [this, id, request, i, why, name, state, answered, gaveUp]() mutable {
+        if (const int waitMs = wait(name); waitMs > 0 && request.kind == TranslationRequest::Kind::Lookup) {
+            QTimer::singleShot(waitMs, this, [this, id, request, i, why, name, state, answered, gaveUp, waitMs]() mutable {
                 if (*answered || state->done) return;
                 *gaveUp = true;
                 ++state->late;
-                why << QStringLiteral("%1: %2").arg(name, tr("no answer within %1 seconds").arg(QLocale().toString(m_onlineWaitMs / 1000.0, 'g', 2)));
+                why << QStringLiteral("%1: %2").arg(name, tr("no answer within %1 seconds").arg(QLocale().toString(waitMs / 1000.0, 'g', 3)));
                 next(id, request, i + 1, why, state);
             });
         }

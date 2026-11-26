@@ -72,6 +72,10 @@ struct Settings {
     bool practiceHighlights = true;   // highlighted words (up to 4) join the word log, without a lookup
     int practiceNewPerDay = 20;       // no longer offered (every card is practised); kept so old files still read
     QString practiceOrder = QStringLiteral("random");   // random, alphabetical, newest, oldest, book
+    // How long a word or passage waits for Gemini, and for LM Studio, before the next engine answers (ms; 0: as
+    // long as it takes). Settings > Translation.
+    int geminiWaitMs = 2500;
+    int lmStudioWaitMs = 2500;
     // The Word List's order: recent, newest, oldest, az, za, meaning, book, lookups, starred, review.
     QString wordListSort = QStringLiteral("recent");
 

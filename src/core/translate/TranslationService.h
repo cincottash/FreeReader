@@ -1,7 +1,7 @@
 // Every translation goes through here: the cache first, then the providers in order (Gemini, LM Studio, the
 // offline ones), moving on when one can't answer. A provider whose free allowance is used up is skipped until
 // the allowance renews; one that is rate-limited, for a minute. A lookup that an online provider takes too long
-// for goes on to the next provider (see setOnlineWait).
+// for goes on to the next provider (see setWait).
 #pragma once
 
 #include "Translation.h"
@@ -31,13 +31,14 @@ public:
     // Offline only: no provider that sends text over the internet is asked (cached answers still show).
     void setOfflineOnly(bool on) { m_offlineOnly = on; }
     bool offlineOnly() const { return m_offlineOnly; }
-    // How long a lookup (a word or passage in the pop-up) waits for an online provider (Gemini) before the next
-    // provider answers instead (LM Studio, else the offline ones); 0: no limit. The late answer is kept for next
-    // time but never replaces the one showing (the owner's request, 2026-11-26: Gemini sometimes takes 3 to 5
-    // seconds). Explain and the bilingual view's paragraphs always wait: nothing offline answers them as well.
-    void setOnlineWait(int ms) { m_onlineWaitMs = ms; }
-    int onlineWait() const { return m_onlineWaitMs; }
-    static constexpr int kDefaultOnlineWaitMs = 2500;
+    // How long a lookup (a word or passage in the pop-up) waits for a provider (by name: "Gemini", "LM Studio")
+    // before the next one answers instead; 0 (and any provider not set): no limit. The late answer is kept for next
+    // time but never replaces the one showing (the owner's requests, 2026-11-26: Gemini sometimes takes 3 to 5
+    // seconds; the same for LM Studio; both times set in Settings > Translation). Explain and the bilingual view's
+    // paragraphs always wait: nothing after them answers those as well.
+    void setWait(const QString& provider, int ms) { m_waitMs.insert(provider, ms); }
+    int wait(const QString& provider) const { return m_waitMs.value(provider, 0); }
+    static constexpr int kDefaultWaitMs = 2500;
 
     // Starts a lookup; `finished` reports it with the returned id. A newer lookup doesn't cancel older ones.
     int translate(const TranslationRequest& request);
@@ -69,7 +70,7 @@ private:
     void next(int id, const TranslationRequest& request, size_t from, QStringList why, std::shared_ptr<Lookup> state);
     void finish(const TranslationRequest& request, const TranslationResult& r, const QString& why);
     void recordFailure(const QString& name, TranslationFailure f);
-    int m_onlineWaitMs = kDefaultOnlineWaitMs;
+    QHash<QString, int> m_waitMs;
 
     Library* m_cache = nullptr;
     std::vector<OfflineDictionary*> m_instant;

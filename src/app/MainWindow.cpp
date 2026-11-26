@@ -5,6 +5,7 @@
 #include "ReaderView.h"
 #include "LibraryView.h"
 #include "PracticeView.h"
+#include "StartupTrace.h"
 #include "LibrarySearchView.h"
 #include "StatisticsView.h"
 
@@ -462,7 +463,7 @@ void MainWindow::buildCommands()
            tr("Off: selecting only selects. Right-click > Translate, or Ctrl+E."));
     toggle("use-gemini", tr("Use Gemini (Online)"), &Settings::useGemini,
            tr("Google's Gemini, asked first. The only engine that sends text over the internet: off, nothing is sent."));
-    toggle("use-lm-studio", tr("Use LM Studio (This Computer)"), &Settings::useLmStudio, tr("Asked when Gemini can't answer, or takes longer than 2.5 seconds."));
+    toggle("use-lm-studio", tr("Use LM Studio (This Computer)"), &Settings::useLmStudio, tr("Asked when Gemini can't answer, or takes too long (Settings > Translation)."));
     toggle("use-dictionary", tr("Use the Offline Dictionary"), &Settings::useDictionary, tr("Single words, when nothing before it in the list answers."));
     toggle("use-offline-translator", tr("Use the Offline Translator"), &Settings::useOfflineTranslator,
            tr("Sentences and pages with no internet, when Gemini and LM Studio can't answer (a download in Settings)."));
@@ -730,6 +731,9 @@ void MainWindow::applyTranslationSettings()
     m_lmStudio->setEnabled(m_settings.useLmStudio);
     m_lmStudio->setAddress(m_settings.lmStudioAddress);
     m_lmStudio->setModel(m_settings.lmStudioModel);
+    // How long a word or passage waits for each before the next engine answers (the owner's requests, 2026-11-26).
+    m_translator->setWait(m_gemini->name(), qMax(0, m_settings.geminiWaitMs));
+    m_translator->setWait(m_lmStudio->name(), qMax(0, m_settings.lmStudioWaitMs));
     m_translator->clearPauses();
     syncChecks();
 }
@@ -1089,8 +1093,11 @@ void MainWindow::saveSettingsNow()
 
 void MainWindow::closeEvent(QCloseEvent* e)
 {
+    if (m_interactive) startupTrace("closing: book");
     m_reader->closeBook();
+    if (m_interactive) startupTrace("closing: settings");
     saveSettingsNow();
+    if (m_interactive) startupTrace("closing: done");
     e->accept();
 }
 
