@@ -26,7 +26,7 @@ Drawer {
                 id: field
                 objectName: "searchField"
                 Layout.fillWidth: true
-                placeholderText: qsTr("Search this book")
+                placeholderText: qsTr("Search This Book")
                 inputMethodHints: Qt.ImhNoPredictiveText
                 color: sheet.theme.fg
                 onAccepted: sheet.app.search(text)

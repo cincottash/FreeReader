@@ -58,8 +58,12 @@ Page {
             Slider { Layout.fillWidth: true; from: 4; to: 80; stepSize: 4; value: settings.app.margins; onMoved: settings.app.margins = value }
             Label { text: qsTr("Theme"); color: settings.theme.fg }
             ThemeList {
+                // Every theme shown, the page scrolling (a list of its own 300 px high hid Green Tea and the groups
+                // after it behind a second scroll inside the page, 2026-11-27).
+                objectName: "settingsThemes"
                 Layout.fillWidth: true
-                Layout.preferredHeight: 300
+                Layout.preferredHeight: contentHeight
+                interactive: false
                 app: settings.app
                 theme: settings.theme
             }
@@ -74,7 +78,7 @@ Page {
             TextField {
                 id: keyField
                 Layout.fillWidth: true
-                placeholderText: qsTr("Paste a Gemini API key")
+                placeholderText: qsTr("Paste a Gemini API Key")
                 echoMode: TextInput.Password
                 inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase
             }

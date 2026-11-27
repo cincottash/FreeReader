@@ -572,8 +572,10 @@ void MobileApp::onTranslated(int id, const core::TranslationResult& r, const QSt
         m[QStringLiteral("inSentence")] = r.inSentence;
         m[QStringLiteral("note")] = r.note;
         m[QStringLiteral("source")] = r.provider.isEmpty() ? QString() : tr("Source: %1").arg(r.provider);
-        // Every lookup joins the word log, with the place it was seen (as on the desktop).
-        if (m_words && m_bookId) {
+        // A lookup joins the word log, with the place it was seen, only when chosen (the desktop's Practice > Add
+        // Looked-Up Words): by default the Word List is what was highlighted (the owner's rule, 2026-11-26; the phone
+        // app still logged every lookup until 2026-11-27).
+        if (m_words && m_bookId && m_settings.practiceLookups) {
             core::WordPlace place;
             place.bookId = m_bookId;
             place.bookTitle = m_title;
