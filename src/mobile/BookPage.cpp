@@ -215,6 +215,7 @@ void BookPage::moveTo(const core::Position& p)
         emit animatingChanged();
     }
     const int count = int(m_app->engine()->book()->spine.size());
+    m_lastMoveByTurn = m_turning;
     m_anchor = p;
     m_anchor.spine = qBound(0, m_anchor.spine, qMax(0, count - 1));
     if (m_anchor.offset < 0) m_anchor.offset = 0;
@@ -255,7 +256,9 @@ bool BookPage::turnTo(const core::Position& p, int direction)
     const bool was = isAnimating();
     m_turn->stop();
     m_fromImage = m_toImage = QImage();
+    m_turning = true;
     moveTo(p);
+    m_turning = false;
     if (animate && current() && m_anchor.offset != kEndOfChapter) {
         m_fromImage = from;
         m_toImage = m_image;

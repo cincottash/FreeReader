@@ -66,6 +66,7 @@ public:
     core::Position screenStart() const;   // the start of the first page showing (position() can be on the second)
     core::Position screenEnd() const;     // the end of the last page showing
     int columns() const { return m_geo.columns; }
+    bool lastMoveWasTurn() const { return m_lastMoveByTurn; }   // a swipe's turn, not a jump (reading statistics)
     bool isAnimating() const;
     void setTurnProgressForTests(double t);   // holds a running turn at this point (0..1)
     QImage screenImage() const { return m_image; }
@@ -118,4 +119,5 @@ private:
     QVariantAnimation* m_turn = nullptr;
     QImage m_fromImage, m_toImage;
     int m_turnDir = 1;
+    bool m_turning = false, m_lastMoveByTurn = false;
 };

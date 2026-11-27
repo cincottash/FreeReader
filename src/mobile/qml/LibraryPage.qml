@@ -14,8 +14,33 @@ Page {
     property Theme theme
     signal settingsRequested()
     signal wordsRequested()
+    signal statisticsRequested()
+    signal guideRequested()
 
     background: Rectangle { color: page.theme.bg }
+
+    Dialog {
+        id: aboutDialog
+        objectName: "aboutDialog"
+        anchors.centerIn: parent
+        width: page.width - 48
+        modal: true
+        title: qsTr("About FreeReader")
+        ColumnLayout {
+            width: parent.width
+            spacing: 8
+            Label {
+                objectName: "aboutText"
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                color: page.theme.fg
+                text: qsTr("FreeReader %1\nAn e-book reader for DRM-free books.\n\nCopyright (C) 2026 cincottash\nLicensed under the GNU General Public License v3.0.").arg(page.app.version)
+            }
+            Button { Layout.fillWidth: true; flat: true; text: qsTr("Privacy Policy"); onClicked: page.app.openLink("https://github.com/cincottash/FreeReader/blob/main/PRIVACY.md") }
+            Button { Layout.fillWidth: true; flat: true; text: qsTr("Report a Problem"); onClicked: page.app.openLink("https://github.com/cincottash/FreeReader/issues/new") }
+        }
+        standardButtons: Dialog.Close
+    }
 
     // The filter's name ("All Books", "Reading", "Spanish", a collection's name).
     readonly property string filterName: {
@@ -66,14 +91,23 @@ Page {
                 background: Item {}
                 onClicked: page.wordsRequested()
             }
-            ToolButton {
-                id: settingsButton
-                text: qsTr("Settings")
-                font.pixelSize: page.theme.body
-                implicitHeight: page.theme.touch
-                contentItem: Label { text: settingsButton.text; color: page.theme.accent; font: settingsButton.font; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                background: Item {}
-                onClicked: page.settingsRequested()
+            // Settings, Statistics, Getting Started, About.
+            IconButton {
+                id: moreButton
+                objectName: "moreButton"
+                theme: page.theme
+                iconName: "more"
+                filled: true
+                text: qsTr("More")
+                onClicked: moreMenu.popup(moreButton, 0, moreButton.height)
+            }
+            Menu {
+                id: moreMenu
+                objectName: "moreMenu"
+                MenuItem { objectName: "menuSettings"; text: qsTr("Settings"); onTriggered: page.settingsRequested() }
+                MenuItem { objectName: "menuStatistics"; text: qsTr("Statistics"); onTriggered: page.statisticsRequested() }
+                MenuItem { objectName: "menuGuide"; text: qsTr("Getting Started"); onTriggered: page.guideRequested() }
+                MenuItem { objectName: "menuAbout"; text: qsTr("About FreeReader"); onTriggered: aboutDialog.open() }
             }
         }
         Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: page.theme.line }
@@ -125,7 +159,7 @@ Page {
             ComboBox {
                 id: sortBox
                 objectName: "librarySort"
-                Layout.preferredWidth: 170
+                Layout.preferredWidth: 196   // "Leídos recientemente" in full
                 font.pixelSize: page.theme.small
                 textRole: "name"
                 valueRole: "key"

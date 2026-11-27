@@ -3,6 +3,8 @@
 #include "AndroidSystem.h"
 #include "BookPage.h"
 
+#include "app/InterfaceLanguage.h"
+
 #include "core/format/Convert.h"
 #include "core/format/FormatPlugin.h"
 #include "core/services/Annotations.h"
@@ -15,6 +17,7 @@
 #include "core/services/Library.h"
 #include "core/services/LibrarySearch.h"
 #include "core/services/Secrets.h"
+#include "core/services/Statistics.h"
 #include "core/services/WordLog.h"
 #include "core/practice/Answer.h"
 #include "core/translate/AiProviders.h"
@@ -82,25 +85,29 @@ bool isThemeKey(const QString& key)
     return false;
 }
 
-// The offline dictionaries: Spanish -> English, English definitions, Spanish definitions (as on the desktop).
+// The offline dictionaries (as on the desktop): Spanish -> English and English -> Spanish (for a reader of each),
+// English definitions, Spanish definitions.
 struct DictionaryKind {
     const char* key;
     const char* file;
+    const char* from;   // the books' language
+    const char* to;     // the language of its answers
 };
-const DictionaryKind kDictionaries[] = {{"es", "es-en.sqlite"}, {"en", "en-en.sqlite"}, {"es-es", "es-es.sqlite"}};
+const DictionaryKind kDictionaries[] = {{"es", "es-en.sqlite", "es", "en"}, {"en-es", "en-es.sqlite", "en", "es"},
+                                        {"en", "en-en.sqlite", "en", "en"}, {"es-es", "es-es.sqlite", "es", "es"}};
 
 core::DictionaryDownload::Source sourceFor(const QString& key)
 {
     if (key == QLatin1String("en")) return core::DictionaryDownload::englishDefinitions();
     if (key == QLatin1String("es-es")) return core::DictionaryDownload::spanishDefinitions();
+    if (key == QLatin1String("en-es")) return core::DictionaryDownload::englishSpanish();
     return core::DictionaryDownload::spanishEnglish();
 }
 
 QString keyOf(const core::DictionaryInfo& info)
 {
-    if (info.language == QLatin1String("es") && info.target == QLatin1String("en")) return QStringLiteral("es");
-    if (info.language == QLatin1String("en") && info.target == QLatin1String("en")) return QStringLiteral("en");
-    if (info.language == QLatin1String("es") && info.target == QLatin1String("es")) return QStringLiteral("es-es");
+    for (const DictionaryKind& k : kDictionaries)
+        if (info.language == QLatin1String(k.from) && info.target == QLatin1String(k.to)) return QLatin1String(k.key);
     return {};
 }
 
@@ -216,6 +223,10 @@ MobileApp::MobileApp(const QString& dataFolder, QObject* parent) : QObject(paren
     // The first touch app had three themes of its own; "night" is Midnight now.
     if (m_settings.theme == QLatin1String("night")) m_settings.theme = QStringLiteral("midnight");
     if (!isThemeKey(m_settings.theme)) m_settings.theme = QStringLiteral("paper");
+    // Your language: the app's text in it (the desktop's language files) and every answer in it.
+    if (!core::languages::readerLanguages().contains(m_settings.readerLanguage)) m_settings.readerLanguage = QStringLiteral("en");
+    core::languages::setReaderLanguage(m_settings.readerLanguage);
+    installInterfaceLanguage(m_settings.readerLanguage, m_folder);
 
     m_library = std::make_unique<core::Library>();
     QString err;
@@ -324,18 +335,21 @@ MobileApp::MobileApp(const QString& dataFolder, QObject* parent) : QObject(paren
     m_gemini->setKey(core::secrets::read(kGeminiKey));
     m_dictionary = new core::OfflineDictionary(this);
     m_dictionary->open(dictionaryFile(QStringLiteral("es")));
+    m_dictionaryEnEs = new core::OfflineDictionary(this);
+    m_dictionaryEnEs->open(dictionaryFile(QStringLiteral("en-es")));
     m_dictionaryEn = new core::OfflineDictionary(this);
     m_dictionaryEn->open(dictionaryFile(QStringLiteral("en")));
     m_definitionsEs = new core::OfflineDictionary(this);   // the Dictionary card only, never a translation
     m_definitionsEs->open(dictionaryFile(QStringLiteral("es-es")));
     m_savedWords = new core::SavedWords(this);
-    m_savedWords->setDictionaries({m_dictionary, m_dictionaryEn});
+    m_savedWords->setDictionaries({m_dictionary, m_dictionaryEnEs, m_dictionaryEn});
     m_savedWords->setWordLog(m_words.get());
     m_translator = new core::TranslationService(this);
     m_translator->setCache(m_library.get());
-    // The Word List last: its meaning was right for another sentence (the owner's rule, 2026-11-27).
-    m_translator->setProviders({m_gemini, m_dictionary, m_dictionaryEn, m_savedWords});
-    m_translator->setInstant({m_dictionary, m_dictionaryEn});
+    // The Word List last: its meaning was right for another sentence (the owner's rule, 2026-11-27). Each dictionary
+    // answers only in its own language, so a reader gets their own (Spanish -> English or English -> Spanish).
+    m_translator->setProviders({m_gemini, m_dictionary, m_dictionaryEnEs, m_dictionaryEn, m_savedWords});
+    m_translator->setInstant({m_dictionary, m_dictionaryEnEs, m_dictionaryEn});
     // The engines switched on or off, Gemini's model and its wait: a word or passage Gemini hasn't answered by then
     // (2.5 s, as on the desktop) is answered by the next engine; Gemini's late answer is kept for next time (the
     // owner's rule, 2026-11-26).
@@ -388,9 +402,23 @@ QString MobileApp::dictionaryFile(const QString& key) const
 core::OfflineDictionary* MobileApp::dictionaryFor(const QString& key) const
 {
     if (key == QLatin1String("es")) return m_dictionary;
+    if (key == QLatin1String("en-es")) return m_dictionaryEnEs;
     if (key == QLatin1String("en")) return m_dictionaryEn;
     if (key == QLatin1String("es-es")) return m_definitionsEs;
     return nullptr;
+}
+
+core::OfflineDictionary* MobileApp::translatingDictionary() const
+{
+    // The one into the reader's language: Spanish -> English for an English reader, English -> Spanish for a Spanish one.
+    return core::languages::readerLanguage() == QLatin1String("es") ? m_dictionaryEnEs : m_dictionary;
+}
+
+QStringList MobileApp::dictionaryKeys() const
+{
+    // The dictionaries a reader can use: the one into their language, then the definitions (both languages).
+    return core::languages::readerLanguage() == QLatin1String("es") ? QStringList{QStringLiteral("en-es"), QStringLiteral("es-es"), QStringLiteral("en")}
+                                                                    : QStringList{QStringLiteral("es"), QStringLiteral("es-es"), QStringLiteral("en")};
 }
 
 // ---------------------------------------------------------------- library
@@ -628,6 +656,125 @@ void MobileApp::setFinished(int bookId, bool finished)
 }
 
 bool MobileApp::isFinished(int bookId) const { return m_library && m_library->book(bookId).finished(); }
+
+// ---------------------------------------------------------------- your language and the welcome
+
+QVariantList MobileApp::readerLanguages() const
+{
+    QVariantList out;
+    for (const QString& c : core::languages::readerLanguages()) {
+        QString name = core::languages::nativeName(c);
+        if (!name.isEmpty()) name[0] = name[0].toUpper();
+        out << QVariantMap{{QStringLiteral("code"), c}, {QStringLiteral("name"), name}};
+    }
+    return out;
+}
+
+QString MobileApp::suggestedLanguage() const { return core::languages::suggestedReaderLanguage(); }
+
+void MobileApp::setReaderLanguage(const QString& code)
+{
+    if (!core::languages::readerLanguages().contains(code) || code == m_settings.readerLanguage) return;
+    m_settings.readerLanguage = code;
+    saveSettings();
+    core::languages::setReaderLanguage(code);
+    installInterfaceLanguage(code, m_folder);
+    // Every screen's text again, and what depends on the language: the dictionaries offered, the cached answers
+    // (in the other language: asked again), the names of languages and filters.
+    if (m_qml) m_qml->retranslate();
+    m_alongsideEnglish.clear();
+    m_alongsideOffline.clear();
+    m_alongsideGaveUp.clear();
+    closeLookup();
+    closeCard();
+    updateLocation();
+    emit languageChanged();
+    emit translationChanged();
+    emit downloadChanged();
+    emit optionsChanged();
+    emit libraryChanged();
+    emit lookChanged();
+    emit alongsideChanged();
+    emit wordsChanged();
+    emit practiceChanged();
+    if (m_settings.showBilingual) refreshAlongside();
+}
+
+QVariantList MobileApp::dictionariesFor(const QString& reader) const
+{
+    // The welcome's list, for the language chosen there (before it is set): that reader's dictionaries.
+    const QStringList keys = reader == QLatin1String("es") ? QStringList{QStringLiteral("en-es"), QStringLiteral("en"), QStringLiteral("es-es")}
+                                                           : QStringList{QStringLiteral("es"), QStringLiteral("es-es"), QStringLiteral("en")};
+    QVariantList out;
+    for (const QString& key : keys) {
+        const core::OfflineDictionary* d = dictionaryFor(key);
+        out << QVariantMap{{QStringLiteral("key"), key},
+                           {QStringLiteral("title"), dictionaryTitle(key)},
+                           {QStringLiteral("sizeMb"), int((sourceFor(key).size + 500000) / 1000000)},
+                           {QStringLiteral("installed"), d && d->info().ok},
+                           {QStringLiteral("suggested"), key == keys.first()}};
+    }
+    return out;
+}
+
+void MobileApp::finishWelcome(const QString& reader, const QStringList& downloads)
+{
+    m_settings.welcomeShown = true;
+    saveSettings();
+    setReaderLanguage(reader);
+    for (const QString& key : downloads)
+        if (dictionaryFor(key) && !dictionaryFor(key)->info().ok) downloadDictionary(key);
+    emit languageChanged();
+}
+
+// ---------------------------------------------------------------- Statistics
+
+namespace {
+QString duration(int seconds)
+{
+    const int minutes = seconds / 60;
+    if (minutes < 60) return QCoreApplication::translate("StatisticsView", "%1 min").arg(QLocale().toString(minutes));
+    return QCoreApplication::translate("StatisticsView", "%1 h %2 min").arg(QLocale().toString(minutes / 60)).arg(minutes % 60, 2, 10, QLatin1Char('0'));
+}
+}  // namespace
+
+QVariantMap MobileApp::statistics() const
+{
+    if (!m_library) return {};
+    // The open book's time so far counts too.
+    const_cast<MobileApp*>(this)->creditReading(false, 0);
+    const_cast<MobileApp*>(this)->flushReading();
+    const core::Statistics s = core::computeStatistics(m_library.get(), QDate::currentDate(), 30);
+    const QLocale loc;
+    QVariantList days, books;
+    for (const core::DayStats& d : s.days)
+        days << QVariantMap{{QStringLiteral("label"), loc.toString(d.day, QStringLiteral("d MMM"))},
+                            {QStringLiteral("minutes"), d.readingSeconds / 60.0},
+                            {QStringLiteral("words"), d.newWords},
+                            {QStringLiteral("reviews"), d.reviews}};
+    for (const core::BookStats& b : s.books)
+        books << QVariantMap{{QStringLiteral("id"), b.bookId},
+                             {QStringLiteral("title"), b.title.isEmpty() ? tr("(a removed book)") : b.title},
+                             {QStringLiteral("time"), duration(b.seconds)},
+                             {QStringLiteral("pages"), loc.toString(b.pages)},
+                             {QStringLiteral("words"), loc.toString(b.words)},
+                             {QStringLiteral("progress"), b.finished ? tr("Finished") : QStringLiteral("%1 %").arg(qRound(b.progress * 100))}};
+    return {{QStringLiteral("today"), duration(s.todaySeconds)},
+            {QStringLiteral("week"), duration(s.weekSeconds)},
+            {QStringLiteral("streak"), loc.toString(s.streak)},
+            {QStringLiteral("finished"), loc.toString(s.booksFinished)},
+            {QStringLiteral("words"), loc.toString(s.words)},
+            {QStringLiteral("learned"), loc.toString(s.cardsLearned)},
+            {QStringLiteral("reviewsToday"), loc.toString(s.reviewsToday)},
+            {QStringLiteral("retention"), s.retentionMonth < 0 ? QStringLiteral("–") : QStringLiteral("%1 %").arg(s.retentionMonth)},
+            {QStringLiteral("summary"),
+             tr("Best run: %1 days · Pages turned in the last 7 days: %2 · Books being read: %3 · All time: %4 · New words in the last 7 days: %5")
+                 .arg(loc.toString(s.bestStreak), loc.toString(s.pagesWeek), loc.toString(s.booksReading), duration(s.totalSeconds), loc.toString(s.wordsWeek))},
+            {QStringLiteral("empty"), s.totalSeconds == 0 && s.words == 0 && s.reviewsMonth == 0 && s.pagesWeek == 0},
+            {QStringLiteral("totalSeconds"), s.totalSeconds},
+            {QStringLiteral("days"), days},
+            {QStringLiteral("books"), books}};
+}
 
 // ---------------------------------------------------------------- Import Highlights and Notebook export
 
@@ -905,6 +1052,10 @@ void MobileApp::onOpened()
     m_pendingWord = {};
     m_position = m_start;
     m_screenStart = m_screenEnd = {-1, 0};
+    m_readingMark = readingNow();
+    m_pendingReadMs = 0;
+    m_pendingPages = 0;
+    m_pendingChars = 0;
     forgetHistory();
     m_footnoteTarget = {-1, 0};
     refreshLibrary();
@@ -921,7 +1072,9 @@ void MobileApp::onOpened()
 void MobileApp::closeBook()
 {
     if (!m_bookId) return;
+    creditReading(false, 0);
     savePosition();
+    m_readingMark = 0;
     m_engine->close();
     m_bookId = 0;
     m_title.clear();
@@ -992,6 +1145,9 @@ void MobileApp::pageMoved(QObject* object)
         }
     }
     m_sinceTurn.restart();
+    // Reading statistics (as the desktop): the time on the screen just left, and a page read on a forward turn.
+    creditReading(page->lastMoveWasTurn() && before < page->position(),
+                  m_screenEnd.spine == m_screenStart.spine ? qMax(0, m_screenEnd.offset - m_screenStart.offset) : 0);
     m_position = page->position();
     m_screenStart = page->screenStart();
     m_screenEnd = page->screenEnd();
@@ -1020,8 +1176,48 @@ void MobileApp::toggleChapterLeft()
     updateLocation();
 }
 
+qint64 MobileApp::readingNow() const { return m_readingClock ? m_readingClock() : QDateTime::currentMSecsSinceEpoch(); }
+
+void MobileApp::creditReading(bool forwardTurn, int chars)
+{
+    if (!m_bookId) return;
+    const qint64 now = readingNow();
+    // The time since the last turn while the app was in front; a long pause (the reader away) counts 5 minutes.
+    if (m_readingMark > 0 && now > m_readingMark) m_pendingReadMs += qMin<qint64>(now - m_readingMark, 5 * 60 * 1000);
+    m_readingMark = now;
+    if (forwardTurn) {
+        ++m_pendingPages;
+        m_pendingChars += qMax(0, chars);
+    }
+}
+
+void MobileApp::flushReading()
+{
+    if (!m_bookId || !m_library || (m_pendingReadMs < 1000 && m_pendingPages == 0)) return;
+    if (!m_readingLog) m_readingLog = std::make_unique<core::ReadingLog>(m_library.get());
+    const int seconds = int(m_pendingReadMs / 1000);
+    m_readingLog->add(m_bookId, QDate::currentDate(), seconds, m_pendingPages, m_pendingChars);
+    m_pendingReadMs -= qint64(seconds) * 1000;
+    m_pendingPages = 0;
+    m_pendingChars = 0;
+}
+
+void MobileApp::setAppActive(bool active)
+{
+    // The phone shows another app, or its screen goes off: the time so far counts, then nothing until it is back.
+    if (!active) {
+        creditReading(false, 0);
+        flushReading();
+        m_readingMark = 0;
+        savePosition();
+    } else if (m_bookId) {
+        m_readingMark = readingNow();
+    }
+}
+
 void MobileApp::savePosition()
 {
+    flushReading();
     if (!m_bookId || !m_library || !m_engine->isOpen()) return;
     core::SavedPosition s;
     s.position = m_position;
@@ -1118,7 +1314,7 @@ void MobileApp::onTranslated(int id, const core::TranslationResult& r, const QSt
                  : tr("Explanations come from Gemini, and it couldn't answer.") + (why.isEmpty() ? QString() : QLatin1Char('\n') + why);
         else if (bookOffline() && m_settings.useGemini)
             text += QLatin1Char('\n') + tr("This book is kept offline, so Gemini isn't asked.");
-        else if (!m_dictionary->info().ok) text += QLatin1Char('\n') + tr("Tip: add a Gemini key, or download the offline dictionary, in Settings.");
+        else if (!translatingDictionary()->info().ok) text += QLatin1Char('\n') + tr("Tip: add a Gemini key, or download the offline dictionary, in Settings.");
         if (!explaining && m_settings.useGemini && m_settings.geminiExplainOnly)
             text += QLatin1Char('\n') + tr("Gemini is used only for Explain This Sentence (Settings).");
         m[QStringLiteral("nothing")] = text;
@@ -1303,12 +1499,14 @@ core::WordLog::Filter practiceFilter(const Settings& s, int bookId = 0, bool sta
 
 QString directionName(const QString& d, const QString& language)
 {
+    // In the interface's language, the reader's own language named (as on the desktop).
     const QString lang = language.isEmpty() || language == QLatin1String("und") ? QObject::tr("Book Language")
-                                                                                 : QLocale::languageToString(QLocale(language).language());
-    if (d == QLatin1String("recall")) return QObject::tr("English → %1").arg(lang);
+                                                                                 : core::languages::displayTitle(language);
+    const QString mine = core::languages::displayTitle(core::languages::readerLanguage());
+    if (d == QLatin1String("recall")) return QObject::tr("%1 → %2").arg(mine, lang);
     if (d == QLatin1String("definition")) return QObject::tr("Definition → Word");
     if (d == QLatin1String("cloze")) return QObject::tr("Fill the Gap");
-    return QObject::tr("%1 → English").arg(lang);
+    return QObject::tr("%1 → %2").arg(lang, mine);
 }
 
 }  // namespace
@@ -1499,13 +1697,24 @@ void MobileApp::sayNow(const QString& said, const QString& language)
 {
 #ifdef HAVE_TEXT_TO_SPEECH
     const QLocale want(language.isEmpty() ? QStringLiteral("en") : language);
+    // Settings > Audio: the voice chosen for this language, when the phone still has it.
+    if (const QString chosen = chosenVoice(want.name().section(QLatin1Char('_'), 0, 0)); !chosen.isEmpty())
+        for (const QVoice& v : m_speech->findVoices())
+            if (v.name() == chosen && v.locale().language() == want.language()) {
+                m_speech->setLocale(v.locale());
+                m_speech->setVoice(v);
+                m_speech->setRate(m_settings.speechRatePct / 100.0);
+                m_speech->setVolume(m_settings.speechVolumePct / 100.0);
+                m_speech->say(said);
+                return;
+            }
     QLocale best;
     for (const QLocale& l : m_speech->availableLocales())
         if (l.language() == want.language() && (best.language() != want.language() || l.territory() == want.territory())) best = l;
     if (best.language() != want.language()) {
         // Another language's voice would read the word wrongly: nothing is said, and the fix is a free voice.
         setMessage(tr("No %1 voice is installed. Add one (free) in the phone's Settings › General management › "
-                      "Text-to-speech.").arg(QLocale::languageToString(want.language())));
+                      "Text-to-speech.").arg(core::languages::displayName(want.name().section(QLatin1Char('_'), 0, 0))));
         return;
     }
     m_speech->setLocale(best);
@@ -1565,7 +1774,74 @@ QVariantMap MobileApp::options() const
             {QStringLiteral("practiceStarredOnly"), m_practiceStarred},
             {QStringLiteral("wordSearch"), m_wordSearch},
             {QStringLiteral("wordBook"), m_wordBook},
-            {QStringLiteral("wordListSort"), s.wordListSort}};
+            {QStringLiteral("wordListSort"), s.wordListSort},
+            {QStringLiteral("speechRate"), s.speechRatePct},
+            {QStringLiteral("speechVolume"), s.speechVolumePct}};
+}
+
+// ---------------------------------------------------------------- Audio (as on the desktop: Settings > Audio)
+
+QString MobileApp::chosenVoice(const QString& language) const
+{
+    for (const QString& v : m_settings.speechVoices)
+        if (v.section(QLatin1Char('='), 0, 0) == language) return v.section(QLatin1Char('='), 1);
+    return {};
+}
+
+QVariantList MobileApp::voiceLanguages() const
+{
+    // Spanish and English (the app's two), and the open book's language.
+    QStringList codes{QStringLiteral("es"), QStringLiteral("en")};
+    const QString book = languageCode();
+    if (!book.isEmpty() && !codes.contains(book)) codes.prepend(book);
+    QVariantList out;
+    for (const QString& c : codes) out << QVariantMap{{QStringLiteral("code"), c}, {QStringLiteral("name"), core::languages::displayName(c)}};
+    return out;
+}
+
+QVariantList MobileApp::voicesFor(const QString& language)
+{
+    // {name, detail}: the voices this phone has for the language; first "the phone's choice".
+    QVariantList out{QVariantMap{{QStringLiteral("name"), QString()}, {QStringLiteral("detail"), tr("The Phone's Choice")}}};
+#ifdef HAVE_TEXT_TO_SPEECH
+    startSpeechEngine();
+    if (!m_speech) return out;
+    const QLocale want(language);
+    for (const QVoice& v : m_speech->findVoices())
+        if (v.locale().language() == want.language())
+            out << QVariantMap{{QStringLiteral("name"), v.name()},
+                               {QStringLiteral("detail"), QStringLiteral("%1 (%2)").arg(v.name(), QLocale::territoryToString(v.locale().territory()))}};
+#else
+    Q_UNUSED(language);
+#endif
+    const QString chosen = chosenVoice(language);
+    bool listed = chosen.isEmpty();
+    for (const QVariant& v : out) listed = listed || v.toMap().value(QStringLiteral("name")).toString() == chosen;
+    if (!listed) out << QVariantMap{{QStringLiteral("name"), chosen}, {QStringLiteral("detail"), chosen}};   // one that is gone
+    return out;
+}
+
+QString MobileApp::voiceFor(const QString& language) const { return chosenVoice(language); }
+
+void MobileApp::setVoice(const QString& language, const QString& name)
+{
+    QStringList& list = m_settings.speechVoices;
+    for (int i = int(list.size()) - 1; i >= 0; --i)
+        if (list[i].section(QLatin1Char('='), 0, 0) == language) list.removeAt(i);
+    if (!name.isEmpty()) list << language + QLatin1Char('=') + name;
+    saveSettings();
+    emit optionsChanged();
+}
+
+void MobileApp::testVoice(const QString& language)
+{
+    static const QHash<QString, QString> samples{{QStringLiteral("es"), QStringLiteral("Hola. Así suena esta voz.")},
+                                                 {QStringLiteral("en"), QStringLiteral("Hello. This is how this voice sounds.")},
+                                                 {QStringLiteral("fr"), QStringLiteral("Bonjour. Voici cette voix.")},
+                                                 {QStringLiteral("de"), QStringLiteral("Hallo. So klingt diese Stimme.")},
+                                                 {QStringLiteral("it"), QStringLiteral("Ciao. Così suona questa voce.")},
+                                                 {QStringLiteral("pt"), QStringLiteral("Olá. Assim soa esta voz.")}};
+    speak(samples.value(language, QStringLiteral("1, 2, 3")), language);
 }
 
 void MobileApp::setOption(const QString& key, const QVariant& value)
@@ -1608,6 +1884,8 @@ void MobileApp::setOption(const QString& key, const QVariant& value)
         return;
     } else if (key == QLatin1String("practiceHighlights")) s.practiceHighlights = value.toBool();
     else if (key == QLatin1String("practiceLookups")) s.practiceLookups = value.toBool();
+    else if (key == QLatin1String("speechRate")) s.speechRatePct = qBound(-100, value.toInt(), 100);
+    else if (key == QLatin1String("speechVolume")) s.speechVolumePct = qBound(0, value.toInt(), 100);
     else if (key == QLatin1String("practiceTyped")) s.practiceTyped = value.toBool();
     else if (key == QLatin1String("practiceSentenceFront")) s.practiceSentenceFront = value.toBool();
     else if (key == QLatin1String("practicePassages")) s.practicePassages = value.toBool();
@@ -1628,7 +1906,7 @@ void MobileApp::applyTranslationSettings()
     m_gemini->setExplainOnly(m_settings.geminiExplainOnly);
     m_gemini->setModel(m_settings.geminiModel);
     m_translator->setWait(m_gemini->name(), qMax(0, m_settings.geminiWaitMs));
-    for (core::OfflineDictionary* d : {m_dictionary, m_dictionaryEn, m_definitionsEs}) d->setEnabled(m_settings.useDictionary);
+    for (core::OfflineDictionary* d : {m_dictionary, m_dictionaryEnEs, m_dictionaryEn, m_definitionsEs}) d->setEnabled(m_settings.useDictionary);
     m_translator->clearPauses();
 }
 
@@ -1873,12 +2151,25 @@ void MobileApp::removeGeminiKey()
     emit translationChanged();
 }
 
-bool MobileApp::dictionaryInstalled() const { return m_dictionary->info().ok; }
+bool MobileApp::dictionaryInstalled() const { return translatingDictionary()->info().ok; }
+
+QString MobileApp::dictionaryTitle(const QString& key) const
+{
+    for (const DictionaryKind& k : kDictionaries) {
+        if (key != QLatin1String(k.key)) continue;
+        const QString from = QLatin1String(k.from), to = QLatin1String(k.to);
+        if (from == to) return tr("%1 Definitions").arg(core::languages::displayName(from));
+        return tr("%1 → %2").arg(core::languages::displayTitle(from), core::languages::displayTitle(to));
+    }
+    return {};
+}
 
 QString MobileApp::dictionaryStatus() const
 {
-    if (m_dictionary->info().ok) return tr("Spanish → English: %1 words.").arg(QLocale().toString(m_dictionary->info().entries));
-    return tr("Spanish → English: not installed (%1 MB download).").arg((core::DictionaryDownload::spanishEnglish().size + 500000) / 1000000);
+    const QString key = dictionaryKeys().first();
+    const core::OfflineDictionary* d = translatingDictionary();
+    if (d->info().ok) return tr("%1: %2 words.").arg(dictionaryTitle(key), QLocale().toString(d->info().entries));
+    return tr("%1: not installed (%2 MB download).").arg(dictionaryTitle(key)).arg((sourceFor(key).size + 500000) / 1000000);
 }
 
 void MobileApp::downloadDictionary(const QString& key)
@@ -1945,13 +2236,10 @@ void MobileApp::removeDictionary(const QString& key)
 QVariantList MobileApp::dictionaries() const
 {
     QVariantList out;
-    for (const DictionaryKind& k : kDictionaries) {
-        const QString key = QLatin1String(k.key);
+    for (const QString& key : dictionaryKeys()) {
         const core::OfflineDictionary* d = dictionaryFor(key);
-        const QString title = key == QLatin1String("es") ? tr("Spanish → English")
-                            : key == QLatin1String("en") ? tr("English Definitions")
-                                                         : tr("Spanish Definitions");
-        const QString about = key == QLatin1String("es") ? tr("Single words at once, with no internet (Wiktionary).")
+        const QString title = dictionaryTitle(key);
+        const QString about = key == QLatin1String("es") || key == QLatin1String("en-es") ? tr("Single words at once, with no internet (Wiktionary).")
                             : key == QLatin1String("en") ? tr("For English books (Open English WordNet).")
                                                          : tr("For the Dictionary card in Spanish books (Spanish Wiktionary).");
         const bool installed = d && d->info().ok;
@@ -1988,7 +2276,7 @@ bool MobileApp::showDictionary(QObject* object)
 {
     auto* page = qobject_cast<BookPage*>(object);
     if (!page || !page->hasSelection()) return false;
-    const QList<core::OfflineDictionary*> all{m_definitionsEs, m_dictionaryEn, m_dictionary};
+    const QList<core::OfflineDictionary*> all{m_definitionsEs, m_dictionaryEn, m_dictionary, m_dictionaryEnEs};
     const QString text = page->selectedText(), book = languageCode();
     const core::FoundCard f = core::findDictionaryCard(all, text, book);
     if (!f.found()) return false;
@@ -2010,11 +2298,16 @@ bool MobileApp::showDictionary(QObject* object)
         if (defs.found()) {
             sides << side(defs);
         } else {
-            const bool installed = m_definitionsEs->info().ok && book == QLatin1String("es");
-            sides << QVariantMap{{QStringLiteral("title"), tr("SPANISH DEFINITIONS")},
-                                 {QStringLiteral("html"), QStringLiteral("<p>%1</p>").arg((installed ? tr("The Spanish definitions don't have this word.")
-                                                                                                    : tr("The Spanish definitions aren't installed.")).toHtmlEscaped())},
-                                 {QStringLiteral("offer"), !installed && book == QLatin1String("es")},
+            // The book's language's definitions: Spanish ones for a Spanish book, English ones for an English book.
+            const QString key = book == QLatin1String("en") ? QStringLiteral("en") : QStringLiteral("es-es");
+            const core::OfflineDictionary* own = dictionaryFor(key);
+            const bool known = book == QLatin1String("es") || book == QLatin1String("en");
+            const bool installed = known && own->info().ok;
+            sides << QVariantMap{{QStringLiteral("title"), dictionaryTitle(key).toUpper()},
+                                 {QStringLiteral("html"), QStringLiteral("<p>%1</p>").arg((installed ? tr("These definitions don't have this word.")
+                                                                                                    : tr("These definitions aren't installed.")).toHtmlEscaped())},
+                                 {QStringLiteral("offer"), !installed && known},
+                                 {QStringLiteral("offerKey"), key},
                                  {QStringLiteral("word"), trans.card.headwords.first().word}};
         }
         sides << side(trans);

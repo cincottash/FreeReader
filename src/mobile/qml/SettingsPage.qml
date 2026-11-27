@@ -51,6 +51,25 @@ Page {
             width: parent.width - 40
             spacing: 10
 
+            // Your language: the app's text and every answer in it (as on the desktop, Settings › General).
+            Section { text: qsTr("LANGUAGE") }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+                Repeater {
+                    model: settings.app.readerLanguages()
+                    delegate: Button {
+                        required property var modelData
+                        objectName: "language-" + modelData.code
+                        Layout.fillWidth: true
+                        text: modelData.name
+                        highlighted: settings.app.readerLanguage === modelData.code
+                        onClicked: settings.app.readerLanguage = modelData.code
+                    }
+                }
+            }
+            Note { text: qsTr("Your language: the app's text, and the language of the translations and explanations.") }
+
             Section { text: qsTr("READING") }
             Label { text: qsTr("Text Size: %1 %").arg(settings.app.textSize); color: settings.theme.fg }
             Slider { Layout.fillWidth: true; from: 60; to: 250; stepSize: 10; value: settings.app.textSize; onMoved: settings.app.textSize = value }
@@ -239,6 +258,50 @@ Page {
                     }
                 }
             }
+
+            // Hear Pronunciation and Listen, with the phone's own voices (the desktop's Settings › Audio).
+            Section { text: qsTr("AUDIO") }
+            Label {
+                text: qsTr("Speed: %1").arg(speedSlider.value === 0 ? qsTr("Normal") : (speedSlider.value > 0 ? "+" : "") + Math.round(speedSlider.value) + " %")
+                color: settings.theme.fg
+            }
+            Slider {
+                id: speedSlider
+                objectName: "optSpeechRate"
+                Layout.fillWidth: true
+                from: -100; to: 100; stepSize: 10
+                value: settings.app.options.speechRate || 0
+                onMoved: settings.app.setOption("speechRate", Math.round(value))
+            }
+            Label { text: qsTr("Volume: %1 %").arg(Math.round(volumeSlider.value)); color: settings.theme.fg }
+            Slider {
+                id: volumeSlider
+                objectName: "optSpeechVolume"
+                Layout.fillWidth: true
+                from: 0; to: 100; stepSize: 5
+                value: settings.app.options.speechVolume === undefined ? 100 : settings.app.options.speechVolume
+                onMoved: settings.app.setOption("speechVolume", Math.round(value))
+            }
+            Repeater {
+                // A voice for each language (the phone's choice unless one is picked); Test says a sentence with it.
+                model: settings.app.voiceLanguages()
+                delegate: RowLayout {
+                    required property var modelData
+                    Layout.fillWidth: true
+                    Label { text: qsTr("%1 Voice").arg(modelData.name); color: settings.theme.fg; Layout.preferredWidth: 110; wrapMode: Text.Wrap }
+                    ComboBox {
+                        objectName: "voice-" + modelData.code
+                        Layout.fillWidth: true
+                        textRole: "detail"
+                        valueRole: "name"
+                        model: settings.app.voicesFor(modelData.code)
+                        currentIndex: { const v = settings.app.voiceFor(modelData.code); for (let i = 0; i < count; ++i) if (model[i].name === v) return i; return 0 }
+                        onActivated: (i) => settings.app.setVoice(modelData.code, model[i].name)
+                    }
+                    Button { objectName: "testVoice-" + modelData.code; text: qsTr("Test"); onClicked: settings.app.testVoice(modelData.code) }
+                }
+            }
+            Note { text: qsTr("More voices (free): the phone's Settings › General management › Text-to-speech.") }
 
             Section { text: qsTr("ABOUT") }
             Note { text: qsTr("FreeReader %1 · © cincottash · for DRM-free books.").arg(settings.app.version) }

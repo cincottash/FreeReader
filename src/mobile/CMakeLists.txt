@@ -11,6 +11,7 @@ qt_add_executable(freereader_mobile
     ../app/Appearance.cpp
     ../app/ThemeCore.cpp
     ../app/ThemeData.cpp
+    ../app/InterfaceLanguage.cpp
 )
 set_target_properties(freereader_mobile PROPERTIES OUTPUT_NAME FreeReaderMobile)
 if(ANDROID)
@@ -41,6 +42,9 @@ qt_add_qml_module(freereader_mobile
         qml/WordsPage.qml
         qml/LookPanel.qml
         qml/NotebookTools.qml
+        qml/StatsPage.qml
+        qml/GuidePage.qml
+        qml/WelcomePage.qml
     SOURCES
         BookPage.h
         MobileApp.h
@@ -55,10 +59,12 @@ if(TARGET Qt6::TextToSpeech)
     target_compile_definitions(freereader_mobile PRIVATE HAVE_TEXT_TO_SPEECH)
 endif()
 
-# The bundled fonts and the icon (SIL Open Font License; the license texts sit next to the fonts).
+# The bundled fonts and the icon (SIL Open Font License; the license texts sit next to the fonts), and the app's
+# text in other languages (the desktop's files: one file for both apps).
 file(GLOB MOBILE_FONT_FILES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/resources/fonts/*.ttf)
+file(GLOB MOBILE_LANGUAGE_FILES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/resources/languages/*.json)
 qt_add_resources(freereader_mobile mobile_resources PREFIX "/" BASE ${CMAKE_SOURCE_DIR}/resources
-    FILES ${CMAKE_SOURCE_DIR}/resources/icon.svg ${MOBILE_FONT_FILES})
+    FILES ${CMAKE_SOURCE_DIR}/resources/icon.svg ${MOBILE_FONT_FILES} ${MOBILE_LANGUAGE_FILES})
 
 if(ANDROID)
     # The app's own Android files (manifest, icons), when there are any; else Qt's defaults.

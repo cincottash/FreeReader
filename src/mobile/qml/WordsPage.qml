@@ -205,8 +205,8 @@ Page {
                 }
                 Repeater {
                     // The four kinds of card; at least one stays on.
-                    model: [{"key": "recognize", "label": qsTr("Book Language → English")},
-                            {"key": "recall", "label": qsTr("English → Book Language")},
+                    model: [{"key": "recognize", "label": qsTr("Book Language → %1").arg(words.app.alongsideText.title || "")},
+                            {"key": "recall", "label": qsTr("%1 → Book Language").arg(words.app.alongsideText.title || "")},
                             {"key": "definition", "label": qsTr("Definition → Word")},
                             {"key": "cloze", "label": qsTr("Sentence With a Gap → Word")}]
                     delegate: CheckBox {

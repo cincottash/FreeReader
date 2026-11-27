@@ -15,6 +15,7 @@
 #include <QColor>
 #include <QImage>
 #include <QObject>
+#include <QPointer>
 #include <QQmlEngine>
 #include <QSet>
 #include <QElapsedTimer>
@@ -23,6 +24,7 @@
 #include <QMargins>
 #include <QVariantMap>
 
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -38,6 +40,7 @@ class Importer;
 class Annotations;
 class Library;
 class LibrarySearch;
+class ReadingLog;
 struct KindlePlan;
 class OfflineDictionary;
 class SavedWords;
@@ -92,6 +95,10 @@ class MobileApp : public QObject {
     Q_PROPERTY(QVariantList libraryFilters READ libraryFilters NOTIFY libraryChanged)
     Q_PROPERTY(QVariantMap continueReading READ continueReading NOTIFY libraryChanged)
     Q_PROPERTY(int shownBookCount READ shownBookCount NOTIFY libraryChanged)
+    // Your language (as on the desktop, Settings > General): the app's text and the language of every answer,
+    // English or Spanish. showWelcome: the first start's welcome (the language and the dictionaries) is due.
+    Q_PROPERTY(QString readerLanguage READ readerLanguage WRITE setReaderLanguage NOTIFY languageChanged)
+    Q_PROPERTY(bool showWelcome READ showWelcome NOTIFY languageChanged)
     // Import Highlights: {title, from, summary [lines], warning, options [{key, label, on, enabled, visible}],
     // mismatches [lines], result} (empty when closed).
     Q_PROPERTY(QVariantMap highlightImport READ highlightImport NOTIFY highlightImportChanged)
@@ -234,6 +241,25 @@ public:
     Q_INVOKABLE void shareNotebook(const QString& format);
     Q_INVOKABLE void saveNotebook(const QString& format, const QUrl& url);
     QString lastShared() const { return m_lastShared; }   // tests
+
+    QString readerLanguage() const { return m_settings.readerLanguage; }
+    void setReaderLanguage(const QString& code);
+    bool showWelcome() const { return !m_settings.welcomeShown && !m_quiet; }
+    Q_INVOKABLE QVariantList readerLanguages() const;   // {code, name}: each in its own language ("Español")
+    Q_INVOKABLE QString suggestedLanguage() const;      // the phone's own language when the app can be in it
+    // The dictionaries a reader of `reader` can download: {key, title, about, sizeMb, installed, suggested}.
+    Q_INVOKABLE QVariantList dictionariesFor(const QString& reader) const;
+    // The welcome's answer: the language, and the dictionaries to download now (keys).
+    Q_INVOKABLE void finishWelcome(const QString& reader, const QStringList& downloads);
+    // The screens' text is read again when the language changes.
+    void setQmlEngine(QQmlEngine* engine) { m_qml = engine; }
+
+    // Statistics (as on the desktop): {today, week, streak, finished, words, learned, reviewsToday, retention,
+    // summary, empty, days [{label, minutes, words, reviews}], books [{id, title, time, pages, words, progress}]}.
+    Q_INVOKABLE QVariantMap statistics() const;
+    // The app went to the background (or came back): reading time stops counting meanwhile.
+    void setAppActive(bool active);
+    void setReadingClockForTests(std::function<qint64()> clock) { m_readingClock = std::move(clock); }
 
     // Looks up the page's selection (a word, a phrase or a sentence); the answer arrives in `lookup`.
     Q_INVOKABLE void lookUp(QObject* page);   // a BookPage
@@ -379,6 +405,13 @@ public:
     QString lastSpoken() const { return m_lastSpoken; }   // tests
     QString lastOpened() const { return m_lastOpened; }   // tests: the last web address opened
     void setQuietForTests(bool on) { m_quiet = on; }       // never start the system's speech engine or browser
+    // Audio (Settings): the speed and volume are options (speechRate -100..100, speechVolume 0..100); a voice per
+    // language from the phone's voices.
+    Q_INVOKABLE QVariantList voiceLanguages() const;            // {code, name}
+    Q_INVOKABLE QVariantList voicesFor(const QString& language);   // {name, detail}; name "" is the phone's choice
+    Q_INVOKABLE QString voiceFor(const QString& language) const;
+    Q_INVOKABLE void setVoice(const QString& language, const QString& name);
+    Q_INVOKABLE void testVoice(const QString& language);
     // Report an AI's answer (Google Play's AI-generated content policy): opens a new GitHub issue, filled in.
     Q_INVOKABLE void reportAnswer();
     QUrl reportUrl() const;   // that issue's address (tests read it without opening a browser)
@@ -408,6 +441,7 @@ public:
 
 signals:
     void booksChanged();
+    void languageChanged();
     void libraryChanged();
     void highlightImportChanged();
     void directionChanged();
@@ -458,7 +492,14 @@ private:
     QString chapterTitleAt(const core::Position& p) const;
     QString dictionaryFile(const QString& key = QStringLiteral("es")) const;
     core::OfflineDictionary* dictionaryFor(const QString& key) const;
+    core::OfflineDictionary* translatingDictionary() const;   // into the reader's language
+    QStringList dictionaryKeys() const;                       // the ones this reader can use, in Settings' order
+    QString dictionaryTitle(const QString& key) const;        // "Spanish → English", "English Definitions"
     int annotationAt(QObject* page) const;   // the highlight holding the page's selection, 0 if none
+    QString chosenVoice(const QString& language) const;
+    qint64 readingNow() const;
+    void creditReading(bool forwardTurn, int chars);   // reading statistics: the time on the screen just left
+    void flushReading();                               // into the reading log
     void jumpTo(const core::Position& p);    // remembers where the reader was (Back)
     void forgetHistory();
     struct Paragraph {
@@ -481,6 +522,7 @@ private:
     core::GeminiProvider* m_gemini;
     core::SavedWords* m_savedWords;
     core::OfflineDictionary* m_dictionary;     // Spanish -> English
+    core::OfflineDictionary* m_dictionaryEnEs; // English -> Spanish (a Spanish reader's)
     core::OfflineDictionary* m_dictionaryEn;   // English definitions
     core::OfflineDictionary* m_definitionsEs;  // Spanish definitions (the Dictionary card only)
     QHash<QString, core::DictionaryDownload*> m_downloads;
@@ -546,7 +588,12 @@ private:
     std::vector<AllRow> m_allRows;
     int m_allSearchId = 0, m_allUnreadable = 0;
     QString m_allSummary, m_allQuery;
+    QPointer<QQmlEngine> m_qml;
     QString m_lookScope = QStringLiteral("all");   // where Text and Layout changes go (this session)
+    std::unique_ptr<core::ReadingLog> m_readingLog;
+    std::function<qint64()> m_readingClock;          // tests
+    qint64 m_readingMark = 0, m_pendingReadMs = 0, m_pendingChars = 0;
+    int m_pendingPages = 0;
     std::vector<core::Position> m_history;   // where each jump came from, the last one last
     core::Position m_footnoteTarget{-1, 0};
     QImage m_image;
