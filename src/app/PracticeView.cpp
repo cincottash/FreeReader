@@ -251,11 +251,13 @@ QWidget* PracticeView::buildStart()
     m_counts = wrapLabel("practiceCounts", "Muted");
     lay->addWidget(m_counts);
     m_empty = wrapLabel("practiceEmpty");
-    m_empty->setText(tr("No words yet. While reading, translate a word (right-click > Translate) or highlight it: both are saved "
-                        "here, ready to practise."));
+    // The empty list's text in title case (the owner's rule), then how to fill it: highlights only, unless Add
+    // Looked-Up Words is on (2026-11-26).
+    m_empty->setText(tr("No Words Yet") + QLatin1Char('\n') +
+                     tr("While reading, highlight a word (right-click > Highlight): it is saved here, ready to practice."));
     lay->addWidget(m_empty);
 
-    lay->addWidget(sectionTitle(tr("WHAT TO PRACTISE")));
+    lay->addWidget(sectionTitle(tr("WHAT TO PRACTICE")));
     auto* bookRow = new QHBoxLayout;
     bookRow->addWidget(new QLabel(tr("Words From")));
     m_book = new ElidingComboBox;
@@ -381,7 +383,7 @@ void PracticeView::refreshCounts()
     const int cards = m_log->practisableCount(filter());
     const int words = m_log->count();
     m_empty->setVisible(words == 0);
-    m_counts->setText(tr("%1 to practise · %2 in the word log").arg(count(cards, tr("card"), tr("cards")), count(words, tr("word"), tr("words"))));
+    m_counts->setText(tr("%1 to practice · %2 in the word log").arg(count(cards, tr("card"), tr("cards")), count(words, tr("word"), tr("words"))));
     m_start->setEnabled(cards > 0);
     if (cards > 0) m_startHint->clear();
     else if (words == 0) m_startHint->setText(tr("Translate or highlight some words while reading first."));
@@ -912,7 +914,7 @@ QWidget* PracticeView::buildList()
         buttons->addWidget(b);
         return b;
     };
-    QPushButton* star = button(tr("Star"), "wordStar", tr("Starred words can be practised on their own."));
+    QPushButton* star = button(tr("Star"), "wordStar", tr("Starred words can be practiced on their own."));
     QPushButton* show = button(tr("Show in Book"), "wordShow", tr("Opens the book where the word was last looked up."));
     QPushButton* reset = button(tr("Start Over"), "wordReset", tr("The word's cards become new again."));
     QPushButton* del = button(tr("Delete"), "wordDelete", tr("Removes the word and its cards from the word log."));

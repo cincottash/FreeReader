@@ -22,6 +22,7 @@
 
 #include <QClipboard>
 #include <QDesktopServices>
+#include <QUrlQuery>
 #include <QGuiApplication>
 #include <QDir>
 #include <QElapsedTimer>
@@ -232,6 +233,9 @@ MobileApp::MobileApp(const QString& dataFolder, QObject* parent) : QObject(paren
     // The Word List last: its meaning was right for another sentence (the owner's rule, 2026-11-27).
     m_translator->setProviders({m_gemini, m_dictionary, m_dictionaryEn, m_savedWords});
     m_translator->setInstant({m_dictionary, m_dictionaryEn});
+    // A word or passage Gemini hasn't answered by then (2.5 s, as on the desktop) is answered by the next engine;
+    // Gemini's late answer is kept for next time (the owner's rule, 2026-11-26).
+    m_translator->setWait(m_gemini->name(), qMax(0, m_settings.geminiWaitMs));
     // One answer per lookup, from the first engine that can give it (as on the desktop).
     connect(m_translator, &core::TranslationService::finished, this, &MobileApp::onTranslated);
 
@@ -338,11 +342,11 @@ QStringList MobileApp::bookFilters() const
 #ifdef Q_OS_ANDROID
     // Android's picker turns name filters into file types and greys out the ones it doesn't know (.cbz, .cbr,
     // .azw3…): every file can be picked, and the format is read from its bytes.
-    return {tr("All files (*)")};
+    return {tr("All Files (*)")};
 #endif
     QStringList patterns;
     for (const QString& s : core::FormatRegistry::instance().fileSuffixes()) patterns << QStringLiteral("*.") + s;
-    return {tr("Books (%1)").arg(patterns.join(QLatin1Char(' '))), tr("All files (*)")};
+    return {tr("Books (%1)").arg(patterns.join(QLatin1Char(' '))), tr("All Files (*)")};
 }
 
 bool MobileApp::rightToLeft() const
@@ -572,8 +576,12 @@ void MobileApp::onTranslated(int id, const core::TranslationResult& r, const QSt
         m[QStringLiteral("inSentence")] = r.inSentence;
         m[QStringLiteral("note")] = r.note;
         m[QStringLiteral("source")] = r.provider.isEmpty() ? QString() : tr("Source: %1").arg(r.provider);
-        // Every lookup joins the word log, with the place it was seen (as on the desktop).
-        if (m_words && m_bookId) {
+        m[QStringLiteral("provider")] = r.provider;
+        m[QStringLiteral("ai")] = r.provider == m_gemini->name();   // an AI's answer: it can be reported
+        // A lookup joins the word log, with the place it was seen, only when chosen (the desktop's Practice > Add
+        // Looked-Up Words): by default the Word List is what was highlighted (the owner's rule, 2026-11-26; the phone
+        // app still logged every lookup until 2026-11-27).
+        if (m_words && m_bookId && m_settings.practiceLookups) {
             core::WordPlace place;
             place.bookId = m_bookId;
             place.bookTitle = m_title;
@@ -658,7 +666,7 @@ core::WordLog::Filter practiceFilter(const Settings& s)
 
 QString directionName(const QString& d, const QString& language)
 {
-    const QString lang = language.isEmpty() || language == QLatin1String("und") ? QObject::tr("Book language")
+    const QString lang = language.isEmpty() || language == QLatin1String("und") ? QObject::tr("Book Language")
                                                                                  : QLocale::languageToString(QLocale(language).language());
     if (d == QLatin1String("recall")) return QObject::tr("English → %1").arg(lang);
     if (d == QLatin1String("definition")) return QObject::tr("Definition → Word");
@@ -673,7 +681,7 @@ QVariantMap MobileApp::practice() const
     QVariantMap m;
     if (!m_words) return m;
     const QDateTime now = QDateTime::currentDateTimeUtc();
-    // Every card is practised, in the order chosen (no "due" or "new today", as on the desktop).
+    // Every card is practiced, in the order chosen (no "due" or "new today", as on the desktop).
     m[QStringLiteral("cards")] = m_words->practisableCount(practiceFilter(m_settings));
     m[QStringLiteral("words")] = m_words->count();
     m[QStringLiteral("summary")] = m_practiceSummary;
@@ -716,7 +724,7 @@ bool MobileApp::startPractice()
     m_practiceSummary.clear();
     m_revealed = false;
     const bool ok = m_session->start(practiceFilter(m_settings), m_settings.practiceOrder, QDateTime::currentDateTimeUtc());
-    if (!ok) m_practiceSummary = tr("Nothing to practise now. Look up or highlight words while reading, then come back.");
+    if (!ok) m_practiceSummary = tr("Nothing to practice now. Highlight words while reading, then come back.");
     emit practiceChanged();
     return ok;
 }
@@ -893,8 +901,8 @@ QVariantList MobileApp::dictionaries() const
         const QString key = QLatin1String(k.key);
         const core::OfflineDictionary* d = dictionaryFor(key);
         const QString title = key == QLatin1String("es") ? tr("Spanish → English")
-                            : key == QLatin1String("en") ? tr("English definitions")
-                                                         : tr("Spanish definitions");
+                            : key == QLatin1String("en") ? tr("English Definitions")
+                                                         : tr("Spanish Definitions");
         const QString about = key == QLatin1String("es") ? tr("Single words at once, with no internet (Wiktionary).")
                             : key == QLatin1String("en") ? tr("For English books (Open English WordNet).")
                                                          : tr("For the Dictionary card in Spanish books (Spanish Wiktionary).");
@@ -1255,3 +1263,24 @@ QVariantList MobileApp::searchResults() const
 }
 
 void MobileApp::openLink(const QString& url) { QDesktopServices::openUrl(QUrl(url)); }
+
+QUrl MobileApp::reportUrl() const
+{
+    // A new issue on FreeReader's GitHub page, filled in with the answer being reported; the reader reads it, can
+    // change it, and sends it there (or not).
+    const QString text = m_lookup.value(QStringLiteral("text")).toString();
+    const QString answer = m_lookup.value(QStringLiteral("translation")).toString();
+    const QString body = tr("What is wrong with this answer?\n\n\n---\nSelected text: %1\nAnswer: %2\nFrom: %3\nFreeReader %4 (phone)")
+                             .arg(text.left(500), answer.left(1000), m_lookup.value(QStringLiteral("provider")).toString(), version());
+    QUrlQuery q;
+    q.addQueryItem(QStringLiteral("title"), tr("Report: the answer for “%1”").arg(text.left(60)));
+    q.addQueryItem(QStringLiteral("body"), body);
+    QUrl url(QStringLiteral("https://github.com/cincottash/FreeReader/issues/new"));
+    url.setQuery(q);
+    return url;
+}
+
+void MobileApp::reportAnswer()
+{
+    if (m_lookup.value(QStringLiteral("ai")).toBool()) QDesktopServices::openUrl(reportUrl());
+}

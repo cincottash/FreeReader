@@ -178,7 +178,7 @@ QString HelpPanel::html() const
               .arg(link(QStringLiteral("add-books"), tr("Add Books…")), link(QStringLiteral("add-folder"), tr("Add Folder…"))),
           tr("<b>Open a book:</b> double-click its cover. FreeReader remembers your place."),
           tr("<b>Look up a word:</b> right-click it and choose <b>Translate</b>."),
-          tr("<b>Practise the words:</b> the <b>Practice</b> button while reading, or <b>Practice Words</b> in the library."),
+          tr("<b>Practice the words:</b> the <b>Practice</b> button while reading, or <b>Practice Words</b> in the library."),
           tr("<b>Set up Gemini</b> for the best translations: a free key from Google, pasted in %1.")
               .arg(link(QStringLiteral("translation-settings"), tr("Translation Settings")))});
 

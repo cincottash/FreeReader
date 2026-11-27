@@ -1,4 +1,5 @@
-# Builds FreeReader for Windows (a single FreeReader.exe) and Linux (FreeReader-x86_64.AppImage).
+# Builds FreeReader for Windows (a single FreeReader.exe) and Linux (FreeReader-x86_64.AppImage), and the phone app
+# for Android (an APK kept with the run only, for now).
 #
 # - Pull requests and manual runs: build both, check that each starts, and keep them as downloadable artifacts of
 #   the run for 14 days (nothing is published).
@@ -321,6 +322,137 @@ jobs:
         with:
           name: FreeReader-linux
           path: dist/FreeReader-x86_64.AppImage
+          retention-days: 14
+
+  android:
+    name: Android APK
+    needs: version
+    # The phone app (Qt Quick) for arm64 phones. It is checked and kept with the run (14 days), signed with a key
+    # made for this run only (good for trying it, not for updating an installed copy); releases don't carry it yet.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      ANDROID_NDK_VERSION: "26.1.10909125"   # the NDK Qt 6.8 is built with
+      ANDROID_ABI: arm64-v8a
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Android NDK and SDK parts
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;${ANDROID_NDK_VERSION}" \
+            "platforms;android-36" "build-tools;36.0.0" > /dev/null
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+
+      # The desktop Qt that Qt for Android's build tools run on, then Qt for Android (since Qt 6.7 its packages are
+      # published for every host at once, as "all_os"). Installed in that order, so QT_ROOT_DIR is Android's.
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.3"
+          host: linux
+          target: desktop
+          arch: linux_gcc_64
+          cache: true
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.3"
+          host: all_os
+          target: android
+          arch: android_arm64_v8a
+          cache: true
+
+      - uses: actions/cache@v4
+        id: mupdf
+        with:
+          path: mupdf
+          key: mupdf-${{ env.MUPDF_VERSION }}-android-arm64-${{ hashFiles('.github/workflows/build-apps.yml') }}
+
+      - name: MuPDF (PDF and XPS) for Android
+        if: steps.mupdf.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o mupdf.tar.gz "https://mupdf.com/downloads/archive/mupdf-${MUPDF_VERSION}-source.tar.gz"
+          echo "${MUPDF_SHA256}  mupdf.tar.gz" | sha256sum -c
+          tar -xzf mupdf.tar.gz
+          mv "mupdf-${MUPDF_VERSION}-source" mupdf
+          tc="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          # MuPDF's own copies of FreeType, zlib and libjpeg (Android has none to share); getentropy() is declared in
+          # sys/random.h there.
+          make -C mupdf -j4 OS=Android build=release OUT=build/android \
+            CC="$tc/clang --target=aarch64-linux-android28" CXX="$tc/clang++ --target=aarch64-linux-android28" AR="$tc/llvm-ar" \
+            html=no mujs=no brotli=no extract=no tofu=yes tofu_cjk=yes HAVE_X11=no HAVE_GLUT=no HAVE_CURL=no HAVE_LIBCRYPTO=no \
+            XCFLAGS="-fPIC -DARCH_HAS_SSE=0 -include sys/random.h" libs
+          find mupdf -mindepth 1 -maxdepth 1 ! -name include ! -name build -exec rm -rf {} +
+          find mupdf/build/android -type f ! -name '*.a' -delete
+          ls -l mupdf/build/android/*.a
+
+      - name: OpenSSL for Android and chmlib's source
+        run: |
+          # HTTPS (Gemini, dictionary downloads): Android has no OpenSSL for apps; KDAB's builds, as for the local APK.
+          git clone --quiet https://github.com/KDAB/android_openssl.git
+          git -C android_openssl checkout --quiet b71f1470962019bd89534a2919f5925f93bc5779
+          ls -l android_openssl/ssl_3/$ANDROID_ABI/libcrypto_3.so android_openssl/ssl_3/$ANDROID_ABI/libssl_3.so
+          # CHM help files: chmlib (LGPL-2.1) built from its source.
+          git clone --quiet https://github.com/jedwing/CHMLib.git chmlib
+          git -C chmlib checkout --quiet 2bef8d063ec7d88a8de6fd9f0513ea42ac0fa21f
+          ls -l chmlib/src/chm_lib.c
+
+      # Gradle's own downloads (the Android build tools' libraries), kept between runs: Maven Central refuses
+      # GitHub's machines now and then ("429 Too Many Requests").
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-qt6.8.3-${{ hashFiles('.github/workflows/build-apps.yml') }}
+          restore-keys: gradle-qt6.8.3-
+
+      - name: Build the APK
+        run: |
+          host="${QT_HOST_PATH:-$(dirname "$QT_ROOT_DIR")/gcc_64}"
+          "$QT_ROOT_DIR/bin/qt-cmake" -S . -B build-android -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DQT_HOST_PATH="$host" -DANDROID_SDK_ROOT="$ANDROID_HOME" -DANDROID_NDK_ROOT="$ANDROID_NDK_ROOT" \
+            -DRELEASE_VERSION=${{ needs.version.outputs.version }} \
+            -DMUPDF_DIR="$PWD/mupdf" -DMUPDF_BUILD=build/android -DCHMLIB_SOURCE_DIR="$PWD/chmlib/src" \
+            -DFREEREADER_ANDROID_OPENSSL_DIR="$PWD/android_openssl/ssl_3"
+          # Every format library linked in: PDF and XPS, CHM.
+          for f in HAVE_MUPDF HAVE_CHMLIB; do
+            grep -q "$f" build-android/build.ninja || { echo "built without $f"; exit 1; }
+          done
+          # Packaging downloads Gradle's libraries: tried again after a minute when Maven Central refuses (429).
+          for attempt in 1 2 3; do
+            cmake --build build-android --target apk && break
+            [ "$attempt" = 3 ] && exit 1
+            echo "Packaging failed (attempt $attempt); trying again in 60 s"
+            sleep 60
+          done
+          apk=$(find build-android -name '*-release-unsigned.apk' | head -n 1)
+          test -n "$apk"
+          # Signed with a key made for this run (test installs only; an installed copy updates only from the same key).
+          bt="$ANDROID_HOME/build-tools/36.0.0"
+          keytool -genkeypair -keystore run.keystore -storepass android -keypass android -alias run \
+            -dname "CN=FreeReader test" -keyalg RSA -keysize 2048 -validity 30 > /dev/null
+          mkdir -p dist
+          "$bt/zipalign" -f -p 4 "$apk" aligned.apk
+          "$bt/apksigner" sign --ks run.keystore --ks-pass pass:android --key-pass pass:android \
+            --out dist/FreeReader-android-arm64-test.apk aligned.apk
+          "$bt/apksigner" verify dist/FreeReader-android-arm64-test.apk
+          # The app's library, its Qt Quick screens, OpenSSL and the package name are all in the APK.
+          unzip -l dist/FreeReader-android-arm64-test.apk > contents.txt
+          for f in lib/$ANDROID_ABI/libFreeReader_arm64-v8a.so lib/$ANDROID_ABI/libcrypto_3.so lib/$ANDROID_ABI/libssl_3.so; do
+            grep -q "$f" contents.txt || { echo "missing from the APK: $f"; grep 'lib/' contents.txt | head -n 40; exit 1; }
+          done
+          "$bt/aapt2" dump badging dist/FreeReader-android-arm64-test.apk | head -n 3
+          ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FreeReader-android-arm64
+          path: dist/FreeReader-android-arm64-test.apk
           retention-days: 14
 
   release:

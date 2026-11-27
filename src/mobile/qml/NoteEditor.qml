@@ -44,7 +44,7 @@ Popup {
             Layout.fillWidth: true
             Layout.preferredHeight: 140
             wrapMode: TextEdit.Wrap
-            placeholderText: qsTr("Your note")
+            placeholderText: qsTr("Note")
             color: editor.theme.fg
         }
         RowLayout {

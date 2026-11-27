@@ -121,6 +121,15 @@ Drawer {
                     font.pixelSize: 11
                     color: sheet.theme.muted
                 }
+                // An AI's answer can be reported (Google Play's AI-generated content policy): a new GitHub issue,
+                // filled in, opens in the browser; nothing is sent until it is submitted there.
+                Button {
+                    objectName: "reportAnswer"
+                    visible: sheet.r.ai === true && sheet.r.loading !== true
+                    flat: true
+                    text: qsTr("Report")
+                    onClicked: sheet.app.reportAnswer()
+                }
                 Button {
                     visible: sheet.r.isWord === true && sheet.r.loading !== true
                     text: qsTr("Translate Sentence")

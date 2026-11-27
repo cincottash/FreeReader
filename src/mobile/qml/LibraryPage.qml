@@ -133,7 +133,7 @@ Page {
         visible: page.app.bookCount === 0
         horizontalAlignment: Text.AlignHCenter
         wrapMode: Text.Wrap
-        text: qsTr("No books yet.\nTap Add Book to choose a book on this phone (EPUB, MOBI, AZW3, FB2, comics, text and more). Books with DRM can't be opened.")
+        text: qsTr("No Books Yet") + "\n" + qsTr("Tap Add Book to choose a book on this phone (EPUB, MOBI, AZW3, FB2, comics, text and more). Books with DRM can't be opened.")
         font.pixelSize: page.theme.body
         color: page.theme.muted
     }
@@ -160,7 +160,7 @@ Page {
     FileDialog {
         id: picker
         title: qsTr("Add Book")
-        nameFilters: page.app ? page.app.bookFilters : [qsTr("All files (*)")]
+        nameFilters: page.app ? page.app.bookFilters : [qsTr("All Files (*)")]
         onAccepted: page.app.importBook(selectedFile)
     }
 

@@ -1,5 +1,5 @@
-// Reading: tap the left third for the previous page and the right third for the next one, or swipe; tap the middle
-// for the menu (Library, Contents and Notebook, Search, Bookmark, text and theme). Press and hold a word, and keep
+// Reading: swipe to turn the page (a tap never turns it: the owner kept turning pages by tapping a word, 2026-11-27);
+// tap for the menu (Library, Contents and Notebook, Search, Bookmark, text and theme). Press and hold a word, and keep
 // holding and drag to take in more words; lifting the finger shows what to do with them: highlight, note,
 // Dictionary, Translate, Copy.
 import QtQuick
@@ -48,12 +48,8 @@ Page {
                 if (sheet.opened) { sheet.close(); return }
                 if (card.opened) { card.close(); return }
                 if (book.hasSelection) { book.clearSelection(); return }
-                // Right to left (manga): the left third goes forward.
-                const x = point.position.x
-                const rtl = reader.app.rightToLeft
-                if (x < book.width / 3) rtl ? book.nextPage() : book.previousPage()
-                else if (x > book.width * 2 / 3) rtl ? book.previousPage() : book.nextPage()
-                else reader.chrome = !reader.chrome
+                // Anywhere on the page: the menu. Pages turn only by swiping.
+                reader.chrome = !reader.chrome
             }
             onLongPressed: {
                 if (book.selectWordAt(point.position.x, point.position.y)) {
