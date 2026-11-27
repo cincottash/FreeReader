@@ -46,6 +46,7 @@ void fields(Settings& s, F&& f)
     f("page_directions", s.pageDirections);
     f("use_gemini", s.useGemini);
     f("gemini_model", s.geminiModel);
+    f("gemini_explain_only", s.geminiExplainOnly);
     f("use_lm_studio", s.useLmStudio);
     f("lm_studio_address", s.lmStudioAddress);
     f("lm_studio_model", s.lmStudioModel);

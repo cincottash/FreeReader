@@ -207,6 +207,9 @@ QString HelpPanel::html() const
              "your Word List, then the offline dictionaries and the offline translator. Each can be switched off in "
              "Settings ▸ Translation. When Gemini or LM Studio takes longer than its <b>Wait</b> time there over a word "
              "or passage (2.5 seconds at first), the next one answers instead."),
+          tr("<b>Gemini for explanations only:</b> with <b>Use Gemini Only for Explain This Sentence</b> on (Settings ▸ "
+             "Translation), Gemini answers only Explain This Sentence; words, passages and the paragraphs alongside come "
+             "from the offline dictionaries and the offline translator (or LM Studio, when it's on and running)."),
           tr("<b>Keep text private:</b> Gemini is the only engine that sends text over the internet. Turn off <b>Use "
              "Gemini</b> for every book, or <b>Keep This Book Offline</b> for one.")});
 

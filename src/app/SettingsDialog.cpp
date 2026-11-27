@@ -174,6 +174,7 @@ void SettingsDialog::reject()
         s.offlineBooks = b.offlineBooks;
         s.useGemini = b.useGemini;
         s.geminiModel = b.geminiModel;
+        s.geminiExplainOnly = b.geminiExplainOnly;
         s.useLmStudio = b.useLmStudio;
         s.lmStudioAddress = b.lmStudioAddress;
         s.lmStudioModel = b.lmStudioModel;
@@ -232,6 +233,12 @@ QWidget* SettingsDialog::buildTranslationTab()
     m_useGemini = new QCheckBox(tr("Use Gemini"));
     m_useGemini->setProperty("testId", "useGemini");
     lay->addWidget(m_useGemini);
+    m_geminiExplainOnly = new QCheckBox(tr("Use Gemini Only for Explain This Sentence"));
+    m_geminiExplainOnly->setProperty("testId", "geminiExplainOnly");
+    m_geminiExplainOnly->setToolTip(tr("Words, passages and the paragraphs alongside then come from the engines after "
+                                       "Gemini (the offline dictionaries and the offline translator, or LM Studio when "
+                                       "it's on), and Gemini's free lookups are kept for explanations."));
+    lay->addWidget(m_geminiExplainOnly);
     m_keyStatus = new QLabel;
     m_keyStatus->setWordWrap(true);
     m_keyStatus->setProperty("testId", "keyStatus");
@@ -508,7 +515,12 @@ QWidget* SettingsDialog::buildTranslationTab()
     connect(check, &QPushButton::clicked, this, &SettingsDialog::checkLmStudio);
     connect(m_useGemini, &QCheckBox::toggled, this, [this](bool on) {
         m_settings.useGemini = on;
+        m_geminiExplainOnly->setEnabled(on);
         refreshOfflineBooks();
+        emit translationChanged();
+    });
+    connect(m_geminiExplainOnly, &QCheckBox::toggled, this, [this](bool on) {
+        m_settings.geminiExplainOnly = on;
         emit translationChanged();
     });
     connect(m_bookOffline, &QCheckBox::toggled, this, &SettingsDialog::setOpenBookOffline);
@@ -537,10 +549,13 @@ QWidget* SettingsDialog::buildTranslationTab()
 
 void SettingsDialog::refreshTranslation()
 {
-    const QSignalBlocker b1(m_useGemini), b2(m_useLm), b3(m_auto), b5(m_model), b6(m_geminiWait), b7(m_lmWait);
+    const QSignalBlocker b1(m_useGemini), b2(m_useLm), b3(m_auto), b5(m_model), b6(m_geminiWait), b7(m_lmWait),
+        b8(m_geminiExplainOnly);
     m_geminiWait->setValue(m_settings.geminiWaitMs / 1000.0);
     m_lmWait->setValue(m_settings.lmStudioWaitMs / 1000.0);
     m_useGemini->setChecked(m_settings.useGemini);
+    m_geminiExplainOnly->setChecked(m_settings.geminiExplainOnly);
+    m_geminiExplainOnly->setEnabled(m_settings.useGemini);
     m_useLm->setChecked(m_settings.useLmStudio);
     m_auto->setChecked(m_settings.translateOnSelect);
     refreshOfflineBooks();

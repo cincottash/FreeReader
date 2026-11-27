@@ -1215,6 +1215,11 @@ void ReaderView::toggleLookupHighlight()
     updateLookupHighlight();
 }
 
+bool ReaderView::geminiForExplainOnly() const
+{
+    return m_settings.useGemini && m_settings.geminiExplainOnly;
+}
+
 void ReaderView::explainSelection()
 {
     if (!m_pages->hasSelection()) return;
@@ -1255,6 +1260,8 @@ void ReaderView::onTranslated(int id, const core::TranslationResult& r, const QS
         QString text = allOff ? tr("Every translation engine is turned off (Settings > Translation).")
                               : why.isEmpty() ? tr("No translation engine is set up yet.") : why;
         if (bookIsOffline() && m_settings.useGemini) text += QLatin1Char('\n') + tr("This book is kept offline, so Gemini isn't asked.");
+        else if (geminiForExplainOnly() && m_lookupKind != core::TranslationRequest::Kind::Explain)
+            text += QLatin1Char('\n') + tr("Gemini is used only for Explain This Sentence (Settings > Translation).");
         // Nothing answered, and a free download would have: say where to get it (the dictionary for a word, the
         // offline translator for Spanish sentences).
         const bool lookup = m_lookupKind == core::TranslationRequest::Kind::Lookup;
@@ -2269,7 +2276,9 @@ void ReaderView::onBilingualTranslated(int id, const core::TranslationResult& r,
                 const QString saved = m_library ? m_library->cachedTranslation(paragraphKey(p.text)).value(QLatin1String("translation")).toString() : QString();
                 english << (!saved.isEmpty() ? saved : at >= 0 ? r.paragraphs[at].trimmed() : QString());
             }
-            m_bilingual->setParagraphs(english, tr("Translated offline (Bergamot); the online translation replaces it when Gemini or LM Studio can answer."));
+            m_bilingual->setParagraphs(english, geminiForExplainOnly()
+                                                    ? tr("Translated offline (Bergamot).")
+                                                    : tr("Translated offline (Bergamot); the online translation replaces it when Gemini or LM Studio can answer."));
         }
         return;
     }
@@ -2280,6 +2289,7 @@ void ReaderView::onBilingualTranslated(int id, const core::TranslationResult& r,
     QString text = allOff ? tr("Turn on Gemini, LM Studio or the offline translator (Settings > Translation) to see the %1 of whole paragraphs.").arg(mine)
                           : tr("The %1 for this page couldn't be fetched.").arg(mine) + (why.isEmpty() ? QString() : QLatin1Char('\n') + why);
     if (bookIsOffline() && m_settings.useGemini) text += QLatin1Char('\n') + tr("This book is kept offline, so Gemini isn't asked.");
+    else if (geminiForExplainOnly()) text += QLatin1Char('\n') + tr("Gemini is used only for Explain This Sentence (Settings > Translation).");
     m_bilingual->setParagraphs(m_bilingual->paragraphs(), text);
 }
 
