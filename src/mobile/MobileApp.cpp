@@ -20,9 +20,16 @@
 #include "core/translate/DictionaryDownload.h"
 #include "core/translate/OfflineDictionary.h"
 #include "core/translate/SavedWords.h"
+#include "core/translate/LanguagePacks.h"
 #include "core/translate/TranslationService.h"
+#include "core/layout/PageTurn.h"
 
 #include <QClipboard>
+#include <QCollator>
+#include <QCryptographicHash>
+#include <QFontDatabase>
+#include <QJsonObject>
+#include <array>
 #include <QDesktopServices>
 #include <QUrlQuery>
 #include <QGuiApplication>
@@ -131,6 +138,9 @@ QVariant BookListModel::data(const QModelIndex& index, int role) const
     case HasCoverRole: return r.hasCover;
     case LanguageRole: return r.language;
     case PageRole: return r.page;
+    case PageCountRole: return r.pageCount;
+    case FinishedRole: return r.finished;
+    case MissingRole: return r.missing;
     default: return {};
     }
 }
@@ -138,7 +148,16 @@ QVariant BookListModel::data(const QModelIndex& index, int role) const
 QHash<int, QByteArray> BookListModel::roleNames() const
 {
     return {{IdRole, "bookId"}, {TitleRole, "title"}, {AuthorRole, "author"}, {ProgressRole, "progress"},
-            {HasCoverRole, "hasCover"}, {LanguageRole, "language"}, {PageRole, "page"}};
+            {HasCoverRole, "hasCover"}, {LanguageRole, "language"}, {PageRole, "page"}, {PageCountRole, "pageCount"},
+            {FinishedRole, "finished"}, {MissingRole, "missing"}};
+}
+
+void BookListModel::setView(const QString& filter, const QString& search, const QString& sort)
+{
+    m_filter = filter.isEmpty() ? QStringLiteral("all") : filter;
+    m_search = search;
+    m_sort = sort.isEmpty() ? QStringLiteral("recent") : sort;
+    refresh();
 }
 
 void BookListModel::refresh()
@@ -147,12 +166,36 @@ void BookListModel::refresh()
     m_rows.clear();
     if (m_library) {
         QList<core::LibraryBook> books = m_library->books();
-        std::sort(books.begin(), books.end(), [](const core::LibraryBook& a, const core::LibraryBook& b) {
-            const QDateTime ta = a.lastOpened.isValid() ? a.lastOpened : a.added, tb = b.lastOpened.isValid() ? b.lastOpened : b.added;
-            return ta > tb;
+        const QString search = core::foldForSearch(m_search.simplified(), false, false);
+        const QHash<int, QSet<int>> members = m_filter.startsWith(QLatin1String("collection:")) ? m_library->collectionMembers() : QHash<int, QSet<int>>();
+        auto shown = [&](const core::LibraryBook& b) {
+            if (!search.isEmpty() && !core::foldForSearch(b.title + QLatin1Char(' ') + b.author, false, false).contains(search)) return false;
+            const QString lang = b.language.section(QLatin1Char('-'), 0, 0).toLower();
+            if (m_filter == QLatin1String("reading")) return b.started() && !b.finished();
+            if (m_filter == QLatin1String("finished")) return b.finished();
+            if (m_filter == QLatin1String("notstarted")) return !b.started() && !b.finished();
+            if (m_filter.startsWith(QLatin1String("lang:"))) return lang == m_filter.mid(5);
+            if (m_filter.startsWith(QLatin1String("collection:"))) return members.value(m_filter.mid(11).toInt()).contains(b.id);
+            return true;
+        };
+        QCollator collator;
+        collator.setCaseSensitivity(Qt::CaseInsensitive);
+        collator.setNumericMode(true);
+        auto recent = [](const core::LibraryBook& b) { return b.lastOpened.isValid() ? b.lastOpened : b.added; };
+        std::stable_sort(books.begin(), books.end(), [&](const core::LibraryBook& a, const core::LibraryBook& b) {
+            int c = 0;
+            if (m_sort == QLatin1String("title")) c = 0;
+            else if (m_sort == QLatin1String("author")) c = collator.compare(a.author, b.author);
+            else if (m_sort == QLatin1String("language")) c = collator.compare(a.language, b.language);
+            else if (m_sort == QLatin1String("progress")) c = a.progress > b.progress ? -1 : a.progress < b.progress ? 1 : 0;
+            else if (m_sort == QLatin1String("added")) c = a.added > b.added ? -1 : a.added < b.added ? 1 : 0;
+            else c = recent(a) > recent(b) ? -1 : recent(a) < recent(b) ? 1 : 0;
+            return c != 0 ? c < 0 : collator.compare(a.title, b.title) < 0;
         });
         for (const core::LibraryBook& b : books)
-            m_rows.append({b.id, b.title, b.author, b.language, b.pageLabel, b.progress, b.hasCover});
+            if (shown(b))
+                m_rows.append({b.id, b.title, b.author, b.language, b.pageLabel, b.pageCount, b.progress, b.hasCover, b.finished(),
+                               !QFileInfo::exists(b.path)});
     }
     endResetModel();
 }
@@ -291,6 +334,9 @@ MobileApp::MobileApp(const QString& dataFolder, QObject* parent) : QObject(paren
     m_saveTimer.setInterval(1500);
     connect(&m_saveTimer, &QTimer::timeout, this, &MobileApp::savePosition);
     connect(this, &MobileApp::annotationsChanged, this, &MobileApp::bookmarkChanged);
+    m_alongsideTimer.setSingleShot(true);
+    m_alongsideTimer.setInterval(250);
+    connect(&m_alongsideTimer, &QTimer::timeout, this, &MobileApp::refreshAlongside);
 }
 
 MobileApp::~MobileApp()
@@ -459,6 +505,7 @@ void MobileApp::onOpened()
     }
     m_pendingWord = {};
     m_position = m_start;
+    m_screenStart = m_screenEnd = {-1, 0};
     forgetHistory();
     m_footnoteTarget = {-1, 0};
     m_model->refresh();
@@ -467,6 +514,7 @@ void MobileApp::onOpened()
     emit annotationsChanged();
     emit contentsChanged();
     emit optionsChanged();   // Keep This Book Offline is the open book's
+    emit lookChanged();      // the book's and its language's own text settings
     emit bookOpened();
     startSpeechEngine();     // ready by the time Listen or Hear Pronunciation is tapped
 }
@@ -492,6 +540,7 @@ void MobileApp::closeBook()
     emit annotationsChanged();
     emit contentsChanged();
     emit optionsChanged();
+    emit lookChanged();
     m_model->refresh();
     emit readingChanged();
     emit locationChanged();
@@ -544,6 +593,9 @@ void MobileApp::pageMoved(QObject* object)
     }
     m_sinceTurn.restart();
     m_position = page->position();
+    m_screenStart = page->screenStart();
+    m_screenEnd = page->screenEnd();
+    if (m_settings.showBilingual) m_alongsideTimer.start();
     updateLocation();
     m_saveTimer.start();
     emit bookmarkChanged();
@@ -647,6 +699,10 @@ void MobileApp::closeLookup()
 
 void MobileApp::onTranslated(int id, const core::TranslationResult& r, const QString& why)
 {
+    if (m_alongsideAsked.contains(id)) {
+        onAlongsideTranslated(id, r, why);
+        return;
+    }
     if (id != m_lookupId) return;
     QVariantMap m;
     m[QStringLiteral("text")] = m_lookup.value(QStringLiteral("text"));
@@ -1206,19 +1262,174 @@ void MobileApp::testGemini()
 void MobileApp::setTextSize(int pct)
 {
     pct = qBound(60, pct, 250);
-    if (pct == m_settings.look.textSizePct) return;
-    m_settings.look.textSizePct = pct;
-    saveSettings();
-    emit lookChanged();
+    if (pct == textSize()) return;
+    setLook(QStringLiteral("text_size_pct"), pct);
 }
 
 void MobileApp::setMargins(int px)
 {
-    px = qBound(4, px, 80);
-    if (px == m_settings.look.marginPx) return;
-    m_settings.look.marginPx = px;
+    px = qBound(8, px, 80);
+    if (px == margins()) return;
+    setLook(QStringLiteral("margin_px"), px);
+}
+
+// ---------------------------------------------------------------- text and layout
+
+namespace {
+QString langScopeOf(const QString& code) { return code.isEmpty() ? QString() : QStringLiteral("lang:") + code; }
+QString bookScopeOf(int id) { return id > 0 ? QStringLiteral("book:%1").arg(id) : QString(); }
+}  // namespace
+
+Appearance MobileApp::appearance() const
+{
+    Appearance a = m_settings.look;
+    const core::Book* book = m_engine->book();
+    if (!m_library || !m_bookId || !book) return a;
+    if (book->metadata.pictures) {
+        // Comics and scanned pages: the picture as large as the screen allows, one page at a time (as on the
+        // desktop).
+        a.marginPx = 8;
+        a.pageWidthEm = 80;
+        a.columns = QStringLiteral("one");
+    } else if (const QString lang = langScopeOf(languageCode()); !lang.isEmpty()) {
+        a.merge(m_library->appearanceLayer(lang));
+    }
+    a.merge(m_library->appearanceLayer(bookScopeOf(m_bookId)));
+    return a;
+}
+
+QVariantMap MobileApp::look() const
+{
+    const Appearance a = appearance();
+    QVariantMap m = a.toJson().toVariantMap();
+    const QString lang = m_bookId ? langScopeOf(languageCode()) : QString();
+    QString scope = m_lookScope;
+    if ((scope == QLatin1String("language") && lang.isEmpty()) || (scope == QLatin1String("book") && !m_bookId)) scope = QStringLiteral("all");
+    m.insert(QStringLiteral("scope"), scope);
+    const QString code = m_bookId ? languageCode() : QString();
+    m.insert(QStringLiteral("languageName"), code.isEmpty() || QLocale(code).language() == QLocale::C ? QString() : core::languages::displayName(code));
+    m.insert(QStringLiteral("languageOwn"), m_library && !lang.isEmpty() && !m_library->appearanceLayer(lang).isEmpty());
+    m.insert(QStringLiteral("bookOwn"), m_library && m_bookId && !m_library->appearanceLayer(bookScopeOf(m_bookId)).isEmpty());
+    m.insert(QStringLiteral("pageTurn"), m_settings.pageTurn);
+    m.insert(QStringLiteral("pageTurnMs"), m_settings.pageTurnMs);
+    m.insert(QStringLiteral("pageTurnMotion"), m_settings.pageTurnMotion);
+    return m;
+}
+
+void MobileApp::setLookScope(const QString& scope)
+{
+    if (scope != QLatin1String("all") && scope != QLatin1String("language") && scope != QLatin1String("book")) return;
+    if (m_lookScope == scope) return;
+    m_lookScope = scope;
+    emit lookChanged();
+}
+
+void MobileApp::setLook(const QString& key, const QVariant& value)
+{
+    if (!Appearance::keys().contains(key)) return;
+    const QJsonValue v = QJsonValue::fromVariant(value);
+    const QString lang = m_bookId ? langScopeOf(languageCode()) : QString();
+    const QString book = bookScopeOf(m_bookId);
+    auto setIn = [&](const QString& scope, bool set) {
+        if (scope.isEmpty() || !m_library) return;
+        QJsonObject layer = m_library->appearanceLayer(scope);
+        if (set) layer[key] = v;
+        else layer.remove(key);
+        m_library->setAppearanceLayer(scope, layer);
+    };
+    const QString scope = look().value(QStringLiteral("scope")).toString();
+    if (scope == QLatin1String("book")) {
+        setIn(book, true);
+    } else if (scope == QLatin1String("language")) {
+        setIn(lang, true);
+        setIn(book, false);
+    } else {
+        // All Books, and taken out of this book's and this language's own settings so it shows (as on the desktop).
+        QJsonObject o = m_settings.look.toJson();
+        o[key] = v;
+        m_settings.look.merge(o);
+        setIn(lang, false);
+        setIn(book, false);
+        saveSettings();
+    }
+    emit lookChanged();
+}
+
+void MobileApp::resetLook(const QString& scope)
+{
+    if (!m_library || !m_bookId) return;
+    if (scope == QLatin1String("book")) m_library->setAppearanceLayer(bookScopeOf(m_bookId), {});
+    else if (scope == QLatin1String("language") && !languageCode().isEmpty()) m_library->setAppearanceLayer(langScopeOf(languageCode()), {});
+    else return;
+    emit lookChanged();
+}
+
+void MobileApp::setPageTurn(const QString& style, int ms, const QString& motion)
+{
+    if (!layout::turnStyles().contains(style) || !layout::turnMotions().contains(motion)) return;
+    m_settings.pageTurn = style;
+    m_settings.pageTurnMs = qBound(100, ms, 1000);
+    m_settings.pageTurnMotion = motion;
     saveSettings();
     emit lookChanged();
+}
+
+QVariantList MobileApp::fonts() const
+{
+    QVariantList out{QVariantMap{{QStringLiteral("key"), QString()}, {QStringLiteral("name"), tr("Book's Fonts")}}};
+    QStringList names = Appearance::bundledFonts();
+    // The phone's own fonts, but not the dozens of one-script Noto fonts (Noto Sans Bengali …) nor symbol fonts.
+    static const QRegularExpression oneScript(QStringLiteral("^Noto (Sans|Serif|Naskh|Kufi|Nastaliq|Rashi)( \\w+)+$|Emoji|Symbol|Icons|Dings|Marlett|MT Extra"));
+    QStringList system;
+    for (const QString& f : QFontDatabase::families())
+        if (!f.startsWith(QLatin1Char('@')) && !QFontDatabase::isPrivateFamily(f) && !names.contains(f) && !oneScript.match(f).hasMatch()) system << f;
+    system.sort(Qt::CaseInsensitive);
+    for (const QString& f : names + system) out << QVariantMap{{QStringLiteral("key"), f}, {QStringLiteral("name"), f}};
+    // A font chosen before that this phone doesn't have any more: still listed, so the choice shows.
+    const QString chosen = appearance().font;
+    if (!chosen.isEmpty() && !names.contains(chosen) && !system.contains(chosen))
+        out << QVariantMap{{QStringLiteral("key"), chosen}, {QStringLiteral("name"), chosen}};
+    return out;
+}
+
+QVariantList MobileApp::pageTurnStyles() const
+{
+    // The desktop's styles and their descriptions.
+    const QList<std::array<QString, 3>> styles{
+        {QStringLiteral("none"), tr("None"), tr("The new page at once.")},
+        {QStringLiteral("slide"), tr("Slide"), tr("The new page pushes the old one aside.")},
+        {QStringLiteral("cover"), tr("Cover"), tr("The new page slides in over the old one.")},
+        {QStringLiteral("fade"), tr("Fade"), tr("The old page fades into the new one.")},
+        {QStringLiteral("curl"), tr("Page Curl"), tr("The page folds back like paper.")},
+        {QStringLiteral("uncover"), tr("Uncover"), tr("The old page slides away, showing the new one under it.")},
+        {QStringLiteral("flip"), tr("Hardcover Flip"), tr("The page swings over on its spine, like a stiff page in a hardcover book.")},
+        {QStringLiteral("card"), tr("Card Flip"), tr("The page turns over like a card, the new page on its back.")}};
+    QVariantList out;
+    for (const auto& s : styles)
+        out << QVariantMap{{QStringLiteral("key"), s[0]}, {QStringLiteral("name"), s[1]}, {QStringLiteral("about"), s[2]}};
+    return out;
+}
+
+QVariantList MobileApp::pageTurnMotions() const
+{
+    const QList<std::pair<QString, QString>> motions{
+        {QStringLiteral("smooth"), tr("Smooth (Fast, Then Slowing)")},
+        {QStringLiteral("even"), tr("Even")},
+        {QStringLiteral("gentle"), tr("Gentle (Slow Start and End)")},
+        {QStringLiteral("soft"), tr("Soft (Slowing a Little)")},
+        {QStringLiteral("quick"), tr("Quick (Very Fast, Long Slow Finish)")},
+        {QStringLiteral("snappy"), tr("Snappy (Fast, Sudden Stop)")},
+        {QStringLiteral("rounded"), tr("Rounded (Fast, Round Finish)")},
+        {QStringLiteral("speeding"), tr("Speeding Up")},
+        {QStringLiteral("ease"), tr("Ease In and Out")},
+        {QStringLiteral("strong"), tr("Strong (Slow, Fast, Slow)")},
+        {QStringLiteral("overshoot"), tr("Overshoot (Goes Past, Settles Back)")},
+        {QStringLiteral("windup"), tr("Wind-Up (Pulls Back First)")},
+        {QStringLiteral("springy"), tr("Springy (Wobbles Into Place)")},
+        {QStringLiteral("bounce"), tr("Bounce (Bounces Into Place)")}};
+    QVariantList out;
+    for (const auto& [key, name] : motions) out << QVariantMap{{QStringLiteral("key"), key}, {QStringLiteral("name"), name}};
+    return out;
 }
 
 void MobileApp::setTheme(const QString& key)
@@ -1534,9 +1745,11 @@ void MobileApp::removeHighlightAt(QObject* object)
 
 namespace {
 
-// The end of the page that starts at `p` (its chapter must be laid out), else `p` itself.
-int pageEnd(core::BookEngine* engine, const core::Position& p)
+// The end of the screen that starts at `p` (its chapter must be laid out), else `p` itself: two pages when two are
+// side by side (the reading surface reports it).
+int pageEnd(core::BookEngine* engine, const core::Position& p, const core::Position& screenEnd = {-1, 0})
 {
+    if (screenEnd.spine == p.spine && screenEnd.offset > p.offset) return screenEnd.offset;
     const auto cl = engine->layout(p.spine);
     if (!cl) return p.offset;
     const int page = cl->pageForOffset(p.offset);
@@ -1548,7 +1761,7 @@ int pageEnd(core::BookEngine* engine, const core::Position& p)
 void MobileApp::toggleBookmark()
 {
     if (!m_notes || !m_bookId) return;
-    const int end = pageEnd(m_engine, m_position);
+    const int end = pageEnd(m_engine, m_position, m_screenEnd);
     if (const int existing = m_notes->bookmarkAt(m_bookId, m_position.spine, m_position.offset, qMax(m_position.offset, end - 1))) {
         m_notes->remove(existing);
     } else {
@@ -1618,7 +1831,7 @@ bool MobileApp::hasBookmarks() const { return m_notes && m_notes->latestBookmark
 bool MobileApp::pageBookmarked() const
 {
     if (!m_notes || !m_bookId) return false;
-    const int end = pageEnd(m_engine, m_position);
+    const int end = pageEnd(m_engine, m_position, m_screenEnd);
     return m_notes->bookmarkAt(m_bookId, m_position.spine, m_position.offset, qMax(m_position.offset, end - 1)) != 0;
 }
 
@@ -1884,6 +2097,135 @@ void MobileApp::goToFootnote()
 {
     if (m_footnoteTarget.spine < 0) return;
     jumpTo(m_footnoteTarget);
+}
+
+// ---------------------------------------------------------------- Show English Alongside
+
+void MobileApp::setAlongside(bool on)
+{
+    if (m_settings.showBilingual == on) return;
+    m_settings.showBilingual = on;
+    saveSettings();
+    m_alongsideEnglish.clear();
+    m_alongsideStatus.clear();
+    emit alongsideChanged();
+    if (on) refreshAlongside();
+}
+
+QList<MobileApp::Paragraph> MobileApp::visibleParagraphs() const
+{
+    // As the desktop: the text blocks the screen shows (one begun on the page before included); page numbers,
+    // ornaments and "* * *" left out.
+    QList<Paragraph> out;
+    if (!m_bookId || !m_engine->isOpen()) return out;
+    const core::Position a = m_screenStart.spine >= 0 ? m_screenStart : m_position;
+    const core::Position e = m_screenEnd;
+    const auto cl = m_engine->layout(a.spine);
+    if (!cl) return out;
+    for (const layout::Block& b : cl->flow->blocks) {
+        if (b.kind != layout::Block::Text) continue;
+        if (b.start + b.length <= a.offset) continue;
+        if (e.spine == a.spine && b.start >= e.offset) break;
+        QString t = b.text;
+        t.replace(QChar(0x2028), QLatin1Char(' '));
+        t = t.simplified();
+        int letters = 0;
+        for (const QChar c : t)
+            if (c.isLetter()) ++letters;
+        if (letters < 2) continue;
+        out << Paragraph{b.start, t};
+    }
+    return out;
+}
+
+QString MobileApp::paragraphKey(const QString& text) const
+{
+    const QByteArray raw = (QStringLiteral("paragraph|") + languageCode() + QLatin1Char('|') + core::languages::readerLanguage() +
+                            QLatin1Char('|') + text).toUtf8();
+    return QString::fromLatin1(QCryptographicHash::hash(raw, QCryptographicHash::Sha256).toHex());
+}
+
+QVariantMap MobileApp::alongsideText() const
+{
+    QVariantList rows;
+    const QList<Paragraph> paras = m_settings.showBilingual ? visibleParagraphs() : QList<Paragraph>();
+    for (int i = 0; i < paras.size(); ++i)
+        rows << QVariantMap{{QStringLiteral("text"), paras[i].text}, {QStringLiteral("english"), i < m_alongsideEnglish.size() ? m_alongsideEnglish[i] : QString()}};
+    return {{QStringLiteral("title"), core::languages::displayName(core::languages::readerLanguage())},
+            {QStringLiteral("status"), m_alongsideStatus},
+            {QStringLiteral("waiting"), !m_alongsideAsked.isEmpty()},   // "…" for the paragraphs still coming
+            {QStringLiteral("paragraphs"), rows}};
+}
+
+void MobileApp::refreshAlongside()
+{
+    m_alongsideTimer.stop();
+    if (!m_settings.showBilingual || !m_bookId) return;
+    const QList<Paragraph> paras = visibleParagraphs();
+    m_alongsideEnglish.clear();
+    if (paras.isEmpty()) {
+        m_alongsideStatus = tr("No text on this page.");
+        emit alongsideChanged();
+        return;
+    }
+    QStringList missing;
+    for (const Paragraph& p : paras) {
+        QString t = m_library ? m_library->cachedTranslation(paragraphKey(p.text)).value(QLatin1String("translation")).toString() : QString();
+        if (t.isEmpty()) t = m_alongsideOffline.value(p.text);
+        m_alongsideEnglish << t;
+        if (t.isEmpty() && !missing.contains(p.text) && !m_alongsideGaveUp.contains(p.text)) missing << p.text;
+    }
+    m_alongsideStatus.clear();
+    for (const QStringList& asked : std::as_const(m_alongsideAsked))
+        for (const QString& t : asked) missing.removeAll(t);
+    if (!missing.isEmpty()) {
+        // The screen's paragraphs in one request (a very long page in a few).
+        core::TranslationRequest r;
+        r.kind = core::TranslationRequest::Kind::Paragraphs;
+        r.from = languageCode();
+        for (const QString& t : std::as_const(missing)) {
+            r.paragraphs << (t.size() > 4000 ? t.left(4000) : t);
+            if (r.paragraphs.size() == 25) break;
+        }
+        r.text = r.paragraphs.first().left(200);
+        applyTranslationSettings();
+        m_translator->setOfflineOnly(bookOffline());
+        const int id = m_translator->translate(r);
+        m_alongsideAsked.insert(id, r.paragraphs);
+    }
+    if (!m_alongsideAsked.isEmpty() && m_alongsideEnglish.contains(QString())) m_alongsideStatus = tr("Translating this page…");
+    emit alongsideChanged();
+}
+
+void MobileApp::onAlongsideTranslated(int id, const core::TranslationResult& r, const QString& why)
+{
+    const QStringList asked = m_alongsideAsked.take(id);
+    if (r.paragraphs.size() == asked.size() && !asked.isEmpty()) {
+        for (int i = 0; i < asked.size(); ++i) {
+            const QString english = r.paragraphs[i].trimmed();
+            if (english.isEmpty()) {
+                m_alongsideGaveUp.insert(asked[i]);   // not asked again and again
+                continue;
+            }
+            // Gemini's English is kept (in the library, as on the desktop); an offline engine's only for now.
+            if (r.keep && m_library)
+                m_library->cacheTranslation(paragraphKey(asked[i]), r.provider,
+                                            QJsonObject{{QStringLiteral("translation"), english}, {QStringLiteral("provider"), r.provider}});
+            else m_alongsideOffline.insert(asked[i], english);
+        }
+        refreshAlongside();
+        return;
+    }
+    if (!m_settings.showBilingual) return;
+    // Nothing could translate the page: what is there stays, and why.
+    const QString mine = core::languages::displayName(core::languages::readerLanguage());
+    QString text = !m_settings.useGemini || !m_gemini->hasKey()
+                       ? tr("Add a Gemini key and turn Gemini on (Settings) to see the %1 of whole paragraphs.").arg(mine)
+                       : tr("The %1 for this page couldn't be fetched.").arg(mine) + (why.isEmpty() ? QString() : QLatin1Char('\n') + why);
+    if (bookOffline() && m_settings.useGemini) text += QLatin1Char('\n') + tr("This book is kept offline, so Gemini isn't asked.");
+    else if (m_settings.useGemini && m_settings.geminiExplainOnly) text += QLatin1Char('\n') + tr("Gemini is used only for Explain This Sentence (Settings).");
+    m_alongsideStatus = text;
+    emit alongsideChanged();
 }
 
 void MobileApp::showImage(const QString& path)

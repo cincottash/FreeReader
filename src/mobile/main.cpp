@@ -110,6 +110,7 @@ int main(int argc, char** argv)
     cli.addOption({QStringLiteral("bookmark-word"), QStringLiteral("With --screenshot: bookmark a word on the page.")});
     cli.addOption({QStringLiteral("select"), QStringLiteral("With --screenshot: select a word on the page (no lookup).")});
     cli.addOption({QStringLiteral("text-size"), QStringLiteral("With --screenshot: the text size in percent."), QStringLiteral("percent")});
+    cli.addOption({QStringLiteral("alongside"), QStringLiteral("With --screenshot: Show English Alongside.")});
     cli.addOption({QStringLiteral("part"),QStringLiteral("With --screenshot: open contents, notebook, search, look, selection or dictionary."), QStringLiteral("name")});
     cli.process(app);
 
@@ -130,6 +131,7 @@ int main(int argc, char** argv)
     if (cli.isSet(QStringLiteral("theme"))) mobile.setTheme(cli.value(QStringLiteral("theme")));
     if (screenshot) mobile.setQuietForTests(true);   // never the system's speech engine
     if (cli.isSet(QStringLiteral("text-size"))) mobile.setTextSize(cli.value(QStringLiteral("text-size")).toInt());
+    if (screenshot) mobile.setAlongside(cli.isSet(QStringLiteral("alongside")));
 
     QQmlApplicationEngine engine;
     engine.addImageProvider(QStringLiteral("covers"), new CoverProvider(mobile.library()));

@@ -47,9 +47,7 @@ Drawer {
                     objectName: index === 0 ? "scopeThisBook" : "scopeAllBooks"
                     Layout.fillWidth: true
                     text: modelData
-                    checkable: true
-                    checked: (index === 1) === sheet.allBooks
-                    highlighted: checked
+                    highlighted: (index === 1) === sheet.allBooks
                     onClicked: { sheet.allBooks = index === 1; if (field.text.trim().length >= 2) sheet.run() }
                 }
             }

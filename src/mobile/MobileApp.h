@@ -16,6 +16,7 @@
 #include <QImage>
 #include <QObject>
 #include <QQmlEngine>
+#include <QSet>
 #include <QElapsedTimer>
 #include <QTimer>
 #include <QUrl>
@@ -44,24 +45,32 @@ class WordLog;
 struct ImportedBook;
 }
 
-// The books, most recently read first.
+// The library's books as the library screen shows them (the desktop's rules): the filter (all, reading,
+// finished, notstarted, lang:es, collection:3), a search of titles and authors (case and accents ignored), and the
+// order (recent, title, author, language, progress, added).
 class BookListModel : public QAbstractListModel {
     Q_OBJECT
 public:
-    enum Role { IdRole = Qt::UserRole + 1, TitleRole, AuthorRole, ProgressRole, HasCoverRole, LanguageRole, PageRole };
+    enum Role { IdRole = Qt::UserRole + 1, TitleRole, AuthorRole, ProgressRole, HasCoverRole, LanguageRole, PageRole,
+                FinishedRole, MissingRole, PageCountRole };
     explicit BookListModel(core::Library* library, QObject* parent = nullptr);
     int rowCount(const QModelIndex& parent = QModelIndex()) const override;
     QVariant data(const QModelIndex& index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
     void refresh();
+    void setView(const QString& filter, const QString& search, const QString& sort);
+    QString filter() const { return m_filter; }
+    QString search() const { return m_search; }
+    QString sort() const { return m_sort; }
 
 private:
     core::Library* m_library;
+    QString m_filter = QStringLiteral("all"), m_search, m_sort = QStringLiteral("recent");
     struct Row {
         int id = 0;
-        QString title, author, language, page;
+        QString title, author, language, page, pageCount;
         double progress = 0;
-        bool hasCover = false;
+        bool hasCover = false, finished = false, missing = false;
     };
     QList<Row> m_rows;
 };
@@ -86,6 +95,7 @@ class MobileApp : public QObject {
     Q_PROPERTY(int margins READ margins WRITE setMargins NOTIFY lookChanged)
     Q_PROPERTY(QString theme READ theme WRITE setTheme NOTIFY lookChanged)
     Q_PROPERTY(QVariantMap colors READ colors NOTIFY lookChanged)
+    Q_PROPERTY(QVariantMap look READ look NOTIFY lookChanged)
     Q_PROPERTY(bool hasGeminiKey READ hasGeminiKey NOTIFY translationChanged)
     Q_PROPERTY(bool keyStoreAvailable READ keyStoreAvailable CONSTANT)
     Q_PROPERTY(QString dictionaryStatus READ dictionaryStatus NOTIFY translationChanged)
@@ -141,6 +151,10 @@ class MobileApp : public QObject {
     // After a jump (contents, notebook, search, a link, Go to Page): "Back to Page 7"; empty when there is nowhere
     // to go back to.
     Q_PROPERTY(QString backText READ backText NOTIFY historyChanged)
+    // Show English Alongside (as on the desktop): the reader's language of every paragraph on the screen, under the
+    // page (beside it on a tablet). alongsideText: {title ("English"), status, paragraphs [{text, english}]}.
+    Q_PROPERTY(bool alongside READ alongside WRITE setAlongside NOTIFY alongsideChanged)
+    Q_PROPERTY(QVariantMap alongsideText READ alongsideText NOTIFY alongsideChanged)
     // The picture tapped on the page (image://book/<n>), empty when none is shown.
     Q_PROPERTY(QString shownImage READ shownImage NOTIFY imageChanged)
 public:
@@ -186,6 +200,9 @@ public:
     // address opens in the browser.
     void followLink(const QString& target, bool external, bool noteRef);
     Q_INVOKABLE void goToFootnote();   // the footnote's own place in the book
+    bool alongside() const { return m_settings.showBilingual; }
+    void setAlongside(bool on);
+    QVariantMap alongsideText() const;
     void showImage(const QString& path);
     Q_INVOKABLE void closeImage();
     QString shownImage() const { return m_imageShown; }
@@ -194,10 +211,25 @@ public:
     class QQuickImageProvider* newImageProvider();
 
     // Settings
-    int textSize() const { return m_settings.look.textSizePct; }
+    int textSize() const { return appearance().textSizePct; }
     void setTextSize(int pct);
-    int margins() const { return m_settings.look.marginPx; }
+    int margins() const { return appearance().marginPx; }
     void setMargins(int px);
+    // Text and Layout (as on the desktop): {font, line_spacing_pct, justify, hyphenate, page_width_em, columns,
+    // text_size_pct, margin_px} as they are for the open book, plus scope ("all", "language", "book"),
+    // languageName, languageOwn, bookOwn (the language or the book has settings of its own), pageTurn,
+    // pageTurnMs, pageTurnMotion.
+    QVariantMap look() const;
+    Q_INVOKABLE void setLook(const QString& key, const QVariant& value);   // a JSON key above, in the chosen scope
+    Q_INVOKABLE void setLookScope(const QString& scope);
+    Q_INVOKABLE void resetLook(const QString& scope);   // "language" or "book": back to the wider settings
+    Q_INVOKABLE void setPageTurn(const QString& style, int ms, const QString& motion);   // all books
+    Q_INVOKABLE QVariantList fonts() const;          // {key, name}: Book's Fonts, the bundled ones, the system's
+    Q_INVOKABLE QVariantList pageTurnStyles() const; // {key, name, about}
+    Q_INVOKABLE QVariantList pageTurnMotions() const;// {key, name}
+    QString pageTurnStyle() const { return m_settings.pageTurn; }
+    int pageTurnMs() const { return m_settings.pageTurnMs; }
+    QString pageTurnMotion() const { return m_settings.pageTurnMotion; }
     QString theme() const { return m_settings.theme; }
     void setTheme(const QString& key);
     QVariantMap colors() const;
@@ -316,7 +348,7 @@ public:
     core::BookEngine* engine() const { return m_engine; }
     core::Library* library() const { return m_library.get(); }
     core::WordLog* wordLog() const { return m_words.get(); }
-    Appearance appearance() const { return m_settings.look; }
+    Appearance appearance() const;   // for the open book: All Books, then its language's, then its own settings
     core::Position startPosition() const { return m_start; }
     QString languageCode() const;
     bool waitUntilOpen(int ms);   // tests and the screenshot mode
@@ -351,6 +383,7 @@ signals:
     void bookmarkQuestion(const QString& question, int count);
     void historyChanged();
     void allSearchChanged();
+    void alongsideChanged();
     void footnoteShown(const QString& text);
     void imageChanged();
 
@@ -371,6 +404,14 @@ private:
     int annotationAt(QObject* page) const;   // the highlight holding the page's selection, 0 if none
     void jumpTo(const core::Position& p);    // remembers where the reader was (Back)
     void forgetHistory();
+    struct Paragraph {
+        int start = 0;
+        QString text;
+    };
+    QList<Paragraph> visibleParagraphs() const;
+    QString paragraphKey(const QString& text) const;   // the desktop's cache key: the same English on both
+    void refreshAlongside();
+    void onAlongsideTranslated(int id, const core::TranslationResult& r, const QString& why);
 
     QString m_folder;
     Settings m_settings;
@@ -408,6 +449,14 @@ private:
     QElapsedTimer m_sinceTurn;
     double m_progress = 0;
     core::Position m_start, m_position;
+    core::Position m_screenEnd{-1, 0};   // the end of what the screen shows (two pages side by side: both)
+    core::Position m_screenStart{-1, 0};
+    QTimer m_alongsideTimer;             // a quick run of page turns asks once, for the page it stops on
+    QHash<int, QStringList> m_alongsideAsked;   // translations under way: the paragraphs each one asked for
+    QStringList m_alongsideEnglish;
+    QString m_alongsideStatus;
+    QHash<QString, QString> m_alongsideOffline;   // the offline translator's English, this session only
+    QSet<QString> m_alongsideGaveUp;              // paragraphs that came back without English (this session)
     QTimer m_saveTimer;
 
     int m_lookupId = -1;
@@ -436,6 +485,7 @@ private:
     std::vector<AllRow> m_allRows;
     int m_allSearchId = 0, m_allUnreadable = 0;
     QString m_allSummary, m_allQuery;
+    QString m_lookScope = QStringLiteral("all");   // where Text and Layout changes go (this session)
     std::vector<core::Position> m_history;   // where each jump came from, the last one last
     core::Position m_footnoteTarget{-1, 0};
     QImage m_image;

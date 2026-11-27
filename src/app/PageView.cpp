@@ -6,6 +6,7 @@
 #include "Icons.h"
 
 #include "core/layout/PageRenderer.h"
+#include "core/layout/PageTurn.h"
 #include "core/services/BookEngine.h"
 
 #include <QContextMenuEvent>
@@ -63,25 +64,11 @@ void PageView::setPageTurn(const QString& style, int ms, const QString& motion)
     m_turn->setEasingCurve(easingFor(motion));
 }
 
-QEasingCurve::Type PageView::easingFor(const QString& motion)
-{
-    // How a turn speeds up and slows down (Text and Layout > Motion; many more since the owner's request of
-    // 2026-11-26). Unknown keys: Smooth.
-    static const QHash<QString, QEasingCurve::Type> curves{
-        {QStringLiteral("smooth"), QEasingCurve::OutCubic},     {QStringLiteral("even"), QEasingCurve::Linear},
-        {QStringLiteral("gentle"), QEasingCurve::InOutSine},    {QStringLiteral("soft"), QEasingCurve::OutSine},
-        {QStringLiteral("quick"), QEasingCurve::OutQuint},      {QStringLiteral("snappy"), QEasingCurve::OutExpo},
-        {QStringLiteral("rounded"), QEasingCurve::OutCirc},     {QStringLiteral("speeding"), QEasingCurve::InCubic},
-        {QStringLiteral("ease"), QEasingCurve::InOutCubic},     {QStringLiteral("strong"), QEasingCurve::InOutQuint},
-        {QStringLiteral("overshoot"), QEasingCurve::OutBack},   {QStringLiteral("windup"), QEasingCurve::InOutBack},
-        {QStringLiteral("springy"), QEasingCurve::OutElastic},  {QStringLiteral("bounce"), QEasingCurve::OutBounce}};
-    return curves.value(motion, QEasingCurve::OutCubic);
-}
+// How a turn speeds up and slows down (Text and Layout > Motion; many more since the owner's request of 2026-11-26),
+// shared with the phone (core/layout/PageTurn.h).
+QEasingCurve::Type PageView::easingFor(const QString& motion) { return layout::easingForMotion(motion); }
 
-QStringList PageView::motions()
-{
-    return {"smooth", "even", "gentle", "soft", "quick", "snappy", "rounded", "speeding", "ease", "strong", "overshoot", "windup", "springy", "bounce"};
-}
+QStringList PageView::motions() { return layout::turnMotions(); }
 
 bool PageView::isAnimating() const { return m_turn->state() == QAbstractAnimation::Running || !m_toPix.isNull(); }
 
@@ -132,102 +119,9 @@ bool PageView::turnTo(const core::Position& p, int direction)
 
 void PageView::paintTurn(QPainter& p)
 {
-    const double t = m_turn->currentValue().toDouble();
-    // Turning back is turning forward played backwards: the new screen is the one being turned away.
-    const QPixmap& a = m_turnDir > 0 ? m_fromPix : m_toPix;   // the page that leaves (forward)
-    const QPixmap& b = m_turnDir > 0 ? m_toPix : m_fromPix;   // the page that arrives (forward)
-    double s = m_turnDir > 0 ? t : 1.0 - t;
-    // Overshoot, Wind-Up and Springy go past the ends (s below 0 or above 1): the sliding styles show that, the
-    // others stay within the turn.
-    static const QStringList pastTheEnds{QStringLiteral("slide"), QStringLiteral("cover"), QStringLiteral("uncover"), QStringLiteral("card")};
-    if (!pastTheEnds.contains(m_turnStyle)) s = qBound(0.0, s, 1.0);
-    const qreal w = width(), h = height();
-    p.setRenderHint(QPainter::SmoothPixmapTransform);
-    auto shadow = [&](qreal x, qreal width, bool toRight, qreal strength) {
-        QLinearGradient g(x, 0, toRight ? x + width : x - width, 0);
-        g.setColorAt(0, QColor(0, 0, 0, int(110 * strength)));
-        g.setColorAt(1, QColor(0, 0, 0, 0));
-        p.fillRect(QRectF(toRight ? x : x - width, 0, width, h), g);
-    };
-    // Right to left, the next page comes in from the left.
-    const qreal dir = m_rtl ? -1.0 : 1.0;
-    if (m_turnStyle == QLatin1String("slide")) {
-        p.drawPixmap(QPointF(-s * w * dir, 0), a);
-        p.drawPixmap(QPointF((1 - s) * w * dir, 0), b);
-    } else if (m_turnStyle == QLatin1String("cover")) {
-        p.drawPixmap(QPointF(0, 0), a);
-        const qreal x = (1 - s) * w * dir;
-        if (m_rtl) shadow(x + w, 24, true, 1.0 - s * 0.5);
-        else shadow(x, 24, false, 1.0 - s * 0.5);
-        p.drawPixmap(QPointF(x, 0), b);
-    } else if (m_turnStyle == QLatin1String("fade")) {
-        p.drawPixmap(QPointF(0, 0), a);
-        p.setOpacity(s);
-        p.drawPixmap(QPointF(0, 0), b);
-        p.setOpacity(1);
-    } else if (m_turnStyle == QLatin1String("uncover")) {
-        // Cover the other way: the old page slides away, the new one lies under it.
-        p.drawPixmap(QPointF(0, 0), b);
-        const qreal x = -s * w * dir;
-        if (m_rtl) shadow(x, 24, false, 1.0 - s * 0.5);
-        else shadow(x + w, 24, true, 1.0 - s * 0.5);
-        p.drawPixmap(QPointF(x, 0), a);
-    } else if (m_turnStyle == QLatin1String("flip") || m_turnStyle == QLatin1String("card")) {
-        // In perspective, about an upright axis: a hardcover page swings over on its spine (the left edge; the
-        // right one right to left) and the new page lies under it; a card turns over about its middle, the new
-        // page on its back.
-        const bool card = m_turnStyle == QLatin1String("card");
-        auto turned = [&](const QPixmap& pm, qreal axisX, qreal degrees, qreal darken) {
-            QTransform tr;
-            tr.translate(axisX, h / 2);
-            tr.rotate(degrees, Qt::YAxis, qMax<qreal>(1024, w * 1.6));
-            tr.translate(-axisX, -h / 2);
-            p.save();
-            p.setTransform(tr, true);
-            p.drawPixmap(QPointF(0, 0), pm);
-            if (darken > 0) p.fillRect(QRectF(0, 0, w, h), QColor(0, 0, 0, int(140 * darken)));
-            p.restore();
-        };
-        if (card) {
-            // The first half the old page turns edge-on, the second the new one turns to face the reader.
-            const qreal deg = s < 0.5 ? s * 180 : s * 180 - 180;
-            const qreal darken = s < 0.5 ? s * 2 * 0.5 : (1 - s) * 2 * 0.5;
-            turned(s < 0.5 ? a : b, w / 2, deg * dir, darken);
-        } else {
-            p.drawPixmap(QPointF(0, 0), b);
-            shadow(m_rtl ? w * s : w * (1 - s), qMin<qreal>(64, w * 0.2), m_rtl, 1.0 - s);
-            turned(a, m_rtl ? w : 0, -s * 90 * dir, s * 0.6);
-        }
-    } else {   // curl: the page folds back from the right edge, its back lying over the page that is left
-        const qreal x = w * (1 - s);              // the fold
-        const qreal flap = qMin(w - x, x);        // the folded part, lying left of the fold
-        p.drawPixmap(QPointF(0, 0), b);
-        shadow(x, qMin<qreal>(48, w - x), true, 1.0 - s);
-        p.save();
-        p.setClipRect(QRectF(0, 0, x, h));
-        p.drawPixmap(QPointF(0, 0), a);
-        p.restore();
-        if (flap > 1) {
-            const QRectF back(x - flap, 0, flap, h);
-            shadow(x - flap, qMin<qreal>(24, x - flap), false, 0.6);
-            p.fillRect(back, m_theme.bg);
-            // The page's own print showing through its back, mirrored.
-            p.save();
-            p.setClipRect(back);
-            p.setOpacity(0.06);
-            p.translate(2 * x, 0);
-            p.scale(-1, 1);
-            p.drawPixmap(QPointF(0, 0), a);
-            p.restore();
-            QLinearGradient g(x - flap, 0, x, 0);
-            g.setColorAt(0, QColor(255, 255, 255, m_theme.dark ? 18 : 60));
-            g.setColorAt(0.7, QColor(0, 0, 0, 0));
-            g.setColorAt(1, QColor(0, 0, 0, 70));
-            p.fillRect(back, g);
-            p.setPen(QPen(m_theme.line, 1));
-            p.drawLine(QPointF(x - flap, 0), QPointF(x - flap, h));
-        }
-    }
+    // The styles are shared with the phone (core/layout/PageTurn.h).
+    layout::paintPageTurn(p, m_turnStyle, m_turn->currentValue().toDouble(), m_turnDir, m_rtl, m_fromPix, m_toPix, width(), height(),
+                          m_theme.bg, m_theme.line, m_theme.dark);
 }
 
 void PageView::setTheme(const Theme& t)

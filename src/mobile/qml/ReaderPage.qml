@@ -35,11 +35,16 @@ Page {
     Component.onCompleted: openedId = app.bookId
     StackView.onRemoved: if (app.bookId === openedId) app.closeBook()
 
+    // A tablet (or a phone on its side): Show English Alongside goes beside the page, else under it.
+    readonly property bool wide: width >= 760
+
     BookPage {
         id: book
         objectName: "bookPage"
-        anchors.fill: parent
-        anchors.bottomMargin: footer.height
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: alongsidePanel.visible && reader.wide ? alongsidePanel.left : parent.right
+        anchors.bottom: alongsidePanel.visible && !reader.wide ? alongsidePanel.top : footer.top
         app: reader.app
         steady: reader.selecting
         onPositionChanged: reader.app.pageMoved(book)
@@ -91,6 +96,70 @@ Page {
             onActiveChanged: if (!active && reader.selecting) {
                 reader.selecting = false
                 if (book.hasSelection) selectionBar.show(reader.pressY)
+            }
+        }
+    }
+
+    // Show English Alongside: each paragraph of the screen in the reader's language, in the same order.
+    Rectangle {
+        id: alongsidePanel
+        objectName: "alongsidePanel"
+        visible: reader.app.alongside
+        color: reader.theme.surface
+        anchors.right: parent.right
+        anchors.bottom: footer.top
+        width: reader.wide ? Math.min(380, parent.width * 0.4) : parent.width
+        height: reader.wide ? parent.height - footer.height : Math.round(parent.height * 0.4)
+        readonly property var data_: reader.app.alongsideText
+        Rectangle { width: reader.wide ? 1 : parent.width; height: reader.wide ? parent.height : 1; color: reader.theme.line }
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.leftMargin: 16
+            anchors.rightMargin: 4
+            anchors.topMargin: 4
+            spacing: 2
+            RowLayout {
+                Layout.fillWidth: true
+                Label {
+                    Layout.fillWidth: true
+                    text: (alongsidePanel.data_.title || "").toUpperCase()
+                    font.pixelSize: 12
+                    font.weight: Font.DemiBold
+                    font.letterSpacing: 1
+                    color: reader.theme.muted
+                }
+                IconButton { objectName: "alongsideClose"; theme: reader.theme; iconName: "close"; iconColor: reader.theme.muted; text: qsTr("Close"); onClicked: reader.app.alongside = false }
+            }
+            Label {
+                objectName: "alongsideStatus"
+                Layout.fillWidth: true
+                Layout.rightMargin: 12
+                visible: text.length > 0
+                text: alongsidePanel.data_.status || ""
+                wrapMode: Text.Wrap
+                font.pixelSize: reader.theme.small
+                color: reader.theme.muted
+            }
+            ListView {
+                id: alongsideList
+                objectName: "alongsideList"
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                spacing: 10
+                model: alongsidePanel.data_.paragraphs || []
+                delegate: Label {
+                    required property var modelData
+                    width: alongsideList.width - 12
+                    visible: modelData.english.length > 0 || alongsidePanel.data_.waiting === true
+                    height: visible ? implicitHeight : 0
+                    text: modelData.english.length > 0 ? modelData.english : "…"
+                    wrapMode: Text.Wrap
+                    font.family: reader.theme.serif
+                    font.pixelSize: reader.theme.body
+                    color: modelData.english.length > 0 ? reader.theme.fg : reader.theme.muted
+                }
+                footer: Item { width: 1; height: 12 }
             }
         }
     }
@@ -192,6 +261,16 @@ Page {
                 color: reader.theme.line
                 Rectangle { width: parent.width * reader.app.progress; height: parent.height; radius: 2; color: reader.theme.accent }
             }
+            Button {
+                objectName: "alongsideButton"
+                Layout.fillWidth: true
+                Layout.topMargin: 4
+                flat: true
+                font.pixelSize: reader.theme.small
+                readonly property string language: reader.app.alongsideText.title || ""
+                text: reader.app.alongside ? qsTr("Hide %1 Alongside").arg(language) : qsTr("Show %1 Alongside").arg(language)
+                onClicked: reader.app.alongside = !reader.app.alongside
+            }
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 0
@@ -219,7 +298,7 @@ Page {
         z: 5
         visible: reader.app.backText.length > 0
         anchors.horizontalCenter: parent.horizontalCenter
-        anchors.bottom: reader.chrome ? bottomBar.top : footer.top
+        anchors.bottom: reader.chrome ? bottomBar.top : book.bottom
         anchors.bottomMargin: 6
         width: backRow.implicitWidth + 28
         height: 36
@@ -361,44 +440,17 @@ Page {
         }
     }
 
-    // Text size, margins and theme.
-    Popup {
+    // Text and Layout: the font, size, spacing, margins, page width, pages side by side, page turns and the theme.
+    LookPanel {
         id: look
+        objectName: "lookPanel"
+        app: reader.app
+        theme: reader.theme
         x: parent.width - width - 8
         y: topBar.height + 4
-        width: Math.min(360, parent.width - 16)
-        height: Math.min(parent.height - topBar.height - 60, 620)
-        padding: 16
-        background: Rectangle { color: reader.theme.pop; radius: 10; border.color: reader.theme.line }
-        ColumnLayout {
-            anchors.fill: parent
-            spacing: 10
-            Label { text: qsTr("Text Size"); color: reader.theme.muted; font.pixelSize: reader.theme.small }
-            RowLayout {
-                Button { text: "A−"; onClicked: reader.app.textSize = reader.app.textSize - 10 }
-                Label { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; text: reader.app.textSize + " %"; color: reader.theme.fg }
-                Button { text: "A+"; onClicked: reader.app.textSize = reader.app.textSize + 10 }
-            }
-            Label { text: qsTr("Margins"); color: reader.theme.muted; font.pixelSize: reader.theme.small }
-            RowLayout {
-                Button { text: qsTr("Narrower"); onClicked: reader.app.margins = reader.app.margins - 8 }
-                Label { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; text: reader.app.margins + " px"; color: reader.theme.fg }
-                Button { text: qsTr("Wider"); onClicked: reader.app.margins = reader.app.margins + 8 }
-            }
-            Label { text: qsTr("Theme"); color: reader.theme.muted; font.pixelSize: reader.theme.small }
-            ThemeList {
-                objectName: "themeList"
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                app: reader.app
-                theme: reader.theme
-            }
-            Button {
-                text: qsTr("Settings…")
-                flat: true
-                onClicked: { look.close(); reader.settingsRequested() }
-            }
-        }
+        width: Math.min(380, parent.width - 16)
+        height: Math.min(parent.height - topBar.height - 60, 720)
+        onSettingsRequested: reader.settingsRequested()
     }
 
     SelectionBar {

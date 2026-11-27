@@ -55,7 +55,7 @@ Page {
             Label { text: qsTr("Text Size: %1 %").arg(settings.app.textSize); color: settings.theme.fg }
             Slider { Layout.fillWidth: true; from: 60; to: 250; stepSize: 10; value: settings.app.textSize; onMoved: settings.app.textSize = value }
             Label { text: qsTr("Margins: %1 px").arg(settings.app.margins); color: settings.theme.fg }
-            Slider { Layout.fillWidth: true; from: 4; to: 80; stepSize: 4; value: settings.app.margins; onMoved: settings.app.margins = value }
+            Slider { Layout.fillWidth: true; from: 8; to: 80; stepSize: 4; value: settings.app.margins; onMoved: settings.app.margins = value }
             // The theme: one line with the current one, folded by default; a tap opens every theme (the owner's
             // request, 2026-11-27: the whole list was in the way of the settings below it).
             ItemDelegate {

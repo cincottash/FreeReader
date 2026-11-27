@@ -1,8 +1,10 @@
-// The reading surface of the touch app: one page of the open book, drawn by the core's page renderer. Turns pages
-// (QML calls nextPage / previousPage from taps and swipes), selects the word under a long press, and reports the
-// position so the app can save it.
+// The reading surface of the touch app: the open book's page, or two pages side by side when the screen is wide
+// enough (a tablet, a phone on its side; Text and Layout > Columns), drawn by the core's page renderer with the
+// desktop's geometry (margins, the page width as the longest line). Turns a screen at a time (QML calls nextPage /
+// previousPage from swipes), with the page-turn animation chosen in Text and Layout; selects the word under a long
+// press, and reports the position so the app can save it.
 //
-// The page is drawn into an image on the UI thread (the layout's text may only be shaped there) and the image is
+// The screen is drawn into an image on the UI thread (the layout's text may only be shaped there) and the image is
 // what the scene graph shows.
 #pragma once
 
@@ -18,6 +20,8 @@
 
 #include "MobileApp.h"
 
+class QVariantAnimation;
+
 class BookPage : public QQuickPaintedItem {
     Q_OBJECT
     QML_ELEMENT
@@ -27,6 +31,9 @@ class BookPage : public QQuickPaintedItem {
     Q_PROPERTY(QString selectedText READ selectedText NOTIFY selectionChanged)
     // True while a finger is still making the selection: it doesn't blink then.
     Q_PROPERTY(bool steady READ isSteady WRITE setSteady NOTIFY steadyChanged)
+    // 1, or 2 when two pages are side by side.
+    Q_PROPERTY(int columns READ columns NOTIFY columnsChanged)
+    Q_PROPERTY(bool animating READ isAnimating NOTIFY animatingChanged)
 public:
     explicit BookPage(QQuickItem* parent = nullptr);
 
@@ -56,6 +63,12 @@ public:
 
     void setPosition(const core::Position& p);
     core::Position position() const { return m_anchor; }
+    core::Position screenStart() const;   // the start of the first page showing (position() can be on the second)
+    core::Position screenEnd() const;     // the end of the last page showing
+    int columns() const { return m_geo.columns; }
+    bool isAnimating() const;
+    void setTurnProgressForTests(double t);   // holds a running turn at this point (0..1)
+    QImage screenImage() const { return m_image; }
 
     void paint(QPainter* painter) override;
 
@@ -65,17 +78,29 @@ signals:
     void selectionChanged();
     void positionChanged();
     void steadyChanged();
+    void columnsChanged();
+    void animatingChanged();
 
 protected:
     void geometryChange(const QRectF& newGeometry, const QRectF& oldGeometry) override;
 
 private:
+    // Where the pages go (as the desktop's page view): one or two columns of the same width, centered.
+    struct Geometry {
+        int columns = 1;
+        float gap = 0, columnWidth = 0, left = 0, top = 14, pageHeight = 0;
+    };
+    Geometry geometryFor(const QSizeF& size) const;
     void applyParams();
     void onLayoutReady(int spine);
     void moveTo(const core::Position& p);
+    bool turnTo(const core::Position& p, int direction);
     void render();
     std::shared_ptr<const layout::ChapterLayout> current() const;
-    QRectF pageRect() const;
+    int firstPage(const layout::ChapterLayout& cl) const;   // the screen's first page
+    QRectF columnRect(int i) const;
+    int columnAt(const QPointF& pos) const;
+    layout::Hit hitAt(const QPointF& pos, int* page = nullptr) const;
     int offsetAt(qreal x, qreal y, int* charOffset = nullptr) const;
     bool wordAt(int charOffset, int* start, int* end) const;
 
@@ -87,6 +112,10 @@ private:
     QElapsedTimer m_blinkClock;
     bool m_steady = false;
     void selectionMoved();
-    float m_marginX = 20, m_top = 14, m_bottom = 30;
+    Geometry m_geo;
     int m_selSpine = -1, m_selStart = 0, m_selEnd = 0, m_selAnchorStart = 0, m_selAnchorEnd = 0;
+    // The page-turn animation: the screen before and after, drawn over each other while it runs.
+    QVariantAnimation* m_turn = nullptr;
+    QImage m_fromImage, m_toImage;
+    int m_turnDir = 1;
 };
