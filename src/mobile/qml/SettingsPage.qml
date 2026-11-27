@@ -145,7 +145,7 @@ Page {
             }
             Note {
                 visible: settings.app.options.geminiExplainOnly === true && settings.app.options.useGemini === true
-                text: qsTr("Gemini then answers only Explain This Sentence. Words come from the offline dictionaries; whole sentences have no other engine on the phone yet.")
+                text: qsTr("Gemini then answers only Explain This Sentence. Words and sentences come from LM Studio (when set up below) and the offline dictionaries.")
             }
             Switch {
                 objectName: "optBookOffline"
@@ -213,6 +213,55 @@ Page {
             Connections {
                 target: settings.app
                 function onGeminiTested(result) { testResult.text = result }
+                function onLmStudioChecked(result, models) {
+                    lmResult.text = result
+                    if (models.length > 0) lmModel.model = models
+                }
+            }
+
+            // LM Studio on a computer in the same Wi-Fi (as on the desktop; after Gemini, before the dictionaries).
+            Section { text: qsTr("LM STUDIO (A COMPUTER ON THIS WI-FI)") }
+            Note { text: qsTr("Translations from a model running on your computer, free and private. In LM Studio on the computer: Developer › Start Server, with Serve on Local Network on; then type the address it shows.") }
+            Switch {
+                objectName: "optUseLmStudio"
+                text: qsTr("Use LM Studio")
+                checked: settings.app.options.useLmStudio === true
+                onToggled: settings.app.setOption("useLmStudio", checked)
+            }
+            TextField {
+                id: lmAddress
+                objectName: "optLmAddress"
+                Layout.fillWidth: true
+                enabled: settings.app.options.useLmStudio === true
+                placeholderText: qsTr("LM Studio's Address (http://192.168.1.20:1234)")
+                inputMethodHints: Qt.ImhUrlCharactersOnly | Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase
+                text: settings.app.options.lmStudioAddress || ""
+                color: settings.theme.fg
+                onEditingFinished: settings.app.setOption("lmStudioAddress", text)
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                Label { text: qsTr("Model"); color: settings.theme.fg }
+                ComboBox {
+                    id: lmModel
+                    objectName: "optLmModel"
+                    Layout.fillWidth: true
+                    enabled: settings.app.options.useLmStudio === true
+                    textRole: "label"
+                    valueRole: "id"
+                    model: [{ "id": settings.app.options.lmStudioModel || "",
+                              "label": (settings.app.options.lmStudioModel || "").length > 0 ? settings.app.options.lmStudioModel : qsTr("The Model Loaded in LM Studio") }]
+                    onActivated: (i) => settings.app.setOption("lmStudioModel", model[i].id)
+                }
+            }
+            RowLayout {
+                Button {
+                    objectName: "checkLmStudio"
+                    text: qsTr("Check")
+                    enabled: settings.app.options.useLmStudio === true
+                    onClicked: { lmResult.text = qsTr("Checking…"); settings.app.checkLmStudio(lmAddress.text) }
+                }
+                Note { id: lmResult; objectName: "lmResult"; Layout.fillWidth: true }
             }
 
             Section { text: qsTr("OFFLINE DICTIONARIES") }

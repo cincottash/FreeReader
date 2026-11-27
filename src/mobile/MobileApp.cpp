@@ -346,9 +346,11 @@ MobileApp::MobileApp(const QString& dataFolder, QObject* parent) : QObject(paren
     m_savedWords->setWordLog(m_words.get());
     m_translator = new core::TranslationService(this);
     m_translator->setCache(m_library.get());
+    // LM Studio on a computer in the same Wi-Fi (as on the desktop, after Gemini).
+    m_lmStudio = new core::LmStudioProvider(m_net, this);
     // The Word List last: its meaning was right for another sentence (the owner's rule, 2026-11-27). Each dictionary
     // answers only in its own language, so a reader gets their own (Spanish -> English or English -> Spanish).
-    m_translator->setProviders({m_gemini, m_dictionary, m_dictionaryEnEs, m_dictionaryEn, m_savedWords});
+    m_translator->setProviders({m_gemini, m_lmStudio, m_dictionary, m_dictionaryEnEs, m_dictionaryEn, m_savedWords});
     m_translator->setInstant({m_dictionary, m_dictionaryEnEs, m_dictionaryEn});
     // The engines switched on or off, Gemini's model and its wait: a word or passage Gemini hasn't answered by then
     // (2.5 s, as on the desktop) is answered by the next engine; Gemini's late answer is kept for next time (the
@@ -1309,7 +1311,8 @@ void MobileApp::onTranslated(int id, const core::TranslationResult& r, const QSt
     if (r.isEmpty()) {
         QString text = why.isEmpty() ? tr("No translation engine is set up yet.") : why;
         if (explaining)
-            text = bookOffline() ? tr("Explanations come from Gemini, and this book is kept offline (Settings).")
+            text = lmStudioUsable() ? tr("Explanations come from Gemini or LM Studio, and neither could answer.") + (why.isEmpty() ? QString() : QLatin1Char('\n') + why)
+                 : bookOffline() ? tr("Explanations come from Gemini, and this book is kept offline (Settings).")
                  : !m_gemini->hasKey() || !m_settings.useGemini ? tr("Explanations come from Gemini: add a key, or turn Gemini on, in Settings.")
                  : tr("Explanations come from Gemini, and it couldn't answer.") + (why.isEmpty() ? QString() : QLatin1Char('\n') + why);
         else if (bookOffline() && m_settings.useGemini)
@@ -1776,7 +1779,13 @@ QVariantMap MobileApp::options() const
             {QStringLiteral("wordBook"), m_wordBook},
             {QStringLiteral("wordListSort"), s.wordListSort},
             {QStringLiteral("speechRate"), s.speechRatePct},
-            {QStringLiteral("speechVolume"), s.speechVolumePct}};
+            {QStringLiteral("speechVolume"), s.speechVolumePct},
+            {QStringLiteral("useLmStudio"), s.useLmStudio},
+            // The desktop's default (this computer) means nothing on a phone: shown empty.
+            {QStringLiteral("lmStudioAddress"), lmStudioUsable() || !QUrl::fromUserInput(s.lmStudioAddress).host().contains(QLatin1String("localhost"))
+                                                     ? s.lmStudioAddress : QString()},
+            {QStringLiteral("lmStudioModel"), s.lmStudioModel},
+            {QStringLiteral("lmStudioWaitSec"), s.lmStudioWaitMs / 1000.0}};
 }
 
 // ---------------------------------------------------------------- Audio (as on the desktop: Settings > Audio)
@@ -1884,6 +1893,13 @@ void MobileApp::setOption(const QString& key, const QVariant& value)
         return;
     } else if (key == QLatin1String("practiceHighlights")) s.practiceHighlights = value.toBool();
     else if (key == QLatin1String("practiceLookups")) s.practiceLookups = value.toBool();
+    else if (key == QLatin1String("useLmStudio")) s.useLmStudio = value.toBool();
+    else if (key == QLatin1String("lmStudioAddress")) {
+        QString a = value.toString().trimmed();
+        if (!a.isEmpty() && !a.contains(QLatin1String("://"))) a.prepend(QStringLiteral("http://"));   // "192.168.1.20:1234"
+        s.lmStudioAddress = a;
+    } else if (key == QLatin1String("lmStudioModel")) s.lmStudioModel = value.toString().trimmed();
+    else if (key == QLatin1String("lmStudioWaitSec")) s.lmStudioWaitMs = qBound(0, int(value.toDouble() * 1000 + 0.5), 30000);
     else if (key == QLatin1String("speechRate")) s.speechRatePct = qBound(-100, value.toInt(), 100);
     else if (key == QLatin1String("speechVolume")) s.speechVolumePct = qBound(0, value.toInt(), 100);
     else if (key == QLatin1String("practiceTyped")) s.practiceTyped = value.toBool();
@@ -1907,7 +1923,54 @@ void MobileApp::applyTranslationSettings()
     m_gemini->setModel(m_settings.geminiModel);
     m_translator->setWait(m_gemini->name(), qMax(0, m_settings.geminiWaitMs));
     for (core::OfflineDictionary* d : {m_dictionary, m_dictionaryEnEs, m_dictionaryEn, m_definitionsEs}) d->setEnabled(m_settings.useDictionary);
+    // LM Studio: only at another computer's address (this phone isn't running it; the desktop's default is
+    // localhost, which a settings file may carry).
+    m_lmStudio->setEnabled(lmStudioUsable());
+    m_lmStudio->setAddress(m_settings.lmStudioAddress);
+    m_lmStudio->setModel(m_settings.lmStudioModel);
+    m_translator->setWait(m_lmStudio->name(), qMax(0, m_settings.lmStudioWaitMs));
     m_translator->clearPauses();
+}
+
+bool MobileApp::lmStudioUsable() const
+{
+    if (!m_settings.useLmStudio) return false;
+    const QUrl url = QUrl::fromUserInput(m_settings.lmStudioAddress.trimmed());
+    const QString host = url.host().toLower();
+    if (m_lmStudioLocalForTests) return url.isValid() && !host.isEmpty();
+    return url.isValid() && !host.isEmpty() && host != QLatin1String("localhost") && !host.startsWith(QLatin1String("127."));
+}
+
+void MobileApp::checkLmStudio(const QString& address)
+{
+    // As the desktop's Check: is LM Studio's server there, and which models has it (none is loaded by this).
+    const QString a = address.trimmed();
+    if (!a.isEmpty()) setOption(QStringLiteral("lmStudioAddress"), a);
+    if (!lmStudioUsable() && m_settings.useLmStudio) {
+        emit lmStudioChecked(tr("Type the address of the computer running LM Studio, such as http://192.168.1.20:1234."), {});
+        return;
+    }
+    m_lmStudio->setAddress(m_settings.lmStudioAddress);
+    QPointer<MobileApp> self(this);
+    m_lmStudio->listModels([self](const QList<core::LmStudioProvider::Model>& models, core::TranslationFailure f) {
+        if (!self) return;
+        if (f != core::TranslationFailure::None) {
+            emit self->lmStudioChecked(tr("Not running at %1. On the computer, start LM Studio's server with Serve on Local Network on.")
+                                           .arg(self->m_lmStudio->address()), {});
+            return;
+        }
+        QVariantList list{QVariantMap{{QStringLiteral("id"), QString()}, {QStringLiteral("label"), tr("The Model Loaded in LM Studio")}}};
+        QStringList loaded;
+        for (const auto& m : models) {
+            list << QVariantMap{{QStringLiteral("id"), m.id}, {QStringLiteral("label"), m.loaded ? tr("%1 (loaded)").arg(m.id) : m.id}};
+            if (m.loaded) loaded << m.id;
+        }
+        QString text = loaded.isEmpty() ? tr("Running, %1 available, none loaded.").arg(models.size())
+                                        : tr("Running, %1 available; loaded: %2.").arg(models.size()).arg(loaded.join(QStringLiteral(", ")));
+        if (models.isEmpty()) text = tr("Running, but LM Studio has no language models. Download one in LM Studio.");
+        else if (self->m_settings.lmStudioModel.isEmpty() && loaded.isEmpty()) text += QLatin1Char(' ') + tr("Choose a model above, or load one in LM Studio.");
+        emit self->lmStudioChecked(text, list);
+    });
 }
 
 void MobileApp::testGemini()

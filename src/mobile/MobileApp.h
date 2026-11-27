@@ -36,6 +36,7 @@ namespace core {
 class BookEngine;
 class DictionaryDownload;
 class GeminiProvider;
+class LmStudioProvider;
 class Importer;
 class Annotations;
 class Library;
@@ -396,6 +397,10 @@ public:
     QVariantMap options() const;
     Q_INVOKABLE void setOption(const QString& key, const QVariant& value);
     Q_INVOKABLE void testGemini();   // looks up one word with the saved key; geminiTested says how it went
+    // LM Studio on a computer in the same Wi-Fi: is its server there, and its models (lmStudioChecked).
+    Q_INVOKABLE void checkLmStudio(const QString& address);
+    bool lmStudioUsable() const;   // on, at another computer's address
+    void setLmStudioLocalForTests(bool on) { m_lmStudioLocalForTests = on; applyTranslationSettings(); }
     bool bookOffline() const;
     // Hear Pronunciation (a word, in the book's language) and Read Aloud (the selection).
     Q_INVOKABLE void hear(const QString& text);
@@ -467,6 +472,7 @@ signals:
     void practiceChanged();   // the reader goes there (contents, notebook, search)
     void optionsChanged();
     void geminiTested(const QString& result);
+    void lmStudioChecked(const QString& result, const QVariantList& models);   // models: {id, label}
     void speakingChanged();
     // A bookmark was added where the book has others: remove the earlier one(s)? (count: how many there are)
     void bookmarkQuestion(const QString& question, int count);
@@ -520,6 +526,7 @@ private:
     core::Importer* m_importer;
     QNetworkAccessManager* m_net;
     core::GeminiProvider* m_gemini;
+    core::LmStudioProvider* m_lmStudio;
     core::SavedWords* m_savedWords;
     core::OfflineDictionary* m_dictionary;     // Spanish -> English
     core::OfflineDictionary* m_dictionaryEnEs; // English -> Spanish (a Spanish reader's)
@@ -602,6 +609,7 @@ private:
     QString m_lastSpoken, m_lastOpened;
     QPair<QString, QString> m_pendingSpeech;   // text and language waiting for the engine to be ready
     bool m_quiet = false;
+    bool m_lmStudioLocalForTests = false;   // a fake LM Studio on this computer
     struct Asked {
         int spine = -1, start = 0, end = 0;
         QString sentence;
