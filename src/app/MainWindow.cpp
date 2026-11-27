@@ -85,15 +85,16 @@ MainWindow::MainWindow(Settings& settings, core::Library* library, bool interact
     // English -> Spanish, for readers whose language is Spanish.
     m_dictionaryEnEs = new core::OfflineDictionary(this);
     m_dictionaryEnEs->open(dictionaryFile(QStringLiteral("en-es")));
-    // When Gemini and LM Studio can't answer: the meaning saved in the Word List from an earlier lookup, the
-    // offline dictionaries (words), then the offline translator (sentences and passages). Each dictionary answers
-    // only in its own language pair, so the reader's language picks them (a Spanish reader: English -> Spanish, and
-    // Spanish definitions for Spanish books).
+    // When Gemini and LM Studio can't answer: the offline dictionaries (words), the offline translator (sentences
+    // and passages), and last of all the meaning saved in the Word List from an earlier lookup: it was right for
+    // another sentence, often not for this one (the owner's rule, 2026-11-27: the Word List is the absolute last
+    // choice). Each dictionary answers only in its own language pair, so the reader's language picks them (a Spanish
+    // reader: English -> Spanish, and Spanish definitions for Spanish books).
     m_savedWords = new core::SavedWords(this);
     m_savedWords->setDictionaries({m_dictionary, m_dictionaryEn, m_dictionaryEnEs, m_definitionsEs});
     m_offline = new core::OfflineTranslator(this);
     m_offline->setFolder(translatorFolder());
-    m_translator->setProviders({m_gemini, m_lmStudio, m_savedWords, m_dictionary, m_dictionaryEn, m_dictionaryEnEs, m_definitionsEs, m_offline});
+    m_translator->setProviders({m_gemini, m_lmStudio, m_dictionary, m_dictionaryEn, m_dictionaryEnEs, m_definitionsEs, m_offline, m_savedWords});
     m_translator->setInstant({m_dictionary, m_dictionaryEn, m_dictionaryEnEs, m_definitionsEs});
     m_gemini->setKey(core::secrets::read(QStringLiteral("gemini-api-key")));
     m_stack = new QStackedWidget;

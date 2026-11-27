@@ -99,8 +99,9 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
   paragraph on the page in a panel beside it, a page at a time; pages you've seen stay translated.
 - Prefer the pop-up as soon as you select? Turn on **Settings ▸ Translation ▸ Translate When Text Is Selected**.
 - Answers come from one engine at a time, always in this order: **Google's Gemini** (free tier, no card needed),
-  then **LM Studio** on your own computer (optional), then what your **Word List** already says, then the **offline
-  dictionaries** and the **offline translator**. The next one is asked only when the one before can't answer or is
+  then **LM Studio** on your own computer (optional), then the **offline dictionaries** and the **offline
+  translator**, and last of all what your **Word List** already says (a meaning saved for another sentence may not
+  fit this one). The next one is asked only when the one before can't answer or is
   switched off (**Settings ▸ Translation**), or when Gemini or LM Studio takes longer than its **Wait** time there
   over a word or passage (2.5 seconds at first): its late answer doesn't replace the one showing, and is kept for
   next time. Every Gemini and LM Studio answer is kept, so looking up the same words
