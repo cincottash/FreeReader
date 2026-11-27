@@ -13,6 +13,7 @@
 
 #include <QAbstractListModel>
 #include <QColor>
+#include <QImage>
 #include <QObject>
 #include <QQmlEngine>
 #include <QElapsedTimer>
@@ -35,6 +36,7 @@ class GeminiProvider;
 class Importer;
 class Annotations;
 class Library;
+class LibrarySearch;
 class OfflineDictionary;
 class SavedWords;
 class TranslationService;
@@ -106,6 +108,9 @@ class MobileApp : public QObject {
     Q_PROPERTY(QVariantList searchResults READ searchResults NOTIFY searchChanged)
     Q_PROPERTY(bool searching READ isSearching NOTIFY searchChanged)
     Q_PROPERTY(QString searchSummary READ searchSummary NOTIFY searchChanged)
+    Q_PROPERTY(QVariantList allResults READ allResults NOTIFY allSearchChanged)
+    Q_PROPERTY(bool searchingAll READ isSearchingAll NOTIFY allSearchChanged)
+    Q_PROPERTY(QString allSummary READ allSummary NOTIFY allSearchChanged)
     // The Word List: {id, headword, text, translation, partOfSpeech, sentence, book, page, starred, needsMeaning}.
     Q_PROPERTY(QVariantList words READ words NOTIFY wordsChanged)
     Q_PROPERTY(int wordCount READ wordCount NOTIFY wordsChanged)
@@ -133,6 +138,11 @@ class MobileApp : public QObject {
     Q_PROPERTY(bool speaking READ isSpeaking NOTIFY speakingChanged)
     // The open book's id (0: none), so a reader screen closes only its own book.
     Q_PROPERTY(int bookId READ bookId NOTIFY readingChanged)
+    // After a jump (contents, notebook, search, a link, Go to Page): "Back to Page 7"; empty when there is nowhere
+    // to go back to.
+    Q_PROPERTY(QString backText READ backText NOTIFY historyChanged)
+    // The picture tapped on the page (image://book/<n>), empty when none is shown.
+    Q_PROPERTY(QString shownImage READ shownImage NOTIFY imageChanged)
 public:
     MobileApp(const QString& dataFolder, QObject* parent = nullptr);
     ~MobileApp() override;
@@ -163,6 +173,25 @@ public:
     Q_INVOKABLE void closeLookup();
     Q_INVOKABLE void explain(QObject* page);   // Explain This Sentence: the selection's sentence, with notes
     Q_INVOKABLE void pageMoved(QObject* page);   // a BookPage   // the reader turned a page: update and save the position
+
+    // Moving around (as on the desktop): every jump can be undone with Back.
+    QString backText() const;
+    Q_INVOKABLE void goBack();
+    Q_INVOKABLE QString goToPageOrPercent(const QString& text);   // empty when it went there, else what to type
+    Q_INVOKABLE QString pageOrPercentHint() const;                 // "Page 1 to 1,180, or a percentage such as 45%"
+    Q_INVOKABLE void nextChapter();
+    Q_INVOKABLE void previousChapter();   // the start of this chapter, or of the one before at its start
+    Q_INVOKABLE void goToBeginning();
+    // A link on the page: a footnote shows its text (footnoteShown), another place in the book is jumped to, a web
+    // address opens in the browser.
+    void followLink(const QString& target, bool external, bool noteRef);
+    Q_INVOKABLE void goToFootnote();   // the footnote's own place in the book
+    void showImage(const QString& path);
+    Q_INVOKABLE void closeImage();
+    QString shownImage() const { return m_imageShown; }
+    QImage imageForProvider() const { return m_image; }
+    // The provider of image://book/ (pictures from the open book); the QML engine takes it.
+    class QQuickImageProvider* newImageProvider();
 
     // Settings
     int textSize() const { return m_settings.look.textSizePct; }
@@ -215,8 +244,16 @@ public:
     // Contents and search.
     QVariantList contents() const;
     Q_INVOKABLE void goToContents(int index);
-    Q_INVOKABLE void search(const QString& query);
+    Q_INVOKABLE void search(const QString& query, bool wholeWord = false, bool matchCase = false, bool matchAccents = false);
     Q_INVOKABLE void goToSearchResult(int index);
+    // Search All Books: rows of {kind "book", title, author, count} each followed by its {kind "hit", before, match,
+    // after}; a tap on a hit opens its book there.
+    Q_INVOKABLE void searchAll(const QString& query, bool wholeWord = false, bool matchCase = false, bool matchAccents = false);
+    Q_INVOKABLE void cancelSearchAll();
+    Q_INVOKABLE void openAllResult(int row);
+    QVariantList allResults() const;
+    bool isSearchingAll() const { return m_allSearchId > 0; }
+    QString allSummary() const { return m_allSummary; }
     QVariantList searchResults() const;
     bool isSearching() const { return m_searchId > 0; }
     QString searchSummary() const { return m_searchSummary; }
@@ -255,7 +292,8 @@ public:
     Q_INVOKABLE void stopSpeaking();
     bool isSpeaking() const;
     QString lastSpoken() const { return m_lastSpoken; }   // tests
-    void setQuietForTests(bool on) { m_quiet = on; }       // never start the system's speech engine
+    QString lastOpened() const { return m_lastOpened; }   // tests: the last web address opened
+    void setQuietForTests(bool on) { m_quiet = on; }       // never start the system's speech engine or browser
     // Report an AI's answer (Google Play's AI-generated content policy): opens a new GitHub issue, filled in.
     Q_INVOKABLE void reportAnswer();
     QUrl reportUrl() const;   // that issue's address (tests read it without opening a browser)
@@ -311,6 +349,10 @@ signals:
     void speakingChanged();
     // A bookmark was added where the book has others: remove the earlier one(s)? (count: how many there are)
     void bookmarkQuestion(const QString& question, int count);
+    void historyChanged();
+    void allSearchChanged();
+    void footnoteShown(const QString& text);
+    void imageChanged();
 
 private:
     void setMessage(const QString& text);
@@ -327,6 +369,8 @@ private:
     QString dictionaryFile(const QString& key = QStringLiteral("es")) const;
     core::OfflineDictionary* dictionaryFor(const QString& key) const;
     int annotationAt(QObject* page) const;   // the highlight holding the page's selection, 0 if none
+    void jumpTo(const core::Position& p);    // remembers where the reader was (Back)
+    void forgetHistory();
 
     QString m_folder;
     Settings m_settings;
@@ -380,7 +424,24 @@ private:
         int bookId = 0, spine = -1, start = 0, end = 0;
         QString cfi;
     } m_pendingWord;
-    QString m_lastSpoken;
+    core::LibrarySearch* m_librarySearch = nullptr;
+    struct AllRow {
+        int bookId = 0;
+        bool isHit = false;
+        QString title, author;   // a book's row
+        int count = 0;
+        bool truncated = false;
+        core::SearchHit hit;     // a match's row
+    };
+    std::vector<AllRow> m_allRows;
+    int m_allSearchId = 0, m_allUnreadable = 0;
+    QString m_allSummary, m_allQuery;
+    std::vector<core::Position> m_history;   // where each jump came from, the last one last
+    core::Position m_footnoteTarget{-1, 0};
+    QImage m_image;
+    QString m_imageShown;
+    int m_imageSerial = 0;
+    QString m_lastSpoken, m_lastOpened;
     QPair<QString, QString> m_pendingSpeech;   // text and language waiting for the engine to be ready
     bool m_quiet = false;
     struct Asked {

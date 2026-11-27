@@ -28,7 +28,11 @@ Item {
         "explain": "M4 5h16v11H10l-5 4v-4H4zM8 9h8M8 12h5",
         "speaker": "M4 9.5h4l5-4v13l-5-4H4zM16.5 9a4.5 4.5 0 0 1 0 6M19 6.5a8.5 8.5 0 0 1 0 11",
         "stop": "M7 7h10v10H7z",
-        "flip": "M4 9h13l-3-3M20 15H7l3 3"
+        "flip": "M4 9h13l-3-3M20 15H7l3 3",
+        "chapterPrevious": "M7 6v12M17 6l-6 6 6 6",
+        "chapterNext": "M17 6v12M7 6l6 6-6 6",
+        "beginning": "M5 6v12M12 6l-6 6 6 6M19 6l-6 6 6 6",
+        "undo": "M9 7L5 11l4 4M5 11h9a5 5 0 0 1 0 10h-3"
     })
 
     Shape {

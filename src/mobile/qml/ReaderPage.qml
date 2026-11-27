@@ -51,7 +51,9 @@ Page {
                 if (sheet.opened) { sheet.close(); return }
                 if (card.opened) { card.close(); return }
                 if (book.hasSelection) { book.clearSelection(); return }
-                // Anywhere on the page: the menu. Pages turn only by swiping.
+                // A link (a footnote, another chapter, a web page) or a picture.
+                if (book.tapAt(point.position.x, point.position.y)) return
+                // Anywhere else on the page: the menu. Pages turn only by swiping.
                 reader.chrome = !reader.chrome
             }
             onLongPressed: {
@@ -159,30 +161,202 @@ Page {
         }
         Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: reader.theme.line }
     }
+    // The chapter, how far into the book, and moving around: chapters, the beginning, a page or a percentage.
     Rectangle {
         id: bottomBar
+        objectName: "bottomBar"
         visible: reader.chrome
         anchors.bottom: footer.top
         width: parent.width
-        height: 64
+        height: navColumn.implicitHeight + 16
         color: reader.theme.surface
-        Column {
-            anchors.fill: parent
-            anchors.margins: 12
-            spacing: 8
+        Rectangle { width: parent.width; height: 1; color: reader.theme.line }
+        ColumnLayout {
+            id: navColumn
+            x: 12
+            y: 10
+            width: parent.width - 24
+            spacing: 4
             Label {
-                width: parent.width
+                Layout.fillWidth: true
                 text: reader.app.chapterTitle
                 elide: Text.ElideRight
                 font.pixelSize: reader.theme.small
                 color: reader.theme.fg
             }
             Rectangle {
-                width: parent.width
+                Layout.fillWidth: true
+                Layout.topMargin: 4
                 height: 4
                 radius: 2
                 color: reader.theme.line
                 Rectangle { width: parent.width * reader.app.progress; height: parent.height; radius: 2; color: reader.theme.accent }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 0
+                IconButton { objectName: "beginningButton"; theme: reader.theme; iconName: "beginning"; text: qsTr("Go to Beginning of Book"); onClicked: reader.app.goToBeginning() }
+                IconButton { objectName: "previousChapterButton"; theme: reader.theme; iconName: "chapterPrevious"; text: qsTr("Previous Chapter"); onClicked: reader.app.previousChapter() }
+                Button {
+                    objectName: "goToPageButton"
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 4
+                    Layout.rightMargin: 4
+                    text: qsTr("Go to Page or Percent")
+                    flat: true
+                    font.pixelSize: reader.theme.small
+                    onClicked: goTo.open()
+                }
+                IconButton { objectName: "nextChapterButton"; theme: reader.theme; iconName: "chapterNext"; text: qsTr("Next Chapter"); onClicked: reader.app.nextChapter() }
+            }
+        }
+    }
+
+    // After a jump: back to where the reader was (as on the desktop).
+    Rectangle {
+        id: backChip
+        objectName: "backChip"
+        z: 5
+        visible: reader.app.backText.length > 0
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: reader.chrome ? bottomBar.top : footer.top
+        anchors.bottomMargin: 6
+        width: backRow.implicitWidth + 28
+        height: 36
+        radius: 18
+        color: reader.theme.pop
+        border.color: reader.theme.line
+        RowLayout {
+            id: backRow
+            anchors.centerIn: parent
+            spacing: 6
+            Icon { width: 18; height: 18; name: "undo"; color: reader.theme.accent }
+            Label { text: reader.app.backText; font.pixelSize: reader.theme.small; color: reader.theme.fg }
+        }
+        MouseArea { anchors.fill: parent; onClicked: reader.app.goBack() }
+    }
+
+    // Go to Page or Percent.
+    Dialog {
+        id: goTo
+        objectName: "goToDialog"
+        anchors.centerIn: parent
+        width: Math.min(parent.width - 48, 380)
+        modal: true
+        title: qsTr("Go to Page or Percent")
+        onOpened: { goToField.text = ""; goToError.text = ""; goToField.placeholderText = reader.app.pageOrPercentHint(); goToField.forceActiveFocus() }
+        function go() {
+            const problem = reader.app.goToPageOrPercent(goToField.text)
+            if (problem.length > 0) goToError.text = problem
+            else { goTo.close(); reader.chrome = false }
+        }
+        ColumnLayout {
+            width: parent.width
+            spacing: 8
+            TextField {
+                id: goToField
+                objectName: "goToField"
+                Layout.fillWidth: true
+                inputMethodHints: Qt.ImhPreferNumbers | Qt.ImhNoPredictiveText
+                color: reader.theme.fg
+                onAccepted: goTo.go()
+            }
+            Label {
+                id: goToError
+                objectName: "goToError"
+                Layout.fillWidth: true
+                visible: text.length > 0
+                wrapMode: Text.Wrap
+                font.pixelSize: reader.theme.small
+                color: reader.theme.accent
+            }
+        }
+        footer: RowLayout {
+            spacing: 8
+            Item { Layout.fillWidth: true }
+            Button { text: qsTr("Cancel"); flat: true; onClicked: goTo.close() }
+            Button { objectName: "goToGo"; text: qsTr("Go"); highlighted: true; Layout.rightMargin: 12; Layout.bottomMargin: 12; onClicked: goTo.go() }
+        }
+    }
+
+    // A footnote's text, over the page; Go to the Note jumps to it (Back returns).
+    Dialog {
+        id: footnote
+        objectName: "footnoteDialog"
+        anchors.centerIn: parent
+        width: parent.width - 32
+        modal: true
+        title: qsTr("Footnote")
+        property alias text: footnoteText.text
+        ScrollView {
+            width: parent.width
+            implicitHeight: Math.min(footnoteText.implicitHeight, reader.height * 0.5)
+            clip: true
+            Label {
+                id: footnoteText
+                objectName: "footnoteText"
+                width: footnote.availableWidth
+                wrapMode: Text.Wrap
+                font.family: reader.theme.serif
+                font.pixelSize: reader.theme.body
+                color: reader.theme.fg
+            }
+        }
+        footer: RowLayout {
+            spacing: 8
+            Item { Layout.fillWidth: true }
+            Button { objectName: "footnoteGo"; text: qsTr("Go to the Note"); flat: true; onClicked: { footnote.close(); reader.app.goToFootnote() } }
+            Button { text: qsTr("Close"); highlighted: true; Layout.rightMargin: 12; Layout.bottomMargin: 12; onClicked: footnote.close() }
+        }
+    }
+
+    // A picture from the book, full screen: pinch to zoom, drag to look around, double-tap for its whole size again.
+    Popup {
+        id: picture
+        objectName: "pictureViewer"
+        parent: Overlay.overlay
+        x: 0
+        y: 0
+        width: parent ? parent.width : 400
+        height: parent ? parent.height : 800
+        padding: 0
+        modal: true
+        onClosed: reader.app.closeImage()
+        Connections {
+            target: reader.app
+            function onImageChanged() {
+                if (reader.app.shownImage.length > 0) { shown.scale = 1; shown.x = 0; shown.y = 0; picture.open() }
+                else picture.close()
+            }
+        }
+        background: Rectangle { color: "#000000" }
+        Item {
+            anchors.fill: parent
+            clip: true
+            Image {
+                id: shown
+                width: parent.width
+                height: parent.height
+                source: reader.app.shownImage
+                fillMode: Image.PreserveAspectFit
+                smooth: true
+                mipmap: true
+                PinchHandler { id: pinch; target: shown; scaleAxis.minimum: 1; scaleAxis.maximum: 6; rotationAxis.enabled: false }
+                DragHandler { target: shown; enabled: shown.scale > 1.01 }
+                TapHandler {
+                    onDoubleTapped: { shown.scale = 1; shown.x = 0; shown.y = 0 }
+                }
+            }
+            IconButton {
+                anchors.top: parent.top
+                anchors.right: parent.right
+                anchors.topMargin: reader.app.safeTop + 4
+                anchors.rightMargin: 4
+                theme: reader.theme
+                iconName: "close"
+                iconColor: "#ffffff"
+                text: qsTr("Close")
+                onClicked: picture.close()
             }
         }
     }
@@ -251,6 +425,7 @@ Page {
         target: reader.app
         function onLookupChanged() { if ((reader.app.lookup.text || "").length > 0 && !sheet.opened) sheet.open() }
         function onBookmarkQuestion(question, count) { bookmarkDialog.ask(question, count) }
+        function onFootnoteShown(text) { footnote.text = text; footnote.open() }
     }
 
     // The app's messages while reading (a missing voice for Listen, no bookmarks yet), as the library shows them.

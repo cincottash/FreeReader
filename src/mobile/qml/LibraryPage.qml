@@ -29,6 +29,14 @@ Page {
                 color: page.theme.fg
                 Layout.fillWidth: true
             }
+            IconButton {
+                objectName: "searchAllButton"
+                theme: page.theme
+                iconName: "search"
+                text: qsTr("Search All Books")
+                visible: page.app.bookCount > 0
+                onClicked: searchAll.open()
+            }
             // Go to Latest Bookmark (as on the desktop's library): the bookmark added last, in any book.
             IconButton {
                 objectName: "latestBookmarkButton"
@@ -165,6 +173,8 @@ Page {
         Label { text: qsTr("The book and its place are removed from this phone. Its words stay in the Word List."); wrapMode: Text.Wrap; width: page.width - 96 }
         onAccepted: page.app.removeBook(bookMenu.bookId)
     }
+
+    SearchSheet { id: searchAll; objectName: "librarySearchSheet"; app: page.app; theme: page.theme }
 
     FileDialog {
         id: picker

@@ -11,6 +11,7 @@
 #include "core/services/Highlighting.h"
 #include "core/services/Importer.h"
 #include "core/services/Library.h"
+#include "core/services/LibrarySearch.h"
 #include "core/services/Secrets.h"
 #include "core/services/WordLog.h"
 #include "core/practice/Answer.h"
@@ -33,6 +34,8 @@
 #include <QLocale>
 #include <QNetworkAccessManager>
 #include <QPointer>
+#include <QQuickImageProvider>
+#include <cmath>
 #ifdef HAVE_TEXT_TO_SPEECH
 #include <QTextToSpeech>
 #endif
@@ -41,6 +44,9 @@
 namespace {
 
 const QString kGeminiKey = QStringLiteral("gemini-api-key");
+
+// "1 book", "3 books" (the desktop's way: English has no plural forms file).
+QString countText(int n, const QString& one, const QString& many) { return QStringLiteral("%1 %2").arg(QLocale().toString(n), n == 1 ? one : many); }
 
 // The page's colors: the same themes as the desktop app.
 MobileApp::Colors themeColors(const QString& key)
@@ -193,8 +199,44 @@ MobileApp::MobileApp(const QString& dataFolder, QObject* parent) : QObject(paren
         m_hits = hits;
         m_searchSummary = hits.isEmpty() ? tr("Not found.")
                           : truncated   ? tr("The first %1 matches.").arg(hits.size())
-                                        : tr("%n match(es).", nullptr, int(hits.size()));
+                                        : countText(int(hits.size()), tr("match"), tr("matches")) + QLatin1Char('.');
         emit searchChanged();
+    });
+
+    // Search All Books: each book's matches as soon as it is searched.
+    m_librarySearch = new core::LibrarySearch(this);
+    connect(m_librarySearch, &core::LibrarySearch::bookSearched, this,
+            [this](int id, const core::LibraryBookHits& r, int done, int total) {
+                if (id != m_allSearchId) return;
+                if (!r.error.isEmpty()) ++m_allUnreadable;
+                m_allSummary = tr("Searching… %1 of %2 books.").arg(QLocale().toString(done), QLocale().toString(total));
+                if (!r.hits.isEmpty()) {
+                    AllRow head;
+                    head.bookId = r.bookId;
+                    head.title = r.title.isEmpty() ? QFileInfo(r.path).completeBaseName() : r.title;
+                    head.author = r.author;
+                    head.count = int(r.hits.size());
+                    head.truncated = r.truncated;
+                    m_allRows.push_back(head);
+                    for (const core::SearchHit& h : r.hits) {
+                        AllRow row;
+                        row.bookId = r.bookId;
+                        row.hit = h;
+                        row.isHit = true;
+                        m_allRows.push_back(row);
+                    }
+                }
+                emit allSearchChanged();
+            });
+    connect(m_librarySearch, &core::LibrarySearch::finished, this, [this](int id, int hits, int books, bool canceled) {
+        if (id != m_allSearchId) return;
+        m_allSearchId = 0;
+        const QString results = countText(hits, tr("result"), tr("results")), inBooks = countText(books, tr("book"), tr("books"));
+        if (canceled) m_allSummary = tr("Stopped. %1 in %2 so far.").arg(results, inBooks);
+        else if (hits == 0) m_allSummary = tr("No results for “%1” in any book.").arg(m_allQuery);
+        else m_allSummary = tr("%1 in %2.").arg(results, inBooks);
+        if (m_allUnreadable > 0) m_allSummary += QLatin1Char(' ') + tr("%1 couldn't be read.").arg(countText(m_allUnreadable, tr("book"), tr("books")));
+        emit allSearchChanged();
     });
 
     m_importer = new core::Importer(this);
@@ -417,6 +459,8 @@ void MobileApp::onOpened()
     }
     m_pendingWord = {};
     m_position = m_start;
+    forgetHistory();
+    m_footnoteTarget = {-1, 0};
     m_model->refresh();
     emit readingChanged();
     emit locationChanged();
@@ -436,6 +480,8 @@ void MobileApp::closeBook()
     m_title.clear();
     m_chapter.clear();
     m_pageText.clear();
+    forgetHistory();
+    closeImage();
     closeLookup();
     closeCard();
     m_engine->cancelSearch();
@@ -746,7 +792,7 @@ void MobileApp::showWordInBook(int id)
     core::Position p{w.spine, w.start};
     if (w.bookId == m_bookId) {
         if (!w.cfi.isEmpty()) m_engine->positionForCfi(w.cfi, &p);
-        emit jumpRequested(p.spine, p.offset);
+        jumpTo(p);
         emit selectRequested(p.spine, p.offset, p.offset + (w.end - w.start));
         return;
     }
@@ -932,7 +978,7 @@ void MobileApp::endPractice()
     using core::practice::Rating;
     const int done = m_session->done();
     m_practiceSummary = done == 0 ? tr("No cards answered.")
-                                  : tr("Done for now: %n card(s).", nullptr, done) + QLatin1Char('\n') +
+                                  : tr("Done for now: %1.").arg(countText(done, tr("card"), tr("cards"))) + QLatin1Char('\n') +
                                         tr("Again %1 · Hard %2 · Good %3 · Easy %4")
                                             .arg(m_session->ratings(Rating::Again))
                                             .arg(m_session->ratings(Rating::Hard))
@@ -1636,7 +1682,7 @@ void MobileApp::goToAnnotation(int id)
         core::Position fromCfi;
         if (m_engine->positionForCfi(a.cfi, &fromCfi)) p = fromCfi;
     }
-    emit jumpRequested(p.spine, p.offset);
+    jumpTo(p);
     if (a.kind == core::Annotation::Highlight || core::Annotations::isWordBookmark(a))
         emit selectRequested(p.spine, p.offset, p.offset + (a.end - a.start));
 }
@@ -1707,10 +1753,175 @@ void MobileApp::goToContents(int index)
 {
     const auto ix = m_engine->index();
     if (!ix || index < 0 || index >= int(ix->toc.size()) || ix->toc[size_t(index)].spine < 0) return;
-    emit jumpRequested(ix->toc[size_t(index)].spine, ix->toc[size_t(index)].offset);
+    jumpTo({ix->toc[size_t(index)].spine, ix->toc[size_t(index)].offset});
 }
 
-void MobileApp::search(const QString& query)
+// ---------------------------------------------------------------- moving around
+
+void MobileApp::jumpTo(const core::Position& p)
+{
+    if (!m_bookId) return;
+    if (p != m_position) {
+        m_history.push_back(m_position);
+        if (m_history.size() > 50) m_history.erase(m_history.begin());
+        emit historyChanged();
+    }
+    emit jumpRequested(p.spine, p.offset);
+}
+
+void MobileApp::forgetHistory()
+{
+    if (m_history.empty()) return;
+    m_history.clear();
+    emit historyChanged();
+}
+
+QString MobileApp::backText() const
+{
+    if (m_history.empty() || !m_bookId) return {};
+    const auto ix = m_engine->index();
+    return ix ? tr("Back to Page %1").arg(ix->pageLabel(m_history.back())) : tr("Back");
+}
+
+void MobileApp::goBack()
+{
+    if (m_history.empty()) return;
+    const core::Position p = m_history.back();
+    m_history.pop_back();
+    emit historyChanged();
+    emit jumpRequested(p.spine, p.offset);
+}
+
+QString MobileApp::pageOrPercentHint() const
+{
+    const auto ix = m_engine->index();
+    if (!ix) return tr("The book is still being prepared. Try again in a moment.");
+    return tr("Page 1 to %1, or a percentage such as 45%").arg(ix->lastPageLabel());
+}
+
+QString MobileApp::goToPageOrPercent(const QString& raw)
+{
+    // The desktop's rules: "45%" (or "45,5 %"), a printed page label ("xii") when the book has them, or a page.
+    const auto ix = m_engine->index();
+    const QString text = raw.trimmed();
+    if (!ix || !m_bookId) return tr("The book is still being prepared. Try again in a moment.");
+    const QString usage = tr("Type a page number from 1 to %1, or a percentage such as 45%.").arg(ix->lastPageLabel());
+    if (text.isEmpty()) return usage;
+    static const QRegularExpression pct(QStringLiteral("^(\\d+(?:[.,]\\d+)?)\\s*%$"));
+    const auto m = pct.match(text);
+    if (m.hasMatch()) {
+        const double v = QString(m.captured(1)).replace(QLatin1Char(','), QLatin1Char('.')).toDouble();
+        if (v < 0 || v > 100) return usage;
+        jumpTo(ix->fromGlobal(qint64(std::ceil(v / 100.0 * double(ix->total)))));
+        return {};
+    }
+    for (const auto& printed : ix->printedPages)
+        if (printed.label.compare(text, Qt::CaseInsensitive) == 0) {
+            jumpTo(ix->fromGlobal(printed.global));
+            return {};
+        }
+    bool ok = false;
+    int page = QLocale().toInt(text, &ok);
+    if (!ok) page = text.toInt(&ok);
+    if (!ok || page < 1 || page > ix->pageCount()) return usage;
+    jumpTo(ix->positionOfPage(page));
+    return {};
+}
+
+void MobileApp::nextChapter()
+{
+    const auto ix = m_engine->index();
+    if (!ix || !m_bookId) return;
+    const qint64 g = ix->global(m_position);
+    qint64 best = -1;
+    core::Position target;
+    for (const auto& t : ix->toc)
+        if (t.spine >= 0 && t.global > g && (best < 0 || t.global < best)) {
+            best = t.global;
+            target = {t.spine, t.offset};
+        }
+    if (best >= 0) jumpTo(target);
+    else setMessage(tr("This is the last chapter."));
+}
+
+void MobileApp::previousChapter()
+{
+    const auto ix = m_engine->index();
+    if (!ix || !m_bookId) return;
+    const qint64 g = ix->global(m_position);
+    qint64 best = -1;
+    core::Position target;
+    for (const auto& t : ix->toc)
+        if (t.spine >= 0 && t.global < g - 1 && t.global > best) {
+            best = t.global;
+            target = {t.spine, t.offset};
+        }
+    jumpTo(best >= 0 ? target : core::Position{0, 0});
+}
+
+void MobileApp::goToBeginning() { jumpTo({0, 0}); }
+
+void MobileApp::followLink(const QString& target, bool external, bool noteRef)
+{
+    if (external) {
+        openLink(target);
+        return;
+    }
+    const auto ix = m_engine->index();
+    const core::Book* book = m_engine->book();
+    core::Position p;
+    if (!ix || !book || !ix->positionFor(*book, target, &p)) return;
+    const core::NoteText note = noteRef || target.contains(QLatin1Char('#')) ? m_engine->noteText(target) : core::NoteText{};
+    if ((noteRef || note.isNote) && !note.text.isEmpty()) {
+        m_footnoteTarget = p;
+        emit footnoteShown(note.text);
+        return;
+    }
+    jumpTo(p);
+}
+
+void MobileApp::goToFootnote()
+{
+    if (m_footnoteTarget.spine < 0) return;
+    jumpTo(m_footnoteTarget);
+}
+
+void MobileApp::showImage(const QString& path)
+{
+    QImage img;
+    if (!img.loadFromData(m_engine->resource(path)) || img.isNull()) return;
+    m_image = img;
+    m_imageShown = QStringLiteral("image://book/%1").arg(++m_imageSerial);
+    emit imageChanged();
+}
+
+void MobileApp::closeImage()
+{
+    if (m_imageShown.isEmpty()) return;
+    m_imageShown.clear();
+    m_image = QImage();
+    emit imageChanged();
+}
+
+namespace {
+class BookImageProvider : public QQuickImageProvider {
+public:
+    explicit BookImageProvider(MobileApp* app) : QQuickImageProvider(QQuickImageProvider::Image), m_app(app) {}
+    QImage requestImage(const QString&, QSize* size, const QSize&) override
+    {
+        const QImage img = m_app ? m_app->imageForProvider() : QImage();
+        if (size) *size = img.size();
+        return img;
+    }
+
+private:
+    QPointer<MobileApp> m_app;
+};
+}  // namespace
+
+QQuickImageProvider* MobileApp::newImageProvider() { return new BookImageProvider(this); }
+
+void MobileApp::search(const QString& query, bool wholeWord, bool matchCase, bool matchAccents)
 {
     m_hits.clear();
     m_searchSummary.clear();
@@ -1720,7 +1931,11 @@ void MobileApp::search(const QString& query)
         emit searchChanged();
         return;
     }
-    m_searchId = m_engine->search(query.trimmed(), core::SearchOptions{});
+    core::SearchOptions o;
+    o.wholeWord = wholeWord;
+    o.matchCase = matchCase;
+    o.matchAccents = matchAccents;
+    m_searchId = m_engine->search(query.trimmed(), o);
     m_searchSummary = tr("Searching…");
     emit searchChanged();
 }
@@ -1728,7 +1943,70 @@ void MobileApp::search(const QString& query)
 void MobileApp::goToSearchResult(int index)
 {
     if (index < 0 || index >= m_hits.size()) return;
-    emit jumpRequested(m_hits[index].spine, m_hits[index].start);
+    jumpTo({m_hits[index].spine, m_hits[index].start});
+    emit selectRequested(m_hits[index].spine, m_hits[index].start, m_hits[index].end);
+}
+
+void MobileApp::searchAll(const QString& query, bool wholeWord, bool matchCase, bool matchAccents)
+{
+    m_allRows.clear();
+    m_allUnreadable = 0;
+    const QString q = query.simplified();
+    if (q.size() < 2) {
+        cancelSearchAll();
+        m_allSummary = q.isEmpty() ? QString() : tr("Type at least 2 letters.");
+        emit allSearchChanged();
+        return;
+    }
+    QList<core::LibrarySearch::BookRef> books;
+    if (m_library)
+        for (const core::LibraryBook& b : m_library->books()) books << core::LibrarySearch::BookRef{b.id, b.path, b.title, b.author};
+    if (books.isEmpty()) {
+        m_allSummary = tr("The library has no books yet.");
+        emit allSearchChanged();
+        return;
+    }
+    core::SearchOptions o;
+    o.wholeWord = wholeWord;
+    o.matchCase = matchCase;
+    o.matchAccents = matchAccents;
+    m_allQuery = q;
+    m_allSummary = tr("Searching %1…").arg(countText(int(books.size()), tr("book"), tr("books")));
+    m_allSearchId = m_librarySearch->start(books, q, o);
+    emit allSearchChanged();
+}
+
+void MobileApp::cancelSearchAll()
+{
+    if (m_librarySearch->isRunning()) m_librarySearch->cancel();
+}
+
+QVariantList MobileApp::allResults() const
+{
+    QVariantList out;
+    for (const AllRow& r : m_allRows) {
+        if (r.isHit)
+            out << QVariantMap{{QStringLiteral("kind"), QStringLiteral("hit")}, {QStringLiteral("before"), r.hit.before},
+                               {QStringLiteral("match"), r.hit.match}, {QStringLiteral("after"), r.hit.after}};
+        else
+            out << QVariantMap{{QStringLiteral("kind"), QStringLiteral("book")}, {QStringLiteral("title"), r.title},
+                               {QStringLiteral("author"), r.author},
+                               {QStringLiteral("count"), r.truncated ? tr("first %1").arg(QLocale().toString(r.count)) : QLocale().toString(r.count)}};
+    }
+    return out;
+}
+
+void MobileApp::openAllResult(int row)
+{
+    if (row < 0 || row >= int(m_allRows.size()) || !m_allRows[size_t(row)].isHit) return;
+    const AllRow& r = m_allRows[size_t(row)];
+    if (r.bookId == m_bookId) {
+        jumpTo({r.hit.spine, r.hit.start});
+        emit selectRequested(r.hit.spine, r.hit.start, r.hit.end);
+        return;
+    }
+    m_pendingWord = {r.bookId, r.hit.spine, r.hit.start, r.hit.end, QString()};
+    openBook(r.bookId);
 }
 
 QVariantList MobileApp::searchResults() const
@@ -1741,7 +2019,11 @@ QVariantList MobileApp::searchResults() const
     return out;
 }
 
-void MobileApp::openLink(const QString& url) { QDesktopServices::openUrl(QUrl(url)); }
+void MobileApp::openLink(const QString& url)
+{
+    m_lastOpened = url;
+    if (!m_quiet) QDesktopServices::openUrl(QUrl(url));
+}
 
 QUrl MobileApp::reportUrl() const
 {
@@ -1761,5 +2043,5 @@ QUrl MobileApp::reportUrl() const
 
 void MobileApp::reportAnswer()
 {
-    if (m_lookup.value(QStringLiteral("ai")).toBool()) QDesktopServices::openUrl(reportUrl());
+    if (m_lookup.value(QStringLiteral("ai")).toBool()) openLink(reportUrl().toString());
 }

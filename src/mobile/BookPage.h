@@ -41,6 +41,8 @@ public:
     Q_INVOKABLE void clearSelection();
     // Extends the selection to the word under a point (dragging after a long press).
     Q_INVOKABLE void extendSelectionTo(qreal x, qreal y);
+    // A tap on a link (follows it) or a picture (shows it full screen); false when there is neither there.
+    Q_INVOKABLE bool tapAt(qreal x, qreal y);
 
     bool hasSelection() const { return m_selEnd > m_selStart; }
     QString selectedText() const;

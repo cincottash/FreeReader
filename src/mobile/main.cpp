@@ -133,6 +133,7 @@ int main(int argc, char** argv)
 
     QQmlApplicationEngine engine;
     engine.addImageProvider(QStringLiteral("covers"), new CoverProvider(mobile.library()));
+    engine.addImageProvider(QStringLiteral("book"), mobile.newImageProvider());
     engine.setInitialProperties({{QStringLiteral("app"), QVariant::fromValue(&mobile)}});
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app, [] { QCoreApplication::exit(4); }, Qt::QueuedConnection);
     engine.loadFromModule("FreeReaderMobile", "Main");

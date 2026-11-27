@@ -162,6 +162,29 @@ int BookPage::offsetAt(qreal x, qreal y, int* charOffset) const
     return h.offset;
 }
 
+bool BookPage::tapAt(qreal x, qreal y)
+{
+    const auto cl = current();
+    if (!m_app || !cl || cl->pages.empty()) return false;
+    const QRectF r = pageRect();
+    const int page = cl->pageForOffset(m_anchor.offset);
+    // A finger is less exact than a mouse: a short link mark (a footnote's "1") counts when the tap is near it.
+    for (const QPointF d : {QPointF(0, 0), QPointF(-8, 0), QPointF(8, 0), QPointF(0, -8), QPointF(0, 8)}) {
+        const layout::Hit h = layout::hitTest(*cl, page, QPointF(x, y) + d - r.topLeft());
+        if (h.link) {
+            const QString target = h.link->target;
+            const bool external = h.link->external, noteRef = h.link->noteRef;
+            m_app->followLink(target, external, noteRef);
+            return true;
+        }
+        if (d.isNull() && h.image && !h.imagePath.isEmpty()) {
+            m_app->showImage(h.imagePath);
+            return true;
+        }
+    }
+    return false;
+}
+
 bool BookPage::wordAt(int at, int* start, int* end) const
 {
     const auto cl = current();
