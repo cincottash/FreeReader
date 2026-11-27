@@ -22,6 +22,7 @@
 
 #include <QClipboard>
 #include <QDesktopServices>
+#include <QUrlQuery>
 #include <QGuiApplication>
 #include <QDir>
 #include <QElapsedTimer>
@@ -575,6 +576,8 @@ void MobileApp::onTranslated(int id, const core::TranslationResult& r, const QSt
         m[QStringLiteral("inSentence")] = r.inSentence;
         m[QStringLiteral("note")] = r.note;
         m[QStringLiteral("source")] = r.provider.isEmpty() ? QString() : tr("Source: %1").arg(r.provider);
+        m[QStringLiteral("provider")] = r.provider;
+        m[QStringLiteral("ai")] = r.provider == m_gemini->name();   // an AI's answer: it can be reported
         // A lookup joins the word log, with the place it was seen, only when chosen (the desktop's Practice > Add
         // Looked-Up Words): by default the Word List is what was highlighted (the owner's rule, 2026-11-26; the phone
         // app still logged every lookup until 2026-11-27).
@@ -1260,3 +1263,24 @@ QVariantList MobileApp::searchResults() const
 }
 
 void MobileApp::openLink(const QString& url) { QDesktopServices::openUrl(QUrl(url)); }
+
+QUrl MobileApp::reportUrl() const
+{
+    // A new issue on FreeReader's GitHub page, filled in with the answer being reported; the reader reads it, can
+    // change it, and sends it there (or not).
+    const QString text = m_lookup.value(QStringLiteral("text")).toString();
+    const QString answer = m_lookup.value(QStringLiteral("translation")).toString();
+    const QString body = tr("What is wrong with this answer?\n\n\n---\nSelected text: %1\nAnswer: %2\nFrom: %3\nFreeReader %4 (phone)")
+                             .arg(text.left(500), answer.left(1000), m_lookup.value(QStringLiteral("provider")).toString(), version());
+    QUrlQuery q;
+    q.addQueryItem(QStringLiteral("title"), tr("Report: the answer for “%1”").arg(text.left(60)));
+    q.addQueryItem(QStringLiteral("body"), body);
+    QUrl url(QStringLiteral("https://github.com/cincottash/FreeReader/issues/new"));
+    url.setQuery(q);
+    return url;
+}
+
+void MobileApp::reportAnswer()
+{
+    if (m_lookup.value(QStringLiteral("ai")).toBool()) QDesktopServices::openUrl(reportUrl());
+}

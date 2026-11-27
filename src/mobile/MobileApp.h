@@ -226,6 +226,9 @@ public:
     QString practiceOrder() const { return m_settings.practiceOrder; }
     void setPracticeOrder(const QString& order);
     Q_INVOKABLE void openLink(const QString& url);
+    // Report an AI's answer (Google Play's AI-generated content policy): opens a new GitHub issue, filled in.
+    Q_INVOKABLE void reportAnswer();
+    QUrl reportUrl() const;   // that issue's address (tests read it without opening a browser)
     QString version() const;
     QStringList bookFilters() const;
     bool rightToLeft() const;
