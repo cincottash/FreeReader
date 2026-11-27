@@ -25,6 +25,16 @@ env:
     HAVE_X11=no HAVE_GLUT=no HAVE_CURL=no HAVE_LIBCRYPTO=no
     USE_SYSTEM_FREETYPE=yes USE_SYSTEM_ZLIB=yes USE_SYSTEM_LIBJPEG=yes USE_SYSTEM_HARFBUZZ=yes
 
+# Runs that publish (merges into main, version tags) wait for each other: the version is worked out at the start
+# of a run, so two merges a few minutes apart would otherwise both pick the same number, and the second release
+# would fail. A run that waits starts only after the one before it has published, and so sees its tag.
+# GitHub keeps one waiting run per group: if a third merge comes while one is still waiting, the waiting one is
+# cancelled and the newest one publishes, with the changes of both in its release.
+# Pull requests and manual runs never wait (each gets a group of its own).
+concurrency:
+  group: ${{ github.event_name == 'push' && 'publish' || format('run-{0}', github.run_id) }}
+  cancel-in-progress: false
+
 permissions:
   contents: write          # needed to create the release
   pull-requests: read      # needed to read the merged pull request's title (for [minor] / [major])
@@ -319,9 +329,6 @@ jobs:
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     needs: [version, windows, linux]
     runs-on: ubuntu-latest
-    concurrency:
-      group: publish-release      # one at a time, so two quick merges never pick the same version
-      cancel-in-progress: false
     steps:
       - uses: actions/download-artifact@v4
         with:
