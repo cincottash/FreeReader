@@ -253,6 +253,37 @@ Page {
         function onBookmarkQuestion(question, count) { bookmarkDialog.ask(question, count) }
     }
 
+    // The app's messages while reading (a missing voice for Listen, no bookmarks yet), as the library shows them.
+    Rectangle {
+        id: toast
+        objectName: "readerMessage"
+        z: 10
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.margins: 16
+        anchors.bottomMargin: footer.height + 16
+        height: toastText.implicitHeight + 24
+        radius: 8
+        color: reader.theme.pop
+        border.color: reader.theme.line
+        visible: toastText.text.length > 0 && toastTimer.running
+        Label {
+            id: toastText
+            anchors.fill: parent
+            anchors.margins: 12
+            text: reader.app.message
+            wrapMode: Text.Wrap
+            font.pixelSize: reader.theme.small
+            color: reader.theme.fg
+        }
+        Timer { id: toastTimer; interval: 6000 }
+        Connections {
+            target: reader.app
+            function onMessageChanged() { if (reader.app.message.length > 0) toastTimer.restart() }
+        }
+    }
+
     // A new bookmark where the book has others: remove the earlier one(s)? (as on the desktop)
     Dialog {
         id: bookmarkDialog

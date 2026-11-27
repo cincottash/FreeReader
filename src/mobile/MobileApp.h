@@ -316,6 +316,8 @@ private:
     void setMessage(const QString& text);
     void applyTranslationSettings();
     void speak(const QString& text, const QString& language);
+    void startSpeechEngine();   // Android's engine starts in the background: early, when a book opens
+    void sayNow(const QString& text, const QString& language);
     void onOpened();
     void onTranslated(int id, const core::TranslationResult& r, const QString& why);
     void savePosition();
@@ -379,6 +381,7 @@ private:
         QString cfi;
     } m_pendingWord;
     QString m_lastSpoken;
+    QPair<QString, QString> m_pendingSpeech;   // text and language waiting for the engine to be ready
     bool m_quiet = false;
     struct Asked {
         int spine = -1, start = 0, end = 0;

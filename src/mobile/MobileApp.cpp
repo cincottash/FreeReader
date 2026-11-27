@@ -424,6 +424,7 @@ void MobileApp::onOpened()
     emit contentsChanged();
     emit optionsChanged();   // Keep This Book Offline is the open book's
     emit bookOpened();
+    startSpeechEngine();     // ready by the time Listen or Hear Pronunciation is tapped
 }
 
 void MobileApp::closeBook()
@@ -957,14 +958,44 @@ void MobileApp::speak(const QString& text, const QString& language)
     m_lastSpoken = said;
     if (m_quiet) return;
 #ifdef HAVE_TEXT_TO_SPEECH
-    if (!m_speech) {
-        m_speech = new QTextToSpeech(this);
-        connect(m_speech, &QTextToSpeech::stateChanged, this, &MobileApp::speakingChanged);
-    }
-    if (m_speech->state() == QTextToSpeech::Error) {
-        setMessage(tr("This phone's speech engine isn't working. Check Settings › General management › Text-to-speech."));
+    startSpeechEngine();
+    if (m_speech->state() != QTextToSpeech::Ready && m_speech->state() != QTextToSpeech::Speaking) {
+        // Android starts its speech engine in the background: the words are said once it is ready (a few seconds
+        // at most), else it says what is wrong (the emulator, 2026-11-27: the first tap came before "TTS initialized").
+        m_pendingSpeech = {said, language};
+        QTimer::singleShot(5000, this, [this] {
+            if (m_pendingSpeech.first.isEmpty()) return;
+            m_pendingSpeech = {};
+            setMessage(tr("This phone's speech engine isn't working. Check Settings › General management › Text-to-speech."));
+        });
         return;
     }
+    sayNow(said, language);
+#else
+    Q_UNUSED(language);
+    setMessage(tr("Reading aloud isn't available in this build."));
+#endif
+}
+
+void MobileApp::startSpeechEngine()
+{
+#ifdef HAVE_TEXT_TO_SPEECH
+    if (m_speech || m_quiet) return;
+    m_speech = new QTextToSpeech(this);
+    connect(m_speech, &QTextToSpeech::stateChanged, this, [this](QTextToSpeech::State s) {
+        emit speakingChanged();
+        if (s == QTextToSpeech::Ready && !m_pendingSpeech.first.isEmpty()) {
+            const auto p = m_pendingSpeech;
+            m_pendingSpeech = {};
+            sayNow(p.first, p.second);
+        }
+    });
+#endif
+}
+
+void MobileApp::sayNow(const QString& said, const QString& language)
+{
+#ifdef HAVE_TEXT_TO_SPEECH
     const QLocale want(language.isEmpty() ? QStringLiteral("en") : language);
     QLocale best;
     for (const QLocale& l : m_speech->availableLocales())
