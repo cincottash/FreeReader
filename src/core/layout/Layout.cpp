@@ -282,7 +282,18 @@ QRecursiveMutex& fontEngineLock()
 
 const QTextLayout& TextLines::ui() const
 {
-    if (!layout) layout = std::move(layoutText(*block, width, params).layout);
+    if (!layout) {
+        layout = std::move(layoutText(*block, width, params).layout);
+        // Each line in the slot the pages were made with. Rebuilt on this thread, a line can measure differently
+        // (a book's own font at 300 %, as a drop cap): placed by its own measure, a paragraph continued from the
+        // page before ran into the next one (the owner's phone, 2026-11-27).
+        const int n = qMin(layout->lineCount(), int(top.size()));
+        for (int i = 0; i < n; ++i) {
+            QTextLine line = layout->lineAt(i);
+            const float natural = float(line.ascent() + line.descent());
+            line.setPosition(QPointF(line.x(), top[size_t(i)] + (advance[size_t(i)] - natural) / 2.f));
+        }
+    }
     return *layout;
 }
 

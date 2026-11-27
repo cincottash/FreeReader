@@ -3,12 +3,14 @@
 #include "MobileApp.h"
 
 #include "core/layout/PageRenderer.h"
+#include "core/layout/PageTurn.h"
 #include "core/services/BookEngine.h"
 
 #include <QPainter>
 #include <QPainterPath>
 #include <QQuickWindow>
 #include <QTextBoundaryFinder>
+#include <QVariantAnimation>
 
 #include <climits>
 #include <cmath>
@@ -27,6 +29,25 @@ BookPage::BookPage(QQuickItem* parent) : QQuickPaintedItem(parent)
     });
     setOpaquePainting(true);
     setAntialiasing(false);
+    m_turn = new QVariantAnimation(this);
+    m_turn->setStartValue(0.0);
+    m_turn->setEndValue(1.0);
+    connect(m_turn, &QVariantAnimation::valueChanged, this, [this] { update(); });
+    connect(m_turn, &QVariantAnimation::finished, this, [this] {
+        m_fromImage = m_toImage = QImage();
+        update();
+        emit animatingChanged();
+    });
+}
+
+bool BookPage::isAnimating() const { return m_turn->state() == QAbstractAnimation::Running || !m_toImage.isNull(); }
+
+void BookPage::setTurnProgressForTests(double t)
+{
+    if (m_toImage.isNull()) return;
+    m_turn->pause();
+    m_turn->setCurrentTime(int(t * m_turn->duration()));
+    update();
 }
 
 void BookPage::setApp(MobileApp* app)
@@ -63,19 +84,88 @@ std::shared_ptr<const layout::ChapterLayout> BookPage::current() const
 
 bool BookPage::isReady() const { return m_app && m_app->engine()->isOpen() && current() != nullptr; }
 
-QRectF BookPage::pageRect() const
+BookPage::Geometry BookPage::geometryFor(const QSizeF& size) const
 {
-    return QRectF(m_marginX, m_top, std::floor(width() - 2 * m_marginX), std::floor(height() - m_top - m_bottom));
+    // The desktop's rules (PageView::geometryFor), with a phone's top and bottom margins.
+    Geometry g;
+    const Appearance a = m_app ? m_app->appearance() : Appearance();
+    const float bodyPx = 20.f * float(a.textSizePct) / 100.f;
+    const float minSide = float(a.marginPx), gap = qMax(40.f, 2.f * bodyPx + float(a.marginPx) / 2.f);
+    const float availW = float(size.width()) - 2 * minSide;
+    const float maxCol = qMax(200.f, float(a.pageWidthEm) * bodyPx);
+    int cols = 1;
+    if (a.columns == QLatin1String("two") && availW >= 2 * 160.f + gap) cols = 2;
+    // Automatic: two pages only when each can be at least 90 % of the chosen page width.
+    else if (a.columns == QLatin1String("auto") && availW >= 2 * qMin(maxCol, 30.f * bodyPx) * 0.9f + gap + 64.f) cols = 2;
+    g.columns = cols;
+    g.gap = gap;
+    g.columnWidth = qMax(120.f, std::floor(qMin(maxCol, (availW - gap * float(cols - 1)) / float(cols))));
+    const float used = g.columnWidth * float(cols) + gap * float(cols - 1);
+    g.left = std::floor((float(size.width()) - used) / 2.f);
+    g.top = 14;
+    g.pageHeight = std::floor(qMax(120.f, float(size.height()) - g.top - 30.f));
+    return g;
+}
+
+QRectF BookPage::columnRect(int i) const
+{
+    return QRectF(m_geo.left + float(i) * (m_geo.columnWidth + m_geo.gap), m_geo.top, m_geo.columnWidth, m_geo.pageHeight);
+}
+
+int BookPage::columnAt(const QPointF& pos) const
+{
+    for (int i = 0; i < m_geo.columns; ++i)
+        if (columnRect(i).adjusted(-m_geo.gap / 2, -m_geo.top, m_geo.gap / 2, 30).contains(pos)) return i;
+    // Outside every column (the margins): the nearest one.
+    return pos.x() < m_geo.left + m_geo.columnWidth + m_geo.gap / 2 ? 0 : m_geo.columns - 1;
+}
+
+int BookPage::firstPage(const layout::ChapterLayout& cl) const
+{
+    const int page = cl.pageForOffset(m_anchor.offset);
+    const int c = qMax(1, m_geo.columns);
+    return page - page % c;
+}
+
+core::Position BookPage::screenStart() const
+{
+    const auto cl = current();
+    if (!cl || cl->pages.empty()) return m_anchor;
+    return {m_anchor.spine, cl->pages[size_t(firstPage(*cl))].start};
+}
+
+core::Position BookPage::screenEnd() const
+{
+    const auto cl = current();
+    if (!cl || cl->pages.empty()) return m_anchor;
+    const int last = qMin(int(cl->pages.size()) - 1, firstPage(*cl) + m_geo.columns - 1);
+    return {m_anchor.spine, cl->pages[size_t(last)].end};
+}
+
+layout::Hit BookPage::hitAt(const QPointF& pos, int* pageOut) const
+{
+    const auto cl = current();
+    if (pageOut) *pageOut = -1;
+    if (!cl || cl->pages.empty()) return {};
+    const int col = columnAt(pos);
+    const int page = firstPage(*cl) + col;
+    if (page >= int(cl->pages.size())) return {};
+    if (pageOut) *pageOut = page;
+    return layout::hitTest(*cl, page, pos - columnRect(col).topLeft());
 }
 
 void BookPage::applyParams()
 {
     if (!m_app || width() < 50 || height() < 50) return;
     const Appearance a = m_app->appearance();
-    m_marginX = float(a.marginPx);
+    const int columnsBefore = m_geo.columns;
+    m_geo = geometryFor(size());
+    if (m_geo.columns != columnsBefore) emit columnsChanged();
+    m_turn->setDuration(m_app->pageTurnMs());
+    m_turn->setEasingCurve(layout::easingForMotion(m_app->pageTurnMotion()));
     layout::LayoutParams p;
-    p.columnWidth = float(pageRect().width());
-    p.pageHeight = float(pageRect().height());
+    p.columnWidth = m_geo.columnWidth;
+    p.pageHeight = m_geo.pageHeight;
     p.pxPerCssPx = 1.25f * float(a.textSizePct) / 100.f;
     p.lineSpacing = float(a.lineSpacingPct) / 100.f;
     p.justify = a.justify;
@@ -103,7 +193,9 @@ void BookPage::onLayoutReady(int spine)
     if (!cl) return;
     m_shown = cl;
     if (m_anchor.offset == kEndOfChapter && !cl->pages.empty()) {
-        m_anchor.offset = cl->pages.back().start;
+        // The chapter's last screen (two pages side by side: the pair that holds its last page).
+        const int c = qMax(1, m_geo.columns), last = int(cl->pages.size()) - 1;
+        m_anchor.offset = cl->pages[size_t(last - last % c)].start;
         emit positionChanged();
     }
     m_app->engine()->request(spine + 1);
@@ -117,7 +209,13 @@ void BookPage::setPosition(const core::Position& p) { moveTo(p); }
 void BookPage::moveTo(const core::Position& p)
 {
     if (!m_app || !m_app->engine()->book()) return;
+    if (!m_toImage.isNull()) {   // a jump during a turn: the turn ends at once
+        m_turn->stop();
+        m_fromImage = m_toImage = QImage();
+        emit animatingChanged();
+    }
     const int count = int(m_app->engine()->book()->spine.size());
+    m_lastMoveByTurn = m_turning;
     m_anchor = p;
     m_anchor.spine = qBound(0, m_anchor.spine, qMax(0, count - 1));
     if (m_anchor.offset < 0) m_anchor.offset = 0;
@@ -132,34 +230,74 @@ bool BookPage::nextPage()
 {
     const auto cl = current();
     if (!cl) return false;
-    const int page = cl->pageForOffset(m_anchor.offset) + 1;
-    if (page < int(cl->pages.size())) moveTo({m_anchor.spine, cl->pages[size_t(page)].start});
-    else if (m_anchor.spine + 1 < int(m_app->engine()->book()->spine.size())) moveTo({m_anchor.spine + 1, 0});
-    else return false;
-    return true;
+    const int next = firstPage(*cl) + m_geo.columns;
+    if (next < int(cl->pages.size())) return turnTo({m_anchor.spine, cl->pages[size_t(next)].start}, 1);
+    if (m_anchor.spine + 1 < int(m_app->engine()->book()->spine.size())) return turnTo({m_anchor.spine + 1, 0}, 1);
+    return false;
 }
 
 bool BookPage::previousPage()
 {
     const auto cl = current();
     if (!cl) return false;
-    const int page = cl->pageForOffset(m_anchor.offset);
-    if (page > 0) moveTo({m_anchor.spine, cl->pages[size_t(page - 1)].start});
-    else if (m_anchor.spine > 0) moveTo({m_anchor.spine - 1, kEndOfChapter});
-    else return false;
+    const int first = firstPage(*cl);
+    if (first > 0) return turnTo({m_anchor.spine, cl->pages[size_t(qMax(0, first - m_geo.columns))].start}, -1);
+    if (m_anchor.spine > 0) return turnTo({m_anchor.spine - 1, kEndOfChapter}, -1);
+    return false;
+}
+
+bool BookPage::turnTo(const core::Position& p, int direction)
+{
+    // As the desktop: the screen before and after, the chosen animation between them. A chapter that isn't laid out
+    // yet appears without it.
+    const bool animate = m_app && m_app->pageTurnStyle() != QLatin1String("none") && !m_image.isNull();
+    QImage from;
+    if (animate) from = !m_toImage.isNull() ? m_toImage : m_image;   // a turn during a turn starts from its end
+    const bool was = isAnimating();
+    m_turn->stop();
+    m_fromImage = m_toImage = QImage();
+    m_turning = true;
+    moveTo(p);
+    m_turning = false;
+    if (animate && current() && m_anchor.offset != kEndOfChapter) {
+        m_fromImage = from;
+        m_toImage = m_image;
+        m_turnDir = direction;
+        m_turn->start();
+    }
+    if (was != isAnimating()) emit animatingChanged();
     return true;
 }
 
 int BookPage::offsetAt(qreal x, qreal y, int* charOffset) const
 {
-    const auto cl = current();
     if (charOffset) *charOffset = -1;
-    if (!cl || cl->pages.empty()) return -1;
-    const int page = cl->pageForOffset(m_anchor.offset);
-    const QRectF r = pageRect();
-    const layout::Hit h = layout::hitTest(*cl, page, QPointF(x, y) - r.topLeft());
+    int page = -1;
+    const layout::Hit h = hitAt(QPointF(x, y), &page);
+    if (page < 0) return -1;
     if (charOffset) *charOffset = h.charOffset;
     return h.offset;
+}
+
+bool BookPage::tapAt(qreal x, qreal y)
+{
+    const auto cl = current();
+    if (!m_app || !cl || cl->pages.empty()) return false;
+    // A finger is less exact than a mouse: a short link mark (a footnote's "1") counts when the tap is near it.
+    for (const QPointF d : {QPointF(0, 0), QPointF(-8, 0), QPointF(8, 0), QPointF(0, -8), QPointF(0, 8)}) {
+        const layout::Hit h = hitAt(QPointF(x, y) + d);
+        if (h.link) {
+            const QString target = h.link->target;
+            const bool external = h.link->external, noteRef = h.link->noteRef;
+            m_app->followLink(target, external, noteRef);
+            return true;
+        }
+        if (d.isNull() && h.image && !h.imagePath.isEmpty()) {
+            m_app->showImage(h.imagePath);
+            return true;
+        }
+    }
+    return false;
 }
 
 bool BookPage::wordAt(int at, int* start, int* end) const
@@ -299,23 +437,29 @@ void BookPage::render()
         QPainter p(&img);
         const layout::RenderColors colors{c.fg, c.muted, c.accent, c.line, c.surface};
         const std::vector<layout::Overlay> overlays = m_app ? m_app->highlightsIn(m_anchor.spine) : std::vector<layout::Overlay>();
-        const int page = cl->pageForOffset(m_anchor.offset);
-        layout::paintPage(p, *cl, page, pageRect().topLeft(), colors, overlays);
-        // Word bookmarks: a small ribbon in the accent color over the word's first letter.
-        p.setRenderHint(QPainter::Antialiasing);
-        for (const auto& [ws, we] : m_app ? m_app->wordBookmarksIn(m_anchor.spine) : std::vector<std::pair<int, int>>()) {
-            const std::vector<QRectF> rects = layout::rangeRects(*cl, page, ws, qMin(we, ws + 1));
-            if (rects.empty()) continue;
-            const QRectF r = rects.front().translated(pageRect().topLeft());
-            const qreal w = qBound(6.0, r.height() * 0.32, 12.0), h = w * 1.5, x = r.left(), y = r.top() - h * 0.45;
-            QPainterPath ribbon;
-            ribbon.moveTo(x, y);
-            ribbon.lineTo(x + w, y);
-            ribbon.lineTo(x + w, y + h);
-            ribbon.lineTo(x + w / 2, y + h - w * 0.45);
-            ribbon.lineTo(x, y + h);
-            ribbon.closeSubpath();
-            p.fillPath(ribbon, c.accent);
+        const std::vector<std::pair<int, int>> wordMarks = m_app ? m_app->wordBookmarksIn(m_anchor.spine) : std::vector<std::pair<int, int>>();
+        const int first = firstPage(*cl);
+        for (int col = 0; col < m_geo.columns && first + col < int(cl->pages.size()); ++col) {
+            const int page = first + col;
+            const QPointF origin = columnRect(col).topLeft();
+            layout::paintPage(p, *cl, page, origin, colors, overlays);
+            // Word bookmarks: a small ribbon in the accent color over the word's first letter.
+            p.setRenderHint(QPainter::Antialiasing);
+            for (const auto& [ws, we] : wordMarks) {
+                const std::vector<QRectF> rects = layout::rangeRects(*cl, page, ws, qMin(we, ws + 1));
+                if (rects.empty()) continue;
+                const QRectF r = rects.front().translated(origin);
+                const qreal w = qBound(6.0, r.height() * 0.32, 12.0), h = w * 1.5, x = r.left(), y = r.top() - h * 0.45;
+                QPainterPath ribbon;
+                ribbon.moveTo(x, y);
+                ribbon.lineTo(x + w, y);
+                ribbon.lineTo(x + w, y + h);
+                ribbon.lineTo(x + w / 2, y + h - w * 0.45);
+                ribbon.lineTo(x, y + h);
+                ribbon.closeSubpath();
+                p.fillPath(ribbon, c.accent);
+            }
+            p.setRenderHint(QPainter::Antialiasing, false);
         }
     }
     m_image = img;
@@ -325,6 +469,14 @@ void BookPage::render()
 void BookPage::paint(QPainter* painter)
 {
     if (m_image.isNull()) return;
+    if (!m_toImage.isNull() && !m_fromImage.isNull()) {
+        // A page turn: the shared styles (core/layout/PageTurn.h), the selection left out until it ends.
+        const MobileApp::Colors c = m_app ? m_app->pageColors() : MobileApp::Colors{};
+        painter->fillRect(QRectF(0, 0, width(), height()), c.bg);
+        layout::paintPageTurn(*painter, m_app ? m_app->pageTurnStyle() : QStringLiteral("slide"), m_turn->currentValue().toDouble(), m_turnDir,
+                              m_app && m_app->rightToLeft(), m_fromImage, m_toImage, width(), height(), c.bg, c.line, c.dark);
+        return;
+    }
     painter->drawImage(QRectF(0, 0, width(), height()), m_image);
     // The selection over the page: multiplied on a light page and screened on a dark one, so the text stays as
     // it is (as if it were under the words). It blinks gently: it's temporary, unlike a highlight.
@@ -334,9 +486,10 @@ void BookPage::paint(QPainter* painter)
     QColor sel = c.sel;
     sel.setAlphaF(float(qMin(1.0, sel.alphaF() * 1.6) * selectionStrength()));
     painter->setCompositionMode(c.dark ? QPainter::CompositionMode_Screen : QPainter::CompositionMode_Multiply);
-    const QPointF origin = pageRect().topLeft();
-    for (const QRectF& r : layout::rangeRects(*cl, cl->pageForOffset(m_anchor.offset), m_selStart, m_selEnd))
-        painter->fillRect(r.translated(origin), sel);
+    const int first = firstPage(*cl);
+    for (int col = 0; col < m_geo.columns && first + col < int(cl->pages.size()); ++col)
+        for (const QRectF& r : layout::rangeRects(*cl, first + col, m_selStart, m_selEnd))
+            painter->fillRect(r.translated(columnRect(col).topLeft()), sel);
     painter->setCompositionMode(QPainter::CompositionMode_SourceOver);
 }
 

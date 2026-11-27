@@ -688,7 +688,10 @@ KindlePlan planKindleImport(const Book& book, const KindleExport& exIn, const st
         const KindleItem& it = ex.items[i];
         KindlePlaced p;
         p.item = it;
-        const double expected = predict(it.location);
+        // A FreeReader export's own place, when its CFI resolves in this book: exactly there (a short word like "de"
+        // is in the book thousands of times; with few anchors the predicted place was far off, and a Notebook read
+        // back into its own book got a second highlight elsewhere, 2026-11-27). Else predicted from the anchors.
+        const double expected = ex.notebook && cfiAt[size_t(i)] >= 0 ? double(cfiAt[size_t(i)]) : predict(it.location);
         p.approx = posAt(int(std::lround(expected)));
         const Work& w = work[size_t(i)];
         if (!w.occ.empty()) {

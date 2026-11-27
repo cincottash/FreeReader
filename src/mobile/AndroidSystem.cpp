@@ -3,6 +3,7 @@
 #ifdef Q_OS_ANDROID
 #include <QCoreApplication>
 #include <QGuiApplication>
+#include <QJniEnvironment>
 #include <QJniObject>
 #include <QScreen>
 
@@ -68,10 +69,38 @@ void setLightSystemBars(bool light)
     });
 }
 
+bool shareText(const QString& chooserTitle, const QString& subject, const QString& text, const QString& mimeType)
+{
+    const QJniObject activity = QNativeInterface::QAndroidApplication::context();
+    if (!activity.isValid()) return false;
+    bool ok = false;
+    QNativeInterface::QAndroidApplication::runOnAndroidMainThread([&] {
+        // new Intent(ACTION_SEND) with the subject and text, offered through the chooser.
+        QJniObject send("android/content/Intent", "(Ljava/lang/String;)V", QJniObject::fromString(QStringLiteral("android.intent.action.SEND")).object<jstring>());
+        if (!send.isValid()) return;
+        send.callObjectMethod("setType", "(Ljava/lang/String;)Landroid/content/Intent;", QJniObject::fromString(mimeType).object<jstring>());
+        send.callObjectMethod("putExtra", "(Ljava/lang/String;Ljava/lang/String;)Landroid/content/Intent;",
+                              QJniObject::fromString(QStringLiteral("android.intent.extra.SUBJECT")).object<jstring>(),
+                              QJniObject::fromString(subject).object<jstring>());
+        send.callObjectMethod("putExtra", "(Ljava/lang/String;Ljava/lang/String;)Landroid/content/Intent;",
+                              QJniObject::fromString(QStringLiteral("android.intent.extra.TEXT")).object<jstring>(),
+                              QJniObject::fromString(text).object<jstring>());
+        const QJniObject chooser = QJniObject::callStaticObjectMethod(
+            "android/content/Intent", "createChooser", "(Landroid/content/Intent;Ljava/lang/CharSequence;)Landroid/content/Intent;", send.object(),
+            QJniObject::fromString(chooserTitle).object<jstring>());
+        if (!chooser.isValid()) return;
+        activity.callMethod<void>("startActivity", "(Landroid/content/Intent;)V", chooser.object());
+        QJniEnvironment env;
+        ok = !env.checkAndClearExceptions();
+    }).waitForFinished();
+    return ok;
+}
+
 #else
 
 QMargins systemBarInsets() { return {}; }
 void setLightSystemBars(bool) {}
+bool shareText(const QString&, const QString&, const QString&, const QString&) { return false; }
 
 #endif
 

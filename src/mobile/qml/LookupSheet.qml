@@ -22,6 +22,18 @@ Drawer {
         radius: 14
         border.color: sheet.theme.line
         Rectangle { width: parent.width; height: 14; anchors.bottom: parent.bottom; color: sheet.theme.pop }
+        // The handle: pull down here to close the sheet (the owner's request, 2026-11-27).
+        Rectangle {
+            objectName: "sheetHandle"
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.top: parent.top
+            anchors.topMargin: 8
+            width: 40
+            height: 4
+            radius: 2
+            color: sheet.theme.muted
+            opacity: 0.5
+        }
     }
 
     Flickable {
@@ -39,10 +51,10 @@ Drawer {
                     Layout.fillWidth: true
                     text: sheet.r.text || ""
                     wrapMode: Text.Wrap
-                    maximumLineCount: 3
+                    maximumLineCount: sheet.r.explain === true ? 5 : 3
                     elide: Text.ElideRight
                     font.family: sheet.theme.serif
-                    font.pixelSize: 20
+                    font.pixelSize: sheet.r.isWord === true ? 20 : 17
                     font.weight: Font.DemiBold
                     color: sheet.theme.fg
                 }
@@ -52,6 +64,15 @@ Drawer {
                     font.family: sheet.theme.serif
                     font.pixelSize: 16
                     color: sheet.theme.muted
+                }
+                // Hear Pronunciation: the word in the phone's voice for the book's language.
+                IconButton {
+                    objectName: "lookupHear"
+                    theme: sheet.theme
+                    iconName: "speaker"
+                    text: qsTr("Hear Pronunciation")
+                    visible: sheet.r.isWord === true && (sheet.r.text || "").length > 0
+                    onClicked: sheet.app.hear(sheet.r.text)
                 }
             }
             Label {
@@ -69,6 +90,27 @@ Drawer {
                 wrapMode: Text.Wrap
                 font.pixelSize: 18
                 color: sheet.theme.fg
+            }
+            // Explain This Sentence: the notes on its grammar and idioms (as on the desktop).
+            Label {
+                Layout.topMargin: 6
+                visible: sheet.r.explain === true && (sheet.r.explanation || []).length > 0
+                text: qsTr("HOW IT WORKS")
+                font.pixelSize: 12
+                font.weight: Font.DemiBold
+                font.letterSpacing: 1
+                color: sheet.theme.muted
+            }
+            Repeater {
+                model: sheet.r.explain === true ? (sheet.r.explanation || []) : []
+                delegate: Label {
+                    required property var modelData
+                    Layout.fillWidth: true
+                    text: "• " + modelData
+                    wrapMode: Text.Wrap
+                    font.pixelSize: sheet.theme.body
+                    color: sheet.theme.fg
+                }
             }
             Label {
                 Layout.fillWidth: true

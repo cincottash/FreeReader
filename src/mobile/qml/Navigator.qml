@@ -10,6 +10,8 @@ Drawer {
     property MobileApp app
     property Theme theme
     property int tab: 0   // 0 Contents, 1 Notebook
+    signal exportRequested()
+    signal importRequested()
 
     edge: Qt.LeftEdge
     topPadding: app ? app.safeTop : 0
@@ -85,9 +87,32 @@ Drawer {
                 }
             }
 
+            ColumnLayout {
+            spacing: 0
+            // Export the Notebook (share it or save it), or import highlights (a Kindle's, or a Notebook export).
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.margins: 8
+                spacing: 8
+                Button {
+                    objectName: "notebookExport"
+                    Layout.fillWidth: true
+                    text: qsTr("Export…")
+                    enabled: notes.count > 0
+                    onClicked: nav.exportRequested()
+                }
+                Button {
+                    objectName: "notebookImport"
+                    Layout.fillWidth: true
+                    text: qsTr("Import Highlights…")
+                    onClicked: nav.importRequested()
+                }
+            }
             ListView {
                 id: notes
                 objectName: "notebookList"
+                Layout.fillWidth: true
+                Layout.fillHeight: true
                 clip: true
                 spacing: 2
                 model: nav.app ? nav.app.notebook : []
@@ -165,6 +190,7 @@ Drawer {
                     text: qsTr("No Highlights Yet") + "\n" + qsTr("Press and hold a word, then pick a color.")
                     color: nav.theme.muted
                 }
+            }
             }
         }
     }

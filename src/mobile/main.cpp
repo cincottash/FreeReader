@@ -109,7 +109,10 @@ int main(int argc, char** argv)
     cli.addOption({QStringLiteral("bookmark"), QStringLiteral("With --screenshot: bookmark the page.")});
     cli.addOption({QStringLiteral("bookmark-word"), QStringLiteral("With --screenshot: bookmark a word on the page.")});
     cli.addOption({QStringLiteral("select"), QStringLiteral("With --screenshot: select a word on the page (no lookup).")});
-    cli.addOption({QStringLiteral("part"), QStringLiteral("With --screenshot: open contents, notebook, search, look, selection or dictionary."), QStringLiteral("name")});
+    cli.addOption({QStringLiteral("text-size"), QStringLiteral("With --screenshot: the text size in percent."), QStringLiteral("percent")});
+    cli.addOption({QStringLiteral("alongside"), QStringLiteral("With --screenshot: Show English Alongside.")});
+    cli.addOption({QStringLiteral("language"), QStringLiteral("With --screenshot: the app in this language (en, es)."), QStringLiteral("code")});
+    cli.addOption({QStringLiteral("part"),QStringLiteral("With --screenshot: open contents, notebook, search, look, selection or dictionary."), QStringLiteral("name")});
     cli.process(app);
 
     QString folder = cli.value(QStringLiteral("data-folder"));
@@ -127,9 +130,15 @@ int main(int argc, char** argv)
     MobileApp mobile(folder);
     if (!mobile.isOpen()) return fail(mobile.message());
     if (cli.isSet(QStringLiteral("theme"))) mobile.setTheme(cli.value(QStringLiteral("theme")));
+    if (screenshot) mobile.setQuietForTests(true);   // never the system's speech engine
+    if (cli.isSet(QStringLiteral("text-size"))) mobile.setTextSize(cli.value(QStringLiteral("text-size")).toInt());
+    if (screenshot) mobile.setAlongside(cli.isSet(QStringLiteral("alongside")));
+    if (cli.isSet(QStringLiteral("language"))) mobile.setReaderLanguage(cli.value(QStringLiteral("language")));
 
     QQmlApplicationEngine engine;
+    mobile.setQmlEngine(&engine);   // Your Language: the screens' text is read again in it
     engine.addImageProvider(QStringLiteral("covers"), new CoverProvider(mobile.library()));
+    engine.addImageProvider(QStringLiteral("book"), mobile.newImageProvider());
     engine.setInitialProperties({{QStringLiteral("app"), QVariant::fromValue(&mobile)}});
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app, [] { QCoreApplication::exit(4); }, Qt::QueuedConnection);
     engine.loadFromModule("FreeReaderMobile", "Main");
@@ -138,6 +147,9 @@ int main(int argc, char** argv)
     if (!window) return fail(QStringLiteral("No window."));
 
     if (!screenshot) {
+        // Reading time counts only while the app is in front (and the place is saved when it goes to the back).
+        QObject::connect(&app, &QGuiApplication::applicationStateChanged, &mobile,
+                         [&mobile](Qt::ApplicationState s) { mobile.setAppActive(s == Qt::ApplicationActive); });
         // The system bars' size is known once the window is on screen; again when the phone turns.
         for (int ms : {200, 800, 2000}) QTimer::singleShot(ms, &mobile, &MobileApp::updateInsets);
         QObject::connect(window, &QWindow::widthChanged, &mobile, [&mobile] { QTimer::singleShot(300, &mobile, &MobileApp::updateInsets); });
@@ -204,7 +216,8 @@ int main(int argc, char** argv)
     }
     const QString screen = cli.value(QStringLiteral("screen"));
     if (screen == QLatin1String("settings") || screen == QLatin1String("menu") || screen == QLatin1String("words") ||
-        screen == QLatin1String("practice"))
+        screen == QLatin1String("practice") || screen == QLatin1String("stats") || screen == QLatin1String("guide") ||
+        screen == QLatin1String("welcome"))
         QMetaObject::invokeMethod(window, "showScreen", Q_ARG(QVariant, screen));
     if (cli.isSet(QStringLiteral("part")))
         QMetaObject::invokeMethod(window, "showScreen", Q_ARG(QVariant, QStringLiteral("part:") + cli.value(QStringLiteral("part"))));

@@ -37,6 +37,9 @@ ApplicationWindow {
     // The screenshot mode opens a screen by name.
     function showScreen(name) {
         if (name === "settings") stack.push(settingsScreen)
+        else if (name === "stats") stack.push(statsScreen)
+        else if (name === "welcome") welcome.open()
+        else if (name === "guide") stack.push(guideScreen)
         else if (name === "words" || name === "practice") { stack.push(wordsScreen); if (name === "practice") stack.currentItem.startPractice() }
         else if (name === "menu" && stack.currentItem && stack.currentItem.showChrome) stack.currentItem.showChrome(true)
         else if (name.startsWith("part:") && stack.currentItem && stack.currentItem.showPart) stack.currentItem.showPart(name.substring(5))
@@ -54,7 +57,17 @@ ApplicationWindow {
             theme: appTheme
             onSettingsRequested: stack.push(settingsScreen)
             onWordsRequested: stack.push(wordsScreen)
+            onStatisticsRequested: stack.push(statsScreen)
+            onGuideRequested: stack.push(guideScreen)
         }
+    }
+    Component {
+        id: statsScreen
+        StatsPage { app: win.app; theme: appTheme; onCloseRequested: stack.pop() }
+    }
+    Component {
+        id: guideScreen
+        GuidePage { app: win.app; theme: appTheme; onCloseRequested: stack.pop() }
     }
 
     Component {
@@ -83,9 +96,18 @@ ApplicationWindow {
         }
     }
 
+    // The first start: your language and the dictionaries.
+    WelcomePage { id: welcome; objectName: "welcome"; app: win.app; theme: appTheme }
+    Component.onCompleted: if (win.app.showWelcome) welcome.open()
+
     Connections {
         target: win.app
-        function onBookOpened() { stack.push(readerScreen) }
+        // A book opened: its reader on top of the library (a reader or the Words screen open before, from Show in
+        // Book, goes; Back then leads to the library).
+        function onBookOpened() {
+            if (stack.depth > 1) stack.pop(null, StackView.Immediate)
+            stack.push(readerScreen)
+        }
     }
 
     onClosing: (close) => {

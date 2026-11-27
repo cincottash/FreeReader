@@ -13,27 +13,36 @@
 
 #include <QAbstractListModel>
 #include <QColor>
+#include <QImage>
 #include <QObject>
+#include <QPointer>
 #include <QQmlEngine>
+#include <QSet>
 #include <QElapsedTimer>
 #include <QTimer>
 #include <QUrl>
 #include <QMargins>
 #include <QVariantMap>
 
+#include <functional>
 #include <memory>
 #include <vector>
 
 class BookPage;
 class QNetworkAccessManager;
+class QTextToSpeech;
 
 namespace core {
 class BookEngine;
 class DictionaryDownload;
 class GeminiProvider;
+class LmStudioProvider;
 class Importer;
 class Annotations;
 class Library;
+class LibrarySearch;
+class ReadingLog;
+struct KindlePlan;
 class OfflineDictionary;
 class SavedWords;
 class TranslationService;
@@ -41,24 +50,32 @@ class WordLog;
 struct ImportedBook;
 }
 
-// The books, most recently read first.
+// The library's books as the library screen shows them (the desktop's rules): the filter (all, reading,
+// finished, notstarted, lang:es, collection:3), a search of titles and authors (case and accents ignored), and the
+// order (recent, title, author, language, progress, added).
 class BookListModel : public QAbstractListModel {
     Q_OBJECT
 public:
-    enum Role { IdRole = Qt::UserRole + 1, TitleRole, AuthorRole, ProgressRole, HasCoverRole, LanguageRole, PageRole };
+    enum Role { IdRole = Qt::UserRole + 1, TitleRole, AuthorRole, ProgressRole, HasCoverRole, LanguageRole, PageRole,
+                FinishedRole, MissingRole, PageCountRole };
     explicit BookListModel(core::Library* library, QObject* parent = nullptr);
     int rowCount(const QModelIndex& parent = QModelIndex()) const override;
     QVariant data(const QModelIndex& index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
     void refresh();
+    void setView(const QString& filter, const QString& search, const QString& sort);
+    QString filter() const { return m_filter; }
+    QString search() const { return m_search; }
+    QString sort() const { return m_sort; }
 
 private:
     core::Library* m_library;
+    QString m_filter = QStringLiteral("all"), m_search, m_sort = QStringLiteral("recent");
     struct Row {
         int id = 0;
-        QString title, author, language, page;
+        QString title, author, language, page, pageCount;
         double progress = 0;
-        bool hasCover = false;
+        bool hasCover = false, finished = false, missing = false;
     };
     QList<Row> m_rows;
 };
@@ -69,6 +86,23 @@ class MobileApp : public QObject {
     QML_UNCREATABLE("The app object is given to QML by main().")
     Q_PROPERTY(QAbstractItemModel* books READ books CONSTANT)
     Q_PROPERTY(int bookCount READ bookCount NOTIFY booksChanged)
+    // The library screen (as on the desktop): the filter ("all", "reading", "finished", "notstarted", "lang:es",
+    // "collection:3"), the search, the order, covers or a list; the filters to choose from {key, name, count, group};
+    // Continue Reading {id, title, page, percent} (empty when there is no book to go on with).
+    Q_PROPERTY(QString libraryFilter READ libraryFilter WRITE setLibraryFilter NOTIFY libraryChanged)
+    Q_PROPERTY(QString librarySearch READ librarySearch WRITE setLibrarySearch NOTIFY libraryChanged)
+    Q_PROPERTY(QString librarySort READ librarySort WRITE setLibrarySort NOTIFY libraryChanged)
+    Q_PROPERTY(bool libraryList READ libraryList WRITE setLibraryList NOTIFY libraryChanged)
+    Q_PROPERTY(QVariantList libraryFilters READ libraryFilters NOTIFY libraryChanged)
+    Q_PROPERTY(QVariantMap continueReading READ continueReading NOTIFY libraryChanged)
+    Q_PROPERTY(int shownBookCount READ shownBookCount NOTIFY libraryChanged)
+    // Your language (as on the desktop, Settings > General): the app's text and the language of every answer,
+    // English or Spanish. showWelcome: the first start's welcome (the language and the dictionaries) is due.
+    Q_PROPERTY(QString readerLanguage READ readerLanguage WRITE setReaderLanguage NOTIFY languageChanged)
+    Q_PROPERTY(bool showWelcome READ showWelcome NOTIFY languageChanged)
+    // Import Highlights: {title, from, summary [lines], warning, options [{key, label, on, enabled, visible}],
+    // mismatches [lines], result} (empty when closed).
+    Q_PROPERTY(QVariantMap highlightImport READ highlightImport NOTIFY highlightImportChanged)
     Q_PROPERTY(QString message READ message NOTIFY messageChanged)
     Q_PROPERTY(bool busy READ isBusy NOTIFY busyChanged)
     Q_PROPERTY(bool reading READ isReading NOTIFY readingChanged)
@@ -83,6 +117,7 @@ class MobileApp : public QObject {
     Q_PROPERTY(int margins READ margins WRITE setMargins NOTIFY lookChanged)
     Q_PROPERTY(QString theme READ theme WRITE setTheme NOTIFY lookChanged)
     Q_PROPERTY(QVariantMap colors READ colors NOTIFY lookChanged)
+    Q_PROPERTY(QVariantMap look READ look NOTIFY lookChanged)
     Q_PROPERTY(bool hasGeminiKey READ hasGeminiKey NOTIFY translationChanged)
     Q_PROPERTY(bool keyStoreAvailable READ keyStoreAvailable CONSTANT)
     Q_PROPERTY(QString dictionaryStatus READ dictionaryStatus NOTIFY translationChanged)
@@ -105,6 +140,9 @@ class MobileApp : public QObject {
     Q_PROPERTY(QVariantList searchResults READ searchResults NOTIFY searchChanged)
     Q_PROPERTY(bool searching READ isSearching NOTIFY searchChanged)
     Q_PROPERTY(QString searchSummary READ searchSummary NOTIFY searchChanged)
+    Q_PROPERTY(QVariantList allResults READ allResults NOTIFY allSearchChanged)
+    Q_PROPERTY(bool searchingAll READ isSearchingAll NOTIFY allSearchChanged)
+    Q_PROPERTY(QString allSummary READ allSummary NOTIFY allSearchChanged)
     // The Word List: {id, headword, text, translation, partOfSpeech, sentence, book, page, starred, needsMeaning}.
     Q_PROPERTY(QVariantList words READ words NOTIFY wordsChanged)
     Q_PROPERTY(int wordCount READ wordCount NOTIFY wordsChanged)
@@ -124,6 +162,23 @@ class MobileApp : public QObject {
     Q_PROPERTY(int safeBottom READ safeBottom NOTIFY insetsChanged)
     Q_PROPERTY(int safeLeft READ safeLeft NOTIFY insetsChanged)
     Q_PROPERTY(int safeRight READ safeRight NOTIFY insetsChanged)
+    // The settings the screens show and change, by name (setOption): useGemini, geminiExplainOnly, geminiModel,
+    // geminiWaitSec, useDictionary, bookOffline (the open book), practiceHighlights, practiceLookups, practiceTyped,
+    // practiceSentenceFront, practicePassages, practiceDirections.
+    Q_PROPERTY(QVariantMap options READ options NOTIFY optionsChanged)
+    // Hear Pronunciation or Read Aloud is speaking (the button then stops it).
+    Q_PROPERTY(bool speaking READ isSpeaking NOTIFY speakingChanged)
+    // The open book's id (0: none), so a reader screen closes only its own book.
+    Q_PROPERTY(int bookId READ bookId NOTIFY readingChanged)
+    // After a jump (contents, notebook, search, a link, Go to Page): "Back to Page 7"; empty when there is nowhere
+    // to go back to.
+    Q_PROPERTY(QString backText READ backText NOTIFY historyChanged)
+    // Show English Alongside (as on the desktop): the reader's language of every paragraph on the screen, under the
+    // page (beside it on a tablet). alongsideText: {title ("English"), status, paragraphs [{text, english}]}.
+    Q_PROPERTY(bool alongside READ alongside WRITE setAlongside NOTIFY alongsideChanged)
+    Q_PROPERTY(QVariantMap alongsideText READ alongsideText NOTIFY alongsideChanged)
+    // The picture tapped on the page (image://book/<n>), empty when none is shown.
+    Q_PROPERTY(QString shownImage READ shownImage NOTIFY imageChanged)
 public:
     MobileApp(const QString& dataFolder, QObject* parent = nullptr);
     ~MobileApp() override;
@@ -149,16 +204,112 @@ public:
     Q_INVOKABLE void closeBook();
     Q_INVOKABLE void removeBook(int id);   // from the library, and the app's copy of the file
 
+    // The library screen.
+    QString libraryFilter() const;
+    void setLibraryFilter(const QString& key);
+    QString librarySearch() const;
+    void setLibrarySearch(const QString& text);
+    QString librarySort() const { return m_settings.librarySort; }
+    void setLibrarySort(const QString& key);
+    bool libraryList() const { return m_settings.libraryList; }
+    void setLibraryList(bool on);
+    QVariantList libraryFilters() const;
+    QVariantMap continueReading() const;
+    int shownBookCount() const;
+    Q_INVOKABLE QVariantList librarySorts() const;   // {key, name}
+    Q_INVOKABLE QString createCollection(const QString& name, int bookId = 0);   // empty when made, else why not
+    Q_INVOKABLE QString renameCollection(int id, const QString& name);
+    Q_INVOKABLE void deleteCollection(int id);          // the books stay
+    Q_INVOKABLE QVariantList collectionsFor(int bookId) const;   // {id, name, has}
+    Q_INVOKABLE void setInCollection(int collectionId, int bookId, bool on);
+    Q_INVOKABLE void setFinished(int bookId, bool finished);
+    Q_INVOKABLE bool isFinished(int bookId) const;
+    Q_INVOKABLE bool isMissing(int bookId) const;      // the book's file isn't there any more
+    Q_INVOKABLE void locateBook(int bookId, const QUrl& url);   // the file picked again: copied in, the place kept
+
+    // Import Highlights (as on the desktop): a Kindle export (Bookcision's JSON, My Clippings.txt) or a FreeReader
+    // Notebook export, into the open book. readHighlights shows what would come in (highlightImport); importHighlights
+    // applies the choices (keys: highlights, equivalents, words, missingWords, missingPassages, bookmarks,
+    // moveToLastRead).
+    QVariantMap highlightImport() const { return m_highlightImport; }
+    Q_INVOKABLE void readHighlights(const QUrl& url);
+    void readHighlightsData(const QByteArray& data);   // tests
+    Q_INVOKABLE void importHighlights(const QVariantMap& choices);
+    Q_INVOKABLE void closeHighlightImport();
+    // Notebook export (Markdown, text, CSV, TSV, JSON): through the phone's share sheet, or saved to a file.
+    Q_INVOKABLE QString notebookExport(const QString& format) const;
+    Q_INVOKABLE QString notebookFileName(const QString& format) const;
+    Q_INVOKABLE void shareNotebook(const QString& format);
+    Q_INVOKABLE void saveNotebook(const QString& format, const QUrl& url);
+    QString lastShared() const { return m_lastShared; }   // tests
+
+    QString readerLanguage() const { return m_settings.readerLanguage; }
+    void setReaderLanguage(const QString& code);
+    bool showWelcome() const { return !m_settings.welcomeShown && !m_quiet; }
+    Q_INVOKABLE QVariantList readerLanguages() const;   // {code, name}: each in its own language ("Español")
+    Q_INVOKABLE QString suggestedLanguage() const;      // the phone's own language when the app can be in it
+    // The dictionaries a reader of `reader` can download: {key, title, about, sizeMb, installed, suggested}.
+    Q_INVOKABLE QVariantList dictionariesFor(const QString& reader) const;
+    // The welcome's answer: the language, and the dictionaries to download now (keys).
+    Q_INVOKABLE void finishWelcome(const QString& reader, const QStringList& downloads);
+    // The screens' text is read again when the language changes.
+    void setQmlEngine(QQmlEngine* engine) { m_qml = engine; }
+
+    // Statistics (as on the desktop): {today, week, streak, finished, words, learned, reviewsToday, retention,
+    // summary, empty, days [{label, minutes, words, reviews}], books [{id, title, time, pages, words, progress}]}.
+    Q_INVOKABLE QVariantMap statistics() const;
+    // The app went to the background (or came back): reading time stops counting meanwhile.
+    void setAppActive(bool active);
+    void setReadingClockForTests(std::function<qint64()> clock) { m_readingClock = std::move(clock); }
+
     // Looks up the page's selection (a word, a phrase or a sentence); the answer arrives in `lookup`.
     Q_INVOKABLE void lookUp(QObject* page);   // a BookPage
     Q_INVOKABLE void closeLookup();
+    Q_INVOKABLE void explain(QObject* page);   // Explain This Sentence: the selection's sentence, with notes
     Q_INVOKABLE void pageMoved(QObject* page);   // a BookPage   // the reader turned a page: update and save the position
 
+    // Moving around (as on the desktop): every jump can be undone with Back.
+    QString backText() const;
+    Q_INVOKABLE void goBack();
+    Q_INVOKABLE QString goToPageOrPercent(const QString& text);   // empty when it went there, else what to type
+    Q_INVOKABLE QString pageOrPercentHint() const;                 // "Page 1 to 1,180, or a percentage such as 45%"
+    Q_INVOKABLE void nextChapter();
+    Q_INVOKABLE void previousChapter();   // the start of this chapter, or of the one before at its start
+    Q_INVOKABLE void goToBeginning();
+    // A link on the page: a footnote shows its text (footnoteShown), another place in the book is jumped to, a web
+    // address opens in the browser.
+    void followLink(const QString& target, bool external, bool noteRef);
+    Q_INVOKABLE void goToFootnote();   // the footnote's own place in the book
+    bool alongside() const { return m_settings.showBilingual; }
+    void setAlongside(bool on);
+    QVariantMap alongsideText() const;
+    void showImage(const QString& path);
+    Q_INVOKABLE void closeImage();
+    QString shownImage() const { return m_imageShown; }
+    QImage imageForProvider() const { return m_image; }
+    // The provider of image://book/ (pictures from the open book); the QML engine takes it.
+    class QQuickImageProvider* newImageProvider();
+
     // Settings
-    int textSize() const { return m_settings.look.textSizePct; }
+    int textSize() const { return appearance().textSizePct; }
     void setTextSize(int pct);
-    int margins() const { return m_settings.look.marginPx; }
+    int margins() const { return appearance().marginPx; }
     void setMargins(int px);
+    // Text and Layout (as on the desktop): {font, line_spacing_pct, justify, hyphenate, page_width_em, columns,
+    // text_size_pct, margin_px} as they are for the open book, plus scope ("all", "language", "book"),
+    // languageName, languageOwn, bookOwn (the language or the book has settings of its own), pageTurn,
+    // pageTurnMs, pageTurnMotion.
+    QVariantMap look() const;
+    Q_INVOKABLE void setLook(const QString& key, const QVariant& value);   // a JSON key above, in the chosen scope
+    Q_INVOKABLE void setLookScope(const QString& scope);
+    Q_INVOKABLE void resetLook(const QString& scope);   // "language" or "book": back to the wider settings
+    Q_INVOKABLE void setPageTurn(const QString& style, int ms, const QString& motion);   // all books
+    Q_INVOKABLE QVariantList fonts() const;          // {key, name}: Book's Fonts, the bundled ones, the system's
+    Q_INVOKABLE QVariantList pageTurnStyles() const; // {key, name, about}
+    Q_INVOKABLE QVariantList pageTurnMotions() const;// {key, name}
+    QString pageTurnStyle() const { return m_settings.pageTurn; }
+    int pageTurnMs() const { return m_settings.pageTurnMs; }
+    QString pageTurnMotion() const { return m_settings.pageTurnMotion; }
     QString theme() const { return m_settings.theme; }
     void setTheme(const QString& key);
     QVariantMap colors() const;
@@ -178,6 +329,7 @@ public:
     // The Dictionary card for the page's selection; false when no dictionary knows the word (then look it up).
     Q_INVOKABLE bool showDictionary(QObject* page);
     Q_INVOKABLE void closeCard();
+    Q_INVOKABLE void flipCard();   // the card's other side (the book's language, or the reader's)
     QVariantMap card() const { return m_card; }
 
     // Highlights, notes and bookmarks (the same rules as the desktop: whole words, merged, the same color again
@@ -204,8 +356,16 @@ public:
     // Contents and search.
     QVariantList contents() const;
     Q_INVOKABLE void goToContents(int index);
-    Q_INVOKABLE void search(const QString& query);
+    Q_INVOKABLE void search(const QString& query, bool wholeWord = false, bool matchCase = false, bool matchAccents = false);
     Q_INVOKABLE void goToSearchResult(int index);
+    // Search All Books: rows of {kind "book", title, author, count} each followed by its {kind "hit", before, match,
+    // after}; a tap on a hit opens its book there.
+    Q_INVOKABLE void searchAll(const QString& query, bool wholeWord = false, bool matchCase = false, bool matchAccents = false);
+    Q_INVOKABLE void cancelSearchAll();
+    Q_INVOKABLE void openAllResult(int row);
+    QVariantList allResults() const;
+    bool isSearchingAll() const { return m_allSearchId > 0; }
+    QString allSummary() const { return m_allSummary; }
     QVariantList searchResults() const;
     bool isSearching() const { return m_searchId > 0; }
     QString searchSummary() const { return m_searchSummary; }
@@ -221,11 +381,42 @@ public:
     Q_INVOKABLE void refreshPractice();   // the counts on the start screen
     Q_INVOKABLE bool startPractice();
     Q_INVOKABLE void revealCard();
+    Q_INVOKABLE void checkTyped(const QString& typed);   // Type the Answer: checks it, then shows the card's back
+    Q_INVOKABLE QVariantList wordBooks() const;           // {id, title} of the books the Word List has words from
+    Q_INVOKABLE void startOverWord(int id);               // Start Over: the word's cards become new again
+    Q_INVOKABLE void removeEarlierBookmarks(bool all);    // the answer to bookmarkQuestion
+    Q_INVOKABLE void goToLatestBookmark();                // the bookmark added last, in any book
+    Q_INVOKABLE bool hasBookmarks() const;
+    Q_INVOKABLE void showWordInBook(int id);              // Show in Book: the word's place, its book opened if needed
+    int bookId() const { return m_bookId; }
     Q_INVOKABLE void rateCard(int rating);   // 1 Again, 2 Hard, 3 Good, 4 Easy
     Q_INVOKABLE void endPractice();
     QString practiceOrder() const { return m_settings.practiceOrder; }
     void setPracticeOrder(const QString& order);
     Q_INVOKABLE void openLink(const QString& url);
+    QVariantMap options() const;
+    Q_INVOKABLE void setOption(const QString& key, const QVariant& value);
+    Q_INVOKABLE void testGemini();   // looks up one word with the saved key; geminiTested says how it went
+    // LM Studio on a computer in the same Wi-Fi: is its server there, and its models (lmStudioChecked).
+    Q_INVOKABLE void checkLmStudio(const QString& address);
+    bool lmStudioUsable() const;   // on, at another computer's address
+    void setLmStudioLocalForTests(bool on) { m_lmStudioLocalForTests = on; applyTranslationSettings(); }
+    bool bookOffline() const;
+    // Hear Pronunciation (a word, in the book's language) and Read Aloud (the selection).
+    Q_INVOKABLE void hear(const QString& text);
+    Q_INVOKABLE void readAloud(QObject* page);
+    Q_INVOKABLE void stopSpeaking();
+    bool isSpeaking() const;
+    QString lastSpoken() const { return m_lastSpoken; }   // tests
+    QString lastOpened() const { return m_lastOpened; }   // tests: the last web address opened
+    void setQuietForTests(bool on) { m_quiet = on; }       // never start the system's speech engine or browser
+    // Audio (Settings): the speed and volume are options (speechRate -100..100, speechVolume 0..100); a voice per
+    // language from the phone's voices.
+    Q_INVOKABLE QVariantList voiceLanguages() const;            // {code, name}
+    Q_INVOKABLE QVariantList voicesFor(const QString& language);   // {name, detail}; name "" is the phone's choice
+    Q_INVOKABLE QString voiceFor(const QString& language) const;
+    Q_INVOKABLE void setVoice(const QString& language, const QString& name);
+    Q_INVOKABLE void testVoice(const QString& language);
     // Report an AI's answer (Google Play's AI-generated content policy): opens a new GitHub issue, filled in.
     Q_INVOKABLE void reportAnswer();
     QUrl reportUrl() const;   // that issue's address (tests read it without opening a browser)
@@ -248,13 +439,16 @@ public:
     core::BookEngine* engine() const { return m_engine; }
     core::Library* library() const { return m_library.get(); }
     core::WordLog* wordLog() const { return m_words.get(); }
-    Appearance appearance() const { return m_settings.look; }
+    Appearance appearance() const;   // for the open book: All Books, then its language's, then its own settings
     core::Position startPosition() const { return m_start; }
     QString languageCode() const;
     bool waitUntilOpen(int ms);   // tests and the screenshot mode
 
 signals:
     void booksChanged();
+    void languageChanged();
+    void libraryChanged();
+    void highlightImportChanged();
     void directionChanged();
     void messageChanged();
     void busyChanged();
@@ -276,9 +470,26 @@ signals:
     void selectRequested(int spine, int start, int end);   // after a jump: the words to show (a highlight, a word bookmark)
     void wordsChanged();
     void practiceChanged();   // the reader goes there (contents, notebook, search)
+    void optionsChanged();
+    void geminiTested(const QString& result);
+    void lmStudioChecked(const QString& result, const QVariantList& models);   // models: {id, label}
+    void speakingChanged();
+    // A bookmark was added where the book has others: remove the earlier one(s)? (count: how many there are)
+    void bookmarkQuestion(const QString& question, int count);
+    void historyChanged();
+    void allSearchChanged();
+    void alongsideChanged();
+    void footnoteShown(const QString& text);
+    void imageChanged();
 
 private:
     void setMessage(const QString& text);
+    QString copyIntoApp(const QUrl& url, QString* error);   // the picked file in the app's books folder
+    void refreshLibrary();                                   // the list and what the library screen shows
+    void applyTranslationSettings();
+    void speak(const QString& text, const QString& language);
+    void startSpeechEngine();   // Android's engine starts in the background: early, when a book opens
+    void sayNow(const QString& text, const QString& language);
     void onOpened();
     void onTranslated(int id, const core::TranslationResult& r, const QString& why);
     void savePosition();
@@ -287,7 +498,24 @@ private:
     QString chapterTitleAt(const core::Position& p) const;
     QString dictionaryFile(const QString& key = QStringLiteral("es")) const;
     core::OfflineDictionary* dictionaryFor(const QString& key) const;
+    core::OfflineDictionary* translatingDictionary() const;   // into the reader's language
+    QStringList dictionaryKeys() const;                       // the ones this reader can use, in Settings' order
+    QString dictionaryTitle(const QString& key) const;        // "Spanish → English", "English Definitions"
     int annotationAt(QObject* page) const;   // the highlight holding the page's selection, 0 if none
+    QString chosenVoice(const QString& language) const;
+    qint64 readingNow() const;
+    void creditReading(bool forwardTurn, int chars);   // reading statistics: the time on the screen just left
+    void flushReading();                               // into the reading log
+    void jumpTo(const core::Position& p);    // remembers where the reader was (Back)
+    void forgetHistory();
+    struct Paragraph {
+        int start = 0;
+        QString text;
+    };
+    QList<Paragraph> visibleParagraphs() const;
+    QString paragraphKey(const QString& text) const;   // the desktop's cache key: the same English on both
+    void refreshAlongside();
+    void onAlongsideTranslated(int id, const core::TranslationResult& r, const QString& why);
 
     QString m_folder;
     Settings m_settings;
@@ -298,8 +526,10 @@ private:
     core::Importer* m_importer;
     QNetworkAccessManager* m_net;
     core::GeminiProvider* m_gemini;
+    core::LmStudioProvider* m_lmStudio;
     core::SavedWords* m_savedWords;
     core::OfflineDictionary* m_dictionary;     // Spanish -> English
+    core::OfflineDictionary* m_dictionaryEnEs; // English -> Spanish (a Spanish reader's)
     core::OfflineDictionary* m_dictionaryEn;   // English definitions
     core::OfflineDictionary* m_definitionsEs;  // Spanish definitions (the Dictionary card only)
     QHash<QString, core::DictionaryDownload*> m_downloads;
@@ -320,15 +550,66 @@ private:
     bool m_busy = false;
     QString m_openingPath;
     int m_openingId = 0;
+    int m_locating = 0;   // Locate File: the book whose file is being read again
+    std::shared_ptr<core::KindlePlan> m_kindlePlan;   // Import Highlights: what would come in
+    QVariantMap m_highlightImport;
+    QString m_lastShared;
     int m_bookId = 0;
     QString m_title, m_chapter, m_pageText, m_chapterLeft;
     QElapsedTimer m_sinceTurn;
     double m_progress = 0;
     core::Position m_start, m_position;
+    core::Position m_screenEnd{-1, 0};   // the end of what the screen shows (two pages side by side: both)
+    core::Position m_screenStart{-1, 0};
+    QTimer m_alongsideTimer;             // a quick run of page turns asks once, for the page it stops on
+    QHash<int, QStringList> m_alongsideAsked;   // translations under way: the paragraphs each one asked for
+    QStringList m_alongsideEnglish;
+    QString m_alongsideStatus;
+    QHash<QString, QString> m_alongsideOffline;   // the offline translator's English, this session only
+    QSet<QString> m_alongsideGaveUp;              // paragraphs that came back without English (this session)
     QTimer m_saveTimer;
 
     int m_lookupId = -1;
     QVariantMap m_lookup;
+    QTextToSpeech* m_speech = nullptr;   // made on first use
+    int m_practiceBook = 0;              // this session's "Words From" (0: every book)
+    bool m_practiceStarred = false;      // this session's "Starred Words Only"
+    QString m_verdict;                   // Type the Answer: how the typed answer went
+    int m_suggested = 0;                 // the rating it suggests
+    QList<int> m_earlierBookmarks;       // the book's other bookmarks when one was added (newest first)
+    QString m_wordSearch;                // the Word List's search (this session)
+    int m_wordBook = 0;                  // the Word List's book (0: all)
+    struct PendingWord {                 // Show in Book in a book not open yet: where to go once it is
+        int bookId = 0, spine = -1, start = 0, end = 0;
+        QString cfi;
+    } m_pendingWord;
+    core::LibrarySearch* m_librarySearch = nullptr;
+    struct AllRow {
+        int bookId = 0;
+        bool isHit = false;
+        QString title, author;   // a book's row
+        int count = 0;
+        bool truncated = false;
+        core::SearchHit hit;     // a match's row
+    };
+    std::vector<AllRow> m_allRows;
+    int m_allSearchId = 0, m_allUnreadable = 0;
+    QString m_allSummary, m_allQuery;
+    QPointer<QQmlEngine> m_qml;
+    QString m_lookScope = QStringLiteral("all");   // where Text and Layout changes go (this session)
+    std::unique_ptr<core::ReadingLog> m_readingLog;
+    std::function<qint64()> m_readingClock;          // tests
+    qint64 m_readingMark = 0, m_pendingReadMs = 0, m_pendingChars = 0;
+    int m_pendingPages = 0;
+    std::vector<core::Position> m_history;   // where each jump came from, the last one last
+    core::Position m_footnoteTarget{-1, 0};
+    QImage m_image;
+    QString m_imageShown;
+    int m_imageSerial = 0;
+    QString m_lastSpoken, m_lastOpened;
+    QPair<QString, QString> m_pendingSpeech;   // text and language waiting for the engine to be ready
+    bool m_quiet = false;
+    bool m_lmStudioLocalForTests = false;   // a fake LM Studio on this computer
     struct Asked {
         int spine = -1, start = 0, end = 0;
         QString sentence;
