@@ -470,7 +470,14 @@ Page {
     }
 
     NoteEditor { id: note; app: reader.app; theme: reader.theme; page: book; onClosed: book.clearSelection() }
-    Navigator { id: nav; app: reader.app; theme: reader.theme }
+    Navigator {
+        id: nav
+        app: reader.app
+        theme: reader.theme
+        onExportRequested: { nav.close(); notebookTools.exportNotebook() }
+        onImportRequested: { nav.close(); notebookTools.importHighlights() }
+    }
+    NotebookTools { id: notebookTools; app: reader.app; theme: reader.theme }
     SearchSheet { id: search; app: reader.app; theme: reader.theme }
 
     Connections {

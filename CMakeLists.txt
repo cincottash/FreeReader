@@ -129,6 +129,7 @@ add_library(freereader_core STATIC
     src/core/services/LibrarySearch.cpp
     src/core/services/Statistics.cpp
     src/core/services/KindleImport.cpp
+    src/core/services/KindleApply.cpp
     src/core/practice/Scheduler.cpp
     src/core/practice/Answer.cpp
     src/core/practice/Session.cpp

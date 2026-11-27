@@ -32,7 +32,10 @@ Item {
         "chapterPrevious": "M7 6v12M17 6l-6 6 6 6",
         "chapterNext": "M17 6v12M7 6l6 6-6 6",
         "beginning": "M5 6v12M12 6l-6 6 6 6M19 6l-6 6 6 6",
-        "undo": "M9 7L5 11l4 4M5 11h9a5 5 0 0 1 0 10h-3"
+        "undo": "M9 7L5 11l4 4M5 11h9a5 5 0 0 1 0 10h-3",
+        "grid": "M5 5h6v6H5zM13 5h6v6h-6zM5 13h6v6H5zM13 13h6v6h-6z",
+        "list": "M4 6h16M4 12h16M4 18h16",
+        "share": "M12 4v11M8 8l4-4 4 4M6 12v7h12v-7"
     })
 
     Shape {

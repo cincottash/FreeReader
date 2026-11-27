@@ -3,6 +3,7 @@
 #pragma once
 
 #include <QMargins>
+#include <QString>
 
 namespace android_system {
 
@@ -10,5 +11,7 @@ namespace android_system {
 QMargins systemBarInsets();
 // Dark icons on a light theme (`light`), light icons on a dark one.
 void setLightSystemBars(bool light);
+// Android's share sheet with this text (email, Drive, Keep, messages…); false off Android (nothing is shown).
+bool shareText(const QString& chooserTitle, const QString& subject, const QString& text, const QString& mimeType);
 
 }  // namespace android_system

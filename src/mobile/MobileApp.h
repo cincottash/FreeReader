@@ -38,6 +38,7 @@ class Importer;
 class Annotations;
 class Library;
 class LibrarySearch;
+struct KindlePlan;
 class OfflineDictionary;
 class SavedWords;
 class TranslationService;
@@ -81,6 +82,19 @@ class MobileApp : public QObject {
     QML_UNCREATABLE("The app object is given to QML by main().")
     Q_PROPERTY(QAbstractItemModel* books READ books CONSTANT)
     Q_PROPERTY(int bookCount READ bookCount NOTIFY booksChanged)
+    // The library screen (as on the desktop): the filter ("all", "reading", "finished", "notstarted", "lang:es",
+    // "collection:3"), the search, the order, covers or a list; the filters to choose from {key, name, count, group};
+    // Continue Reading {id, title, page, percent} (empty when there is no book to go on with).
+    Q_PROPERTY(QString libraryFilter READ libraryFilter WRITE setLibraryFilter NOTIFY libraryChanged)
+    Q_PROPERTY(QString librarySearch READ librarySearch WRITE setLibrarySearch NOTIFY libraryChanged)
+    Q_PROPERTY(QString librarySort READ librarySort WRITE setLibrarySort NOTIFY libraryChanged)
+    Q_PROPERTY(bool libraryList READ libraryList WRITE setLibraryList NOTIFY libraryChanged)
+    Q_PROPERTY(QVariantList libraryFilters READ libraryFilters NOTIFY libraryChanged)
+    Q_PROPERTY(QVariantMap continueReading READ continueReading NOTIFY libraryChanged)
+    Q_PROPERTY(int shownBookCount READ shownBookCount NOTIFY libraryChanged)
+    // Import Highlights: {title, from, summary [lines], warning, options [{key, label, on, enabled, visible}],
+    // mismatches [lines], result} (empty when closed).
+    Q_PROPERTY(QVariantMap highlightImport READ highlightImport NOTIFY highlightImportChanged)
     Q_PROPERTY(QString message READ message NOTIFY messageChanged)
     Q_PROPERTY(bool busy READ isBusy NOTIFY busyChanged)
     Q_PROPERTY(bool reading READ isReading NOTIFY readingChanged)
@@ -181,6 +195,45 @@ public:
     Q_INVOKABLE void openBook(int id);
     Q_INVOKABLE void closeBook();
     Q_INVOKABLE void removeBook(int id);   // from the library, and the app's copy of the file
+
+    // The library screen.
+    QString libraryFilter() const;
+    void setLibraryFilter(const QString& key);
+    QString librarySearch() const;
+    void setLibrarySearch(const QString& text);
+    QString librarySort() const { return m_settings.librarySort; }
+    void setLibrarySort(const QString& key);
+    bool libraryList() const { return m_settings.libraryList; }
+    void setLibraryList(bool on);
+    QVariantList libraryFilters() const;
+    QVariantMap continueReading() const;
+    int shownBookCount() const;
+    Q_INVOKABLE QVariantList librarySorts() const;   // {key, name}
+    Q_INVOKABLE QString createCollection(const QString& name, int bookId = 0);   // empty when made, else why not
+    Q_INVOKABLE QString renameCollection(int id, const QString& name);
+    Q_INVOKABLE void deleteCollection(int id);          // the books stay
+    Q_INVOKABLE QVariantList collectionsFor(int bookId) const;   // {id, name, has}
+    Q_INVOKABLE void setInCollection(int collectionId, int bookId, bool on);
+    Q_INVOKABLE void setFinished(int bookId, bool finished);
+    Q_INVOKABLE bool isFinished(int bookId) const;
+    Q_INVOKABLE bool isMissing(int bookId) const;      // the book's file isn't there any more
+    Q_INVOKABLE void locateBook(int bookId, const QUrl& url);   // the file picked again: copied in, the place kept
+
+    // Import Highlights (as on the desktop): a Kindle export (Bookcision's JSON, My Clippings.txt) or a FreeReader
+    // Notebook export, into the open book. readHighlights shows what would come in (highlightImport); importHighlights
+    // applies the choices (keys: highlights, equivalents, words, missingWords, missingPassages, bookmarks,
+    // moveToLastRead).
+    QVariantMap highlightImport() const { return m_highlightImport; }
+    Q_INVOKABLE void readHighlights(const QUrl& url);
+    void readHighlightsData(const QByteArray& data);   // tests
+    Q_INVOKABLE void importHighlights(const QVariantMap& choices);
+    Q_INVOKABLE void closeHighlightImport();
+    // Notebook export (Markdown, text, CSV, TSV, JSON): through the phone's share sheet, or saved to a file.
+    Q_INVOKABLE QString notebookExport(const QString& format) const;
+    Q_INVOKABLE QString notebookFileName(const QString& format) const;
+    Q_INVOKABLE void shareNotebook(const QString& format);
+    Q_INVOKABLE void saveNotebook(const QString& format, const QUrl& url);
+    QString lastShared() const { return m_lastShared; }   // tests
 
     // Looks up the page's selection (a word, a phrase or a sentence); the answer arrives in `lookup`.
     Q_INVOKABLE void lookUp(QObject* page);   // a BookPage
@@ -355,6 +408,8 @@ public:
 
 signals:
     void booksChanged();
+    void libraryChanged();
+    void highlightImportChanged();
     void directionChanged();
     void messageChanged();
     void busyChanged();
@@ -389,6 +444,8 @@ signals:
 
 private:
     void setMessage(const QString& text);
+    QString copyIntoApp(const QUrl& url, QString* error);   // the picked file in the app's books folder
+    void refreshLibrary();                                   // the list and what the library screen shows
     void applyTranslationSettings();
     void speak(const QString& text, const QString& language);
     void startSpeechEngine();   // Android's engine starts in the background: early, when a book opens
@@ -444,6 +501,10 @@ private:
     bool m_busy = false;
     QString m_openingPath;
     int m_openingId = 0;
+    int m_locating = 0;   // Locate File: the book whose file is being read again
+    std::shared_ptr<core::KindlePlan> m_kindlePlan;   // Import Highlights: what would come in
+    QVariantMap m_highlightImport;
+    QString m_lastShared;
     int m_bookId = 0;
     QString m_title, m_chapter, m_pageText, m_chapterLeft;
     QElapsedTimer m_sinceTurn;

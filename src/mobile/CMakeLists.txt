@@ -40,6 +40,7 @@ qt_add_qml_module(freereader_mobile
         qml/ThemeList.qml
         qml/WordsPage.qml
         qml/LookPanel.qml
+        qml/NotebookTools.qml
     SOURCES
         BookPage.h
         MobileApp.h

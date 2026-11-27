@@ -7,6 +7,7 @@
 #include "Theme.h"
 
 #include "core/position/Position.h"
+#include "core/services/KindleApply.h"
 #include "core/translate/Translation.h"
 
 #include <QDateTime>
@@ -112,15 +113,10 @@ public:
     void setAnnotations(core::Annotations* a) { m_notes = a; }
     // Kindle highlights (see core/services/KindleImport.h) into the open book: highlights with their notes, words
     // for the Word List (also those this edition words differently, at about their place), bookmarks, and the
-    // Kindle reading place. Anything already there is skipped, so importing twice adds nothing.
-    struct KindleOptions {
-        bool highlights = true, words = true, missingWords = true, missingPassages = true, bookmarks = true, moveToLastRead = true;
-        bool equivalents = true;   // highlights this edition words differently: on their equivalent words, in orange
-    };
-    struct KindleResult {
-        int highlights = 0, equivalents = 0, words = 0, missingWords = 0, passages = 0, bookmarks = 0, skipped = 0;
-        bool moved = false;
-    };
+    // Kindle reading place. Anything already there is skipped, so importing twice adds nothing. (The rules are
+    // shared with the phone: core/services/KindleApply.h.)
+    using KindleOptions = core::KindleOptions;
+    using KindleResult = core::KindleResult;
     KindleResult importKindle(const core::KindlePlan& plan, const KindleOptions& options);
     // The highlight's id; an existing one changes color. `chosen`: picked by the reader (it moves to the front of the
     // dots), not the yellow a note gets.

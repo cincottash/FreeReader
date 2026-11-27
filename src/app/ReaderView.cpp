@@ -24,6 +24,7 @@
 #include <QSqlDatabase>
 #include "core/layout/Flow.h"
 #include "core/services/KindleImport.h"
+#include "core/services/KindleApply.h"
 #include "core/translate/OfflineTranslator.h"
 #include "core/translate/OfflineDictionary.h"
 #include "core/translate/DictionaryCardHtml.h"
@@ -1654,160 +1655,21 @@ void ReaderView::clearSelectionKeepingPopup()
 
 ReaderView::KindleResult ReaderView::importKindle(const core::KindlePlan& plan, const KindleOptions& options)
 {
-    KindleResult res;
     const core::Book* book = m_engine->book();
-    if (!book || !m_bookId || !m_notes) return res;
-    std::map<int, std::shared_ptr<const layout::ChapterFlow>> flows;
-    auto flowOf = [&](int spine) {
-        auto it = flows.find(spine);
-        if (it == flows.end()) it = flows.emplace(spine, layout::buildFlow(*book, spine, layout::FlowOptions())).first;
-        return it->second;
-    };
-    // The sentence around a place, for the Word List.
-    auto sentenceAt = [&](const layout::ChapterFlow& flow, int start, int end) -> QString {
-        for (const layout::Block& b : flow.blocks) {
-            if (b.kind != layout::Block::Text || start < b.start || start >= b.start + b.length) continue;
-            QTextBoundaryFinder f(QTextBoundaryFinder::Sentence, b.text);
-            f.setPosition(start - b.start);
-            int s = f.isAtBoundary() ? start - b.start : int(f.toPreviousBoundary());
-            if (s < 0) s = 0;
-            f.setPosition(qMin(int(b.text.size()), qMax(end - b.start, s + 1)));
-            int e = f.isAtBoundary() ? f.position() : int(f.toNextBoundary());
-            if (e < 0) e = int(b.text.size());
-            QString sentence = QString(b.text.mid(s, e - s)).simplified();
-            if (sentence.size() > 600) sentence = sentence.left(600) + QStringLiteral("…");
-            return sentence;
-        }
-        return {};
-    };
-    auto isShort = [](QString text) {
-        text = text.simplified();
-        while (!text.isEmpty() && !text.front().isLetterOrNumber()) text.remove(0, 1);
-        while (!text.isEmpty() && !text.back().isLetterOrNumber()) text.chop(1);
-        int letters = 0;
-        for (const QChar c : text)
-            if (c.isLetter()) ++letters;
-        return letters >= 2 && text.size() <= 60 && text.split(QLatin1Char(' '), Qt::SkipEmptyParts).size() <= 4 ? text : QString();
-    };
-    const QString lang = languageCode();
-    const QDateTime now = QDateTime::currentDateTimeUtc();
-    auto placeAt = [&](int spine, int start, int end, const QString& sentence) {
-        core::WordPlace place;
-        place.bookId = m_bookId;
-        place.bookTitle = m_title->text();
-        place.language = lang;
-        place.spine = spine;
-        place.start = start;
-        place.end = end;
-        place.sentence = sentence;
-        place.cfi = core::makeCfi(spine, *flowOf(spine), start);
-        if (const auto ix = m_engine->index()) place.pageLabel = ix->pageLabel({spine, start});
-        place.chapter = chapterTitleAt({spine, start});
-        return place;
-    };
-    // One transaction for the whole import (thousands of rows).
-    QSqlDatabase db = QSqlDatabase::database(m_library->connectionName());
-    db.transaction();
-    for (const core::KindlePlaced& p : plan.items) {
-        const core::KindleItem& it = p.item;
-        if (it.bookmark) {
-            if (!options.bookmarks || p.approx.spine < 0) continue;
-            const auto flow = flowOf(p.approx.spine);
-            if (m_notes->bookmarkAt(m_bookId, p.approx.spine, p.approx.offset - 200, p.approx.offset + 200)) {
-                ++res.skipped;
-                continue;
-            }
-            core::Annotation a;
-            a.bookId = m_bookId;
-            a.kind = core::Annotation::Bookmark;
-            a.spine = p.approx.spine;
-            a.start = a.end = p.approx.offset;
-            a.text = flow->textRange(p.approx.offset, p.approx.offset + 80).simplified();
-            a.note = it.note;
-            a.cfi = core::makeCfi(a.spine, *flow, a.start);
-            a.chapter = chapterTitleAt(p.approx);
-            if (const auto ix = m_engine->index()) a.pageLabel = ix->pageLabel(p.approx);
-            if (m_notes->add(a)) ++res.bookmarks;
-            continue;
-        }
-        const QString word = isShort(it.text);
-        // An equivalent: this edition's words for a highlight it words differently (orange, noted with the Kindle words).
-        const bool equivalent = !p.found && p.placed() && options.equivalents;
-        if (p.found || equivalent) {
-            const auto flow = flowOf(p.spine);
-            const QString sentence = sentenceAt(*flow, p.start, p.end);
-            const QString bookWords = flow->textRange(p.start, p.end).simplified();
-            if (options.highlights) {
-                if (!m_notes->highlightsAt(m_bookId, p.spine, p.start, p.end).isEmpty()) {
-                    ++res.skipped;
-                } else {
-                    core::Annotation a;
-                    a.bookId = m_bookId;
-                    a.kind = core::Annotation::Highlight;
-                    a.spine = p.spine;
-                    a.start = p.start;
-                    a.end = p.end;
-                    a.text = bookWords;
-                    // Its own color from a FreeReader export; yellow from a Kindle; orange on an equivalent.
-                    a.color = !p.found                                          ? QStringLiteral("orange")
-                              : core::Annotations::colors().contains(it.color) ? it.color
-                                                                                : QStringLiteral("yellow");
-                    a.note = p.found ? it.note
-                                     : (plan.notebook ? tr("Imported: «%1»") : tr("Kindle: «%1»")).arg(it.text.simplified()) +
-                                           (it.note.isEmpty() ? QString() : QStringLiteral("\n\n") + it.note);
-                    a.cfi = core::makeCfi(p.spine, *flow, p.start);
-                    a.chapter = chapterTitleAt({p.spine, p.start});
-                    if (const auto ix = m_engine->index()) a.pageLabel = ix->pageLabel({p.spine, p.start});
-                    if (m_notes->add(a)) ++(p.found ? res.highlights : res.equivalents);
-                }
-            }
-            if (m_words && !word.isEmpty() && (p.found ? options.words : options.missingWords)) {
-                // The word as highlighted on the Kindle, with this edition's sentence around its equivalent.
-                core::TranslationResult meaning = m_translator ? m_translator->offlineMeaning(word, lang) : core::TranslationResult();
-                meaning.text = word;
-                if (!p.found)
-                    meaning.note = tr("From your Kindle edition (location %1); this edition says «%2» here.").arg(it.location).arg(bookWords) +
-                                   (it.note.isEmpty() ? QString() : QStringLiteral("\n\n") + it.note);
-                const core::WordPlace place = placeAt(p.spine, p.start, p.end, sentence);
-                if (m_words->mark(meaning, place, now)) ++(p.found ? res.words : res.missingWords);
-            }
-        } else {
-            const QString from = tr("From your Kindle edition (location %1); this edition words it differently.").arg(it.location);
-            if (options.missingWords && m_words && !word.isEmpty()) {
-                // Not in this edition's text: kept for practice, at about the place it would be.
-                core::TranslationResult meaning = m_translator ? m_translator->offlineMeaning(word, lang) : core::TranslationResult();
-                meaning.text = word;
-                meaning.note = it.note.isEmpty() ? from : it.note + QStringLiteral("\n\n") + from;
-                const core::WordPlace place = placeAt(p.approx.spine, p.approx.offset, p.approx.offset, QString());
-                if (m_words->mark(meaning, place, now)) ++res.missingWords;
-            }
-            // A passage, or a highlight with a note, that this edition doesn't have: a bookmark at about its place
-            // with the Kindle text and the note, so nothing is lost.
-            if (options.missingPassages && (word.isEmpty() || !it.note.isEmpty()) && p.approx.spine >= 0) {
-                const QString quoted = QStringLiteral("«%1»").arg(it.text.simplified());
-                bool already = false;
-                for (const core::Annotation& a : m_notes->inChapter(m_bookId, p.approx.spine))
-                    if (a.kind == core::Annotation::Bookmark && a.text == quoted) already = true;
-                if (already) {
-                    ++res.skipped;
-                } else {
-                    const auto flow = flowOf(p.approx.spine);
-                    core::Annotation a;
-                    a.bookId = m_bookId;
-                    a.kind = core::Annotation::Bookmark;
-                    a.spine = p.approx.spine;
-                    a.start = a.end = p.approx.offset;
-                    a.text = quoted;
-                    a.note = it.note.isEmpty() ? from : it.note + QStringLiteral("\n\n") + from;
-                    a.cfi = core::makeCfi(a.spine, *flow, a.start);
-                    a.chapter = chapterTitleAt(p.approx);
-                    if (const auto ix = m_engine->index()) a.pageLabel = ix->pageLabel(p.approx);
-                    if (m_notes->add(a)) ++res.passages;
-                }
-            }
-        }
-    }
-    db.commit();
+    if (!book || !m_bookId || !m_notes) return {};
+    // Applied by the code shared with the phone (core/services/KindleApply.h).
+    core::KindleTarget target;
+    target.book = book;
+    target.bookId = m_bookId;
+    target.bookTitle = m_title->text();
+    target.language = languageCode();
+    target.index = m_engine->index();
+    target.notes = m_notes;
+    target.words = m_words;
+    target.library = m_library;
+    if (m_translator) target.offlineMeaning = [this, lang = target.language](const QString& w) { return m_translator->offlineMeaning(w, lang); };
+    target.chapterTitle = [this](const core::Position& p) { return chapterTitleAt(p); };
+    KindleResult res = core::applyKindlePlan(plan, options, target);
     if (options.moveToLastRead && plan.lastRead.spine >= 0) {
         m_pages->setPosition(plan.lastRead);
         savePosition();

@@ -10,6 +10,8 @@
 #include "core/services/BookIndex.h"
 #include "core/services/Highlighting.h"
 #include "core/services/Importer.h"
+#include "core/services/KindleApply.h"
+#include "core/services/KindleImport.h"
 #include "core/services/Library.h"
 #include "core/services/LibrarySearch.h"
 #include "core/services/Secrets.h"
@@ -222,6 +224,7 @@ MobileApp::MobileApp(const QString& dataFolder, QObject* parent) : QObject(paren
         setMessage(tr("The library can't be opened: %1").arg(err));
     }
     m_model = new BookListModel(m_library.get(), this);
+    m_model->setView(QStringLiteral("all"), QString(), m_settings.librarySort);
     if (m_library) m_words = std::make_unique<core::WordLog>(m_library.get());
     if (m_library) m_notes = std::make_unique<core::Annotations>(m_library.get());
 
@@ -285,6 +288,15 @@ MobileApp::MobileApp(const QString& dataFolder, QObject* parent) : QObject(paren
     m_importer = new core::Importer(this);
     connect(m_importer, &core::Importer::bookRead, this, [this](const core::ImportedBook& b) {
         const QString title = b.meta.title.isEmpty() ? QFileInfo(b.path).completeBaseName() : b.meta.title;
+        // Locate File: the new copy takes the missing one's place, with its reading place, notes and words.
+        if (m_locating > 0 && m_library) {
+            const int id = m_locating;
+            m_locating = 0;
+            m_library->setPath(id, b.path);
+            refreshLibrary();
+            setMessage(tr("Found %1 again.").arg(title));
+            return;
+        }
         // A book already in the library isn't added twice: the app's new copy of it goes again.
         if (m_library && m_library->duplicateOf(b.path, b.meta, b.contentHash)) {
             QFile::remove(b.path);
@@ -292,12 +304,13 @@ MobileApp::MobileApp(const QString& dataFolder, QObject* parent) : QObject(paren
             return;
         }
         if (m_library) m_library->addBook(b.path, b.meta, b.coverPng, b.contentHash);
-        m_model->refresh();
+        refreshLibrary();
         emit booksChanged();
         setMessage(tr("Added %1.").arg(title));
     });
     connect(m_importer, &core::Importer::failed, this, [this](const QString& path, const QString& why) {
         QFile::remove(path);   // the app's own copy of a file it can't read
+        m_locating = 0;
         setMessage(why);
     });
     connect(m_importer, &core::Importer::finished, this, [this] {
@@ -382,9 +395,8 @@ core::OfflineDictionary* MobileApp::dictionaryFor(const QString& key) const
 
 // ---------------------------------------------------------------- library
 
-void MobileApp::importBook(const QUrl& url)
+QString MobileApp::copyIntoApp(const QUrl& url, QString* error)
 {
-    if (!m_library || !url.isValid()) return;
     // A content:// address (Android's file picker) is read through Qt's Android file support; a file:// one directly.
     const QString source = url.isLocalFile() ? url.toLocalFile() : url.toString();
     QString name = safeFileName(QFileInfo(source).fileName());
@@ -395,8 +407,8 @@ void MobileApp::importBook(const QUrl& url)
     const QString incoming = dir.filePath(QStringLiteral(".incoming"));
     QFile::remove(incoming);
     if (!QFile::copy(source, incoming)) {
-        setMessage(tr("The book couldn't be copied into the app."));
-        return;
+        *error = tr("The book couldn't be copied into the app.");
+        return {};
     }
     if (!knownSuffix(name)) {
         QFile f(incoming);
@@ -405,8 +417,8 @@ void MobileApp::importBook(const QUrl& url)
         const QString suffix = core::convert::bookSuffixFromBytes(head);
         if (suffix.isEmpty() || !core::FormatRegistry::instance().fileSuffixes().contains(suffix)) {
             QFile::remove(incoming);
-            setMessage(tr("This file isn't a book FreeReader can open."));
-            return;
+            *error = tr("This file isn't a book FreeReader can open.");
+            return {};
         }
         if (name.isEmpty() || name.startsWith(QLatin1Char('.'))) name = QStringLiteral("book");
         name += QLatin1Char('.') + suffix;
@@ -422,13 +434,400 @@ void MobileApp::importBook(const QUrl& url)
     for (int i = 2; QFileInfo::exists(target); ++i) target = dir.filePath(QStringLiteral("%1 (%2)%3").arg(base).arg(i).arg(ending));
     if (!QFile::rename(incoming, target)) {
         QFile::remove(incoming);
-        setMessage(tr("The book couldn't be copied into the app."));
+        *error = tr("The book couldn't be copied into the app.");
+        return {};
+    }
+    return target;
+}
+
+void MobileApp::importBook(const QUrl& url)
+{
+    if (!m_library || !url.isValid()) return;
+    QString error;
+    const QString target = copyIntoApp(url, &error);
+    if (target.isEmpty()) {
+        setMessage(error);
         return;
     }
     m_busy = true;
     emit busyChanged();
-    setMessage(tr("Adding %1…").arg(QFileInfo(name).completeBaseName()));
+    setMessage(tr("Adding %1…").arg(QFileInfo(target).completeBaseName()));
     m_importer->add({target});
+}
+
+void MobileApp::locateBook(int bookId, const QUrl& url)
+{
+    if (!m_library || !url.isValid() || m_library->book(bookId).id == 0) return;
+    QString error;
+    const QString target = copyIntoApp(url, &error);
+    if (target.isEmpty()) {
+        setMessage(error);
+        return;
+    }
+    m_locating = bookId;
+    m_busy = true;
+    emit busyChanged();
+    setMessage(tr("Reading %1…").arg(QFileInfo(target).completeBaseName()));
+    m_importer->add({target});
+}
+
+// ---------------------------------------------------------------- the library screen
+
+void MobileApp::refreshLibrary()
+{
+    m_model->refresh();
+    emit libraryChanged();
+}
+
+QString MobileApp::libraryFilter() const { return m_model->filter(); }
+QString MobileApp::librarySearch() const { return m_model->search(); }
+
+void MobileApp::setLibraryFilter(const QString& key)
+{
+    if (key == m_model->filter()) return;
+    m_model->setView(key, m_model->search(), m_settings.librarySort);
+    emit libraryChanged();
+}
+
+void MobileApp::setLibrarySearch(const QString& text)
+{
+    if (text == m_model->search()) return;
+    m_model->setView(m_model->filter(), text, m_settings.librarySort);
+    emit libraryChanged();
+}
+
+void MobileApp::setLibrarySort(const QString& key)
+{
+    static const QStringList keys{"recent", "title", "author", "language", "progress", "added"};
+    if (!keys.contains(key) || key == m_settings.librarySort) return;
+    m_settings.librarySort = key;
+    saveSettings();
+    m_model->setView(m_model->filter(), m_model->search(), key);
+    emit libraryChanged();
+}
+
+void MobileApp::setLibraryList(bool on)
+{
+    if (on == m_settings.libraryList) return;
+    m_settings.libraryList = on;
+    saveSettings();
+    emit libraryChanged();
+}
+
+QVariantList MobileApp::librarySorts() const
+{
+    const QList<std::pair<QString, QString>> sorts{{QStringLiteral("recent"), tr("Recently Read")}, {QStringLiteral("title"), tr("Title")},
+                                                   {QStringLiteral("author"), tr("Author")},        {QStringLiteral("language"), tr("Language")},
+                                                   {QStringLiteral("progress"), tr("Progress")},    {QStringLiteral("added"), tr("Date Added")}};
+    QVariantList out;
+    for (const auto& [k, n] : sorts) out << QVariantMap{{QStringLiteral("key"), k}, {QStringLiteral("name"), n}};
+    return out;
+}
+
+int MobileApp::shownBookCount() const { return m_model->rowCount(); }
+
+QVariantList MobileApp::libraryFilters() const
+{
+    // As the desktop's side panel: Library (all, reading, finished, not started), the languages, the collections.
+    QVariantList out;
+    if (!m_library) return out;
+    const QList<core::LibraryBook> books = m_library->books();
+    int reading = 0, finished = 0, notStarted = 0;
+    QMap<QString, int> langs;
+    for (const core::LibraryBook& b : books) {
+        if (b.finished()) ++finished;
+        else if (b.started()) ++reading;
+        else ++notStarted;
+        const QString code = b.language.section(QLatin1Char('-'), 0, 0).toLower();
+        if (!code.isEmpty()) ++langs[code];
+    }
+    auto add = [&](const QString& key, const QString& name, int count, const QString& group) {
+        out << QVariantMap{{QStringLiteral("key"), key}, {QStringLiteral("name"), name}, {QStringLiteral("count"), count}, {QStringLiteral("group"), group}};
+    };
+    const QString library = tr("Library"), languages = tr("Languages"), collections = tr("Collections");
+    add(QStringLiteral("all"), tr("All Books"), int(books.size()), library);
+    add(QStringLiteral("reading"), tr("Reading"), reading, library);
+    add(QStringLiteral("finished"), tr("Finished"), finished, library);
+    add(QStringLiteral("notstarted"), tr("Not Started"), notStarted, library);
+    if (langs.size() > 1) {
+        QList<std::pair<QString, QString>> named;
+        for (auto it = langs.cbegin(); it != langs.cend(); ++it) named.push_back({core::languages::displayName(it.key()), it.key()});
+        std::sort(named.begin(), named.end());
+        for (const auto& [name, code] : named) add(QStringLiteral("lang:") + code, name, langs.value(code), languages);
+    }
+    for (const core::Collection& c : m_library->collections()) add(QStringLiteral("collection:%1").arg(c.id), c.name, c.count, collections);
+    return out;
+}
+
+QVariantMap MobileApp::continueReading() const
+{
+    // The book read last that isn't finished and is still there (as the desktop's Continue Reading).
+    if (!m_library) return {};
+    const core::LibraryBook* best = nullptr;
+    const QList<core::LibraryBook> books = m_library->books();
+    for (const core::LibraryBook& b : books)
+        if (b.lastOpened.isValid() && !b.finished() && QFileInfo::exists(b.path) && (!best || b.lastOpened > best->lastOpened)) best = &b;
+    if (!best) return {};
+    QVariantMap m{{QStringLiteral("id"), best->id}, {QStringLiteral("title"), best->title},
+                  {QStringLiteral("percent"), QLocale().toString(int(std::floor(best->progress * 100 + 1e-6))) + QStringLiteral(" %")}};
+    if (!best->pageLabel.isEmpty() && !best->pageCount.isEmpty()) m.insert(QStringLiteral("page"), tr("Page %1 of %2").arg(best->pageLabel, best->pageCount));
+    return m;
+}
+
+QString MobileApp::createCollection(const QString& name, int bookId)
+{
+    if (!m_library) return tr("The library isn't open.");
+    if (name.trimmed().isEmpty()) return tr("Type a name for the collection.");
+    const int id = m_library->createCollection(name.trimmed());
+    if (!id) return tr("There is already a collection called “%1”.").arg(name.trimmed());
+    if (bookId > 0) m_library->addToCollection(id, bookId);
+    refreshLibrary();
+    return {};
+}
+
+QString MobileApp::renameCollection(int id, const QString& name)
+{
+    if (!m_library) return tr("The library isn't open.");
+    if (name.trimmed().isEmpty()) return tr("Type a name.");
+    if (!m_library->renameCollection(id, name.trimmed())) return tr("That name is taken.");
+    refreshLibrary();
+    return {};
+}
+
+void MobileApp::deleteCollection(int id)
+{
+    if (!m_library) return;
+    m_library->deleteCollection(id);
+    if (m_model->filter() == QStringLiteral("collection:%1").arg(id)) m_model->setView(QStringLiteral("all"), m_model->search(), m_settings.librarySort);
+    refreshLibrary();
+}
+
+QVariantList MobileApp::collectionsFor(int bookId) const
+{
+    QVariantList out;
+    if (!m_library) return out;
+    const QHash<int, QSet<int>> members = m_library->collectionMembers();
+    for (const core::Collection& c : m_library->collections())
+        out << QVariantMap{{QStringLiteral("id"), c.id}, {QStringLiteral("name"), c.name}, {QStringLiteral("has"), members.value(c.id).contains(bookId)}};
+    return out;
+}
+
+void MobileApp::setInCollection(int collectionId, int bookId, bool on)
+{
+    if (!m_library) return;
+    if (on) m_library->addToCollection(collectionId, bookId);
+    else m_library->removeFromCollection(collectionId, bookId);
+    refreshLibrary();
+}
+
+void MobileApp::setFinished(int bookId, bool finished)
+{
+    if (!m_library) return;
+    m_library->setFinished(bookId, finished);
+    refreshLibrary();
+}
+
+bool MobileApp::isFinished(int bookId) const { return m_library && m_library->book(bookId).finished(); }
+
+// ---------------------------------------------------------------- Import Highlights and Notebook export
+
+void MobileApp::readHighlights(const QUrl& url)
+{
+    if (!m_bookId || !url.isValid()) return;
+    QFile f(url.isLocalFile() ? url.toLocalFile() : url.toString());
+    if (!f.open(QIODevice::ReadOnly)) {
+        setMessage(tr("The file can't be read: %1").arg(f.errorString()));
+        return;
+    }
+    readHighlightsData(f.readAll());
+}
+
+void MobileApp::readHighlightsData(const QByteArray& data)
+{
+    const core::Book* book = m_engine->book();
+    if (!m_bookId || !book) return;
+    const core::KindleExport ex = core::parseKindleExport(data, book->metadata.title);
+    if (!ex.error.isEmpty()) {
+        setMessage(ex.error);
+        return;
+    }
+    // Equivalents for the highlights this edition words differently, as on the desktop.
+    m_kindlePlan = std::make_shared<core::KindlePlan>(core::planKindleImport(*book, ex, nullptr, true));
+    const core::KindlePlan& plan = *m_kindlePlan;
+    const bool nb = plan.notebook;
+    const QLocale loc;
+    int words = 0, missingWords = 0, missingPassages = 0, notesAffected = 0;
+    QStringList mismatches;
+    for (const core::KindlePlaced& p : plan.items) {
+        if (p.item.bookmark) continue;
+        const int n = int(p.item.text.simplified().split(QLatin1Char(' '), Qt::SkipEmptyParts).size());
+        if (!p.placed() && (n > 4 || !p.item.note.isEmpty())) ++missingPassages;
+        if (!p.found && !p.item.note.isEmpty()) ++notesAffected;
+        if (!p.found) {
+            const QString how = p.match == core::KindlePlaced::ByForm ? tr("another form") : p.match == core::KindlePlaced::ByPosition ? tr("matching spot") : QString();
+            mismatches << (how.isEmpty() ? tr("%1 (no equivalent)").arg(p.item.text.simplified()) : tr("%1 → %2 (%3)").arg(p.item.text.simplified(), p.equivalent, how));
+        }
+        if (n > 4) continue;
+        (p.found ? words : missingWords) += 1;
+    }
+    QStringList summary{tr("%1 highlights found in this book").arg(loc.toString(plan.found)) +
+                        (plan.notes ? tr(" (%1 with notes)").arg(loc.toString(plan.notes)) : QString())};
+    if (plan.notFound)
+        summary << (nb ? tr("%1 not in this book's text: the file's edition words them differently")
+                       : tr("%1 not in this book's text: your Kindle edition words them differently")).arg(loc.toString(plan.notFound));
+    if (plan.bookmarks) summary << tr("%1 bookmarks").arg(loc.toString(plan.bookmarks));
+    if (plan.lastLocation)
+        summary << tr("Your Kindle place: location %1, about %2 % through the book").arg(loc.toString(plan.lastLocation), loc.toString(qRound(plan.lastFraction * 100)));
+    const int equivalents = plan.byForm + plan.byPosition;
+    QString warning;
+    if (plan.notFound) {
+        warning = plan.notFound == 1 ? tr("⚠ 1 highlight didn't match this book's text exactly")
+                                     : tr("⚠ %1 highlights didn't match this book's text exactly").arg(loc.toString(plan.notFound));
+        if (notesAffected) warning += notesAffected == 1 ? tr(" (1 with a note)") : tr(" (%1 with notes)").arg(loc.toString(notesAffected));
+        warning += QStringLiteral(". ");
+        warning += equivalents ? (nb ? tr("They'll go on the closest equivalent in orange, with the file's words as a note: %1 the same word in another form, %2 at the matching spot. Check the list below before importing.")
+                                     : tr("They'll go on the closest equivalent in orange, with the Kindle words as a note: %1 the same word in another form, %2 at the matching spot. Check the list below before importing."))
+                                     .arg(loc.toString(plan.byForm), loc.toString(plan.byPosition))
+                               : tr("Check the list below before importing.");
+    }
+    auto option = [](const QString& key, const QString& label, bool enabled, bool visible = true) {
+        return QVariantMap{{QStringLiteral("key"), key}, {QStringLiteral("label"), label}, {QStringLiteral("on"), enabled},
+                           {QStringLiteral("enabled"), enabled}, {QStringLiteral("visible"), visible}};
+    };
+    const QVariantList options{
+        option(QStringLiteral("highlights"), tr("Highlight Them in the Book (With Their Notes)"), plan.found > 0),
+        option(QStringLiteral("equivalents"),
+               (nb ? tr("Highlight the Equivalent Words for the Others, in Orange, With the File's Words as a Note (%1)")
+                   : tr("Highlight the Equivalent Words for the Others, in Orange, With the Kindle Words as a Note (%1)")).arg(loc.toString(equivalents)),
+               equivalents > 0),
+        option(QStringLiteral("words"), tr("Add the Words and Short Phrases to the Word List (%1)").arg(loc.toString(words)), words > 0),
+        option(QStringLiteral("missingWords"),
+               (nb ? tr("Also Add the Words This Edition Says Differently (%1)")
+                   : tr("Also Add the Kindle Words This Edition Says Differently (%1), Marked as From Kindle")).arg(loc.toString(missingWords)),
+               missingWords > 0),
+        option(QStringLiteral("missingPassages"),
+               tr("Keep the Passages and Notes This Edition Doesn't Have (%1) as Bookmarks at About Their Place").arg(loc.toString(missingPassages)),
+               missingPassages > 0, missingPassages > 0),
+        option(QStringLiteral("bookmarks"), tr("Add the Bookmarks (%1)").arg(loc.toString(plan.bookmarks)), plan.bookmarks > 0),
+        option(QStringLiteral("moveToLastRead"), tr("Continue Reading From My Kindle Place (About %1 %)").arg(loc.toString(qRound(plan.lastFraction * 100))),
+               plan.lastLocation > 0, !nb)};
+    m_highlightImport = {{QStringLiteral("title"), nb ? tr("Import Highlights") : tr("Import Kindle Highlights")},
+                         {QStringLiteral("from"), tr("From “%1” into “%2”:").arg(ex.title, m_title)},
+                         {QStringLiteral("summary"), summary},
+                         {QStringLiteral("warning"), warning},
+                         {QStringLiteral("options"), options},
+                         {QStringLiteral("mismatches"), mismatches},
+                         {QStringLiteral("result"), QString()}};
+    emit highlightImportChanged();
+}
+
+void MobileApp::importHighlights(const QVariantMap& choices)
+{
+    const core::Book* book = m_engine->book();
+    if (!m_kindlePlan || !book || !m_bookId || !m_notes) return;
+    auto on = [&](const char* key) { return choices.value(QLatin1String(key), false).toBool(); };
+    core::KindleOptions o;
+    o.highlights = on("highlights");
+    o.equivalents = on("equivalents");
+    o.words = on("words");
+    o.missingWords = on("missingWords");
+    o.missingPassages = on("missingPassages");
+    o.bookmarks = on("bookmarks");
+    o.moveToLastRead = on("moveToLastRead") && !m_kindlePlan->notebook;
+    core::KindleTarget t;
+    t.book = book;
+    t.bookId = m_bookId;
+    t.bookTitle = m_title;
+    t.language = languageCode();
+    t.index = m_engine->index();
+    t.notes = m_notes.get();
+    t.words = m_words.get();
+    t.library = m_library.get();
+    t.offlineMeaning = [this, lang = t.language](const QString& w) { return m_translator->offlineMeaning(w, lang); };
+    t.chapterTitle = [this](const core::Position& p) { return chapterTitleAt(p); };
+    core::KindleResult r = core::applyKindlePlan(*m_kindlePlan, o, t);
+    if (o.moveToLastRead && m_kindlePlan->lastRead.spine >= 0) {
+        jumpTo(m_kindlePlan->lastRead);
+        r.moved = true;
+    }
+    const QLocale loc;
+    QStringList lines{tr("Imported: %1 highlights, %2 equivalent highlights (orange), %3 words to the Word List, %4 words this edition says differently, %5 bookmarks.")
+                          .arg(loc.toString(r.highlights), loc.toString(r.equivalents), loc.toString(r.words), loc.toString(r.missingWords),
+                               loc.toString(r.bookmarks))};
+    if (r.passages) lines << tr("%1 passages and notes this edition doesn't have are bookmarks at about their place.").arg(loc.toString(r.passages));
+    if (r.skipped) lines << tr("%1 were already there and were left as they are.").arg(loc.toString(r.skipped));
+    if (r.moved) lines << tr("The book is open at your Kindle place.");
+    m_highlightImport.insert(QStringLiteral("result"), lines.join(QLatin1Char('\n')));
+    m_kindlePlan.reset();
+    emit highlightImportChanged();
+    emit annotationsChanged();
+    if (r.words || r.missingWords) {
+        emit wordsChanged();
+        refreshPractice();
+    }
+}
+
+void MobileApp::closeHighlightImport()
+{
+    m_kindlePlan.reset();
+    if (m_highlightImport.isEmpty()) return;
+    m_highlightImport.clear();
+    emit highlightImportChanged();
+}
+
+QString MobileApp::notebookExport(const QString& format) const
+{
+    if (!m_notes || !m_bookId) return {};
+    const core::Book* book = m_engine->book();
+    const QString author = book ? book->metadata.authors.join(QStringLiteral(", ")) : QString();
+    const QString path = m_library ? m_library->book(m_bookId).path : QString();
+    if (format == QLatin1String("json")) return QString::fromUtf8(m_notes->json(m_bookId, m_title, author, path));
+    if (format == QLatin1String("text")) return m_notes->plainText(m_bookId, m_title, author);
+    if (format == QLatin1String("csv")) return m_notes->csv(m_bookId, m_title);
+    if (format == QLatin1String("tsv")) return m_notes->tsv(m_bookId, m_title);
+    return m_notes->markdown(m_bookId, m_title, author);
+}
+
+QString MobileApp::notebookFileName(const QString& format) const
+{
+    static const QHash<QString, QString> endings{{QStringLiteral("json"), QStringLiteral("json")}, {QStringLiteral("text"), QStringLiteral("txt")},
+                                                 {QStringLiteral("csv"), QStringLiteral("csv")},   {QStringLiteral("tsv"), QStringLiteral("tsv")}};
+    return safeFileName(tr("%1 - Notebook").arg(m_title.isEmpty() ? QStringLiteral("FreeReader") : m_title)) + QLatin1Char('.') +
+           endings.value(format, QStringLiteral("md"));
+}
+
+void MobileApp::shareNotebook(const QString& format)
+{
+    const QString text = notebookExport(format);
+    if (text.isEmpty()) return;
+    m_lastShared = text;
+    static const QHash<QString, QString> types{{QStringLiteral("json"), QStringLiteral("application/json")}, {QStringLiteral("csv"), QStringLiteral("text/csv")},
+                                               {QStringLiteral("tsv"), QStringLiteral("text/tab-separated-values")}, {QStringLiteral("text"), QStringLiteral("text/plain")}};
+    if (!m_quiet && android_system::shareText(tr("Share the Notebook"), notebookFileName(format), text, types.value(format, QStringLiteral("text/markdown"))))
+        return;
+    // No share sheet here (not a phone): on the clipboard instead.
+    copyText(text);
+    setMessage(tr("The Notebook is on the clipboard."));
+}
+
+void MobileApp::saveNotebook(const QString& format, const QUrl& url)
+{
+    const QString text = notebookExport(format);
+    if (text.isEmpty() || !url.isValid()) return;
+    QFile f(url.isLocalFile() ? url.toLocalFile() : url.toString());
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate) || f.write(text.toUtf8()) < 0) {
+        setMessage(tr("The Notebook couldn't be saved: %1").arg(f.errorString()));
+        return;
+    }
+    f.close();
+    setMessage(tr("The Notebook is saved."));
+}
+
+bool MobileApp::isMissing(int bookId) const
+{
+    if (!m_library) return false;
+    const core::LibraryBook b = m_library->book(bookId);
+    return b.id != 0 && !QFileInfo::exists(b.path);
 }
 
 QStringList MobileApp::bookFilters() const
@@ -508,7 +907,7 @@ void MobileApp::onOpened()
     m_screenStart = m_screenEnd = {-1, 0};
     forgetHistory();
     m_footnoteTarget = {-1, 0};
-    m_model->refresh();
+    refreshLibrary();
     emit readingChanged();
     emit locationChanged();
     emit annotationsChanged();
@@ -530,6 +929,7 @@ void MobileApp::closeBook()
     m_pageText.clear();
     forgetHistory();
     closeImage();
+    closeHighlightImport();
     closeLookup();
     closeCard();
     m_engine->cancelSearch();
@@ -541,7 +941,7 @@ void MobileApp::closeBook()
     emit contentsChanged();
     emit optionsChanged();
     emit lookChanged();
-    m_model->refresh();
+    refreshLibrary();
     emit readingChanged();
     emit locationChanged();
 }
@@ -557,7 +957,7 @@ void MobileApp::removeBook(int id)
     const QString own = QDir(QDir(m_folder).filePath(QStringLiteral("books"))).canonicalPath();
     const QString file = QFileInfo(b.path).canonicalFilePath();
     if (!own.isEmpty() && file.startsWith(own + QLatin1Char('/'))) QFile::remove(file);
-    m_model->refresh();
+    refreshLibrary();
     emit booksChanged();
 }
 
