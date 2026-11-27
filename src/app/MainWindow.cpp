@@ -463,6 +463,13 @@ void MainWindow::buildCommands()
            tr("Off: selecting only selects. Right-click > Translate, or Ctrl+E."));
     toggle("use-gemini", tr("Use Gemini (Online)"), &Settings::useGemini,
            tr("Google's Gemini, asked first. The only engine that sends text over the internet: off, nothing is sent."));
+    addCommand(QStringLiteral("gemini-explain-only"), tr("Use Gemini Only for Explain This Sentence"), QKeySequence(), [this] {
+        m_settings.geminiExplainOnly = !m_settings.geminiExplainOnly;
+        translationOptionsChanged();
+    }, [this] { return m_settings.useGemini; },
+       tr("Words, passages and the paragraphs alongside come from the engines after Gemini (the offline dictionaries "
+          "and translator, or LM Studio when it's on)."));
+    command(QStringLiteral("gemini-explain-only"))->action->setCheckable(true);
     toggle("use-lm-studio", tr("Use LM Studio (This Computer)"), &Settings::useLmStudio, tr("Asked when Gemini can't answer, or takes too long (Settings > Translation)."));
     toggle("use-dictionary", tr("Use the Offline Dictionary"), &Settings::useDictionary, tr("Single words, when nothing before it in the list answers."));
     toggle("use-offline-translator", tr("Use the Offline Translator"), &Settings::useOfflineTranslator,
@@ -481,6 +488,7 @@ QString MainWindow::whyUnavailable(const QString& id) const
 {
     if (id == QLatin1String("new-collection") || id == QLatin1String("library-grid") || id == QLatin1String("library-list"))
         return tr("Only in the library.");
+    if (id == QLatin1String("gemini-explain-only")) return tr("Gemini is off (Settings > Translation).");
     if (!isReading()) return tr("Open a book first.");
     if (id == QLatin1String("back")) return tr("Nowhere to go back to yet: Back returns to where you were before a jump (a link, a search result, Go to Page).");
     if (id == QLatin1String("copy") || id == QLatin1String("translate") || id == QLatin1String("explain"))
@@ -582,6 +590,7 @@ void MainWindow::buildMenus()
     add(translation, "translate-on-select");
     translation->addSeparator();
     add(translation, "use-gemini");
+    add(translation, "gemini-explain-only");
     add(translation, "use-lm-studio");
     add(translation, "use-dictionary");
     add(translation, "use-offline-translator");
@@ -728,6 +737,7 @@ void MainWindow::applyTranslationSettings()
     m_offline->setFolder(translatorFolder());
     m_gemini->setEnabled(m_settings.useGemini);
     m_gemini->setModel(m_settings.geminiModel);
+    m_gemini->setExplainOnly(m_settings.geminiExplainOnly);
     m_lmStudio->setEnabled(m_settings.useLmStudio);
     m_lmStudio->setAddress(m_settings.lmStudioAddress);
     m_lmStudio->setModel(m_settings.lmStudioModel);
@@ -752,6 +762,7 @@ void MainWindow::syncChecks()
     };
     set("translate-on-select", m_settings.translateOnSelect);
     set("use-gemini", m_settings.useGemini);
+    set("gemini-explain-only", m_settings.geminiExplainOnly);
     set("use-lm-studio", m_settings.useLmStudio);
     set("use-dictionary", m_settings.useDictionary);
     set("use-offline-translator", m_settings.useOfflineTranslator);

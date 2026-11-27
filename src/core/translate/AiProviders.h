@@ -32,8 +32,14 @@ public:
     QString name() const override { return QStringLiteral("Gemini"); }
     bool isSetUp() const override { return m_enabled && !m_key.isEmpty(); }
     bool sendsTextOnline() const override { return true; }
+    // Explain This Sentence only: words, passages and the bilingual view's paragraphs go to the engines after it
+    // (the offline dictionaries and translator), so Gemini's allowance is kept for explanations (the owner's
+    // request, 2026-11-27).
+    bool handles(const TranslationRequest& r) const override { return !m_explainOnly || r.kind == TranslationRequest::Kind::Explain; }
     void translate(const TranslationRequest& request, Done done) override;
 
+    void setExplainOnly(bool on) { m_explainOnly = on; }
+    bool explainOnly() const { return m_explainOnly; }
     void setKey(const QString& key) { m_key = key.trimmed(); }
     bool hasKey() const { return !m_key.isEmpty(); }
     void setModel(const QString& model) { m_model = model.trimmed().isEmpty() ? QString::fromLatin1(kDefaultModel) : model.trimmed(); }
@@ -49,6 +55,7 @@ private:
     QString m_model = QString::fromLatin1(kDefaultModel);
     QUrl m_base;
     bool m_enabled = true;
+    bool m_explainOnly = false;
 };
 
 class LmStudioProvider : public TranslationProvider {

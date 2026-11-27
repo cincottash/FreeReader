@@ -196,6 +196,8 @@ public:
     void translateSelection(bool dictionaryFirst = false);
     // Explain This Sentence: the selection's sentence in English with notes on its grammar and idioms.
     void explainSelection();
+    // Use Gemini Only for Explain This Sentence is on (and Gemini is): other lookups don't go to Gemini.
+    bool geminiForExplainOnly() const;
     QMenu* buildSelectionMenu();          // the menu for the current selection (the caller shows or deletes it)
     void searchWeb(bool wikipedia);
     QString lastOpenedUrl() const { return m_lastUrl; }   // tests: the browser is never opened when not interactive

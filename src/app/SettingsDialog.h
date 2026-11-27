@@ -186,6 +186,7 @@ private:
     QPushButton* m_removeKey;
     QComboBox* m_model;
     QCheckBox* m_useGemini;
+    QCheckBox* m_geminiExplainOnly;
     QLabel* m_geminiResult;
     QCheckBox* m_useLm;
     QLineEdit* m_lmAddress;

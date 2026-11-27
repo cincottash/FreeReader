@@ -48,6 +48,10 @@ struct Settings {
     QStringList pageDirections;       // "bookId=rtl" / "bookId=ltr": a book's page direction chosen by hand
     bool useGemini = true;
     QString geminiModel;              // empty: the default (latest Flash-Lite)
+    // Gemini only for Explain This Sentence: words, passages and the paragraphs alongside come from the engines
+    // after it (the owner's request, 2026-11-27: explanations from Gemini, the rest from the offline dictionaries
+    // and translator).
+    bool geminiExplainOnly = false;
     bool useLmStudio = true;
     QString lmStudioAddress = QStringLiteral("http://localhost:1234");
     QString lmStudioModel;            // empty: whichever model is loaded in LM Studio

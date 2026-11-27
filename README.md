@@ -105,6 +105,9 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
   over a word or passage (2.5 seconds at first): its late answer doesn't replace the one showing, and is kept for
   next time. Every Gemini and LM Studio answer is kept, so looking up the same words
   again costs nothing and works offline; a kept answer follows the same order (Gemini's is used while Gemini is on).
+- **Gemini for explanations only:** turn on **Settings ▸ Translation ▸ Use Gemini Only for Explain This Sentence**
+  and Gemini answers only **Explain This Sentence**. Words, passages and the paragraphs alongside then come from
+  the offline dictionaries and the offline translator (or LM Studio, when it's on and running).
 - **Set it up once:** get a free key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey), then
   paste it in **Settings ▸ Translation ▸ All Translation Options…**. The key is kept in Windows Credential Manager
   (or the system's key store on Linux), never in a file. **Test** looks up one word to check it works.
