@@ -401,6 +401,16 @@ jobs:
           git -C chmlib checkout --quiet 2bef8d063ec7d88a8de6fd9f0513ea42ac0fa21f
           ls -l chmlib/src/chm_lib.c
 
+      # Gradle's own downloads (the Android build tools' libraries), kept between runs: Maven Central refuses
+      # GitHub's machines now and then ("429 Too Many Requests").
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-qt6.8.3-${{ hashFiles('.github/workflows/build-apps.yml') }}
+          restore-keys: gradle-qt6.8.3-
+
       - name: Build the APK
         run: |
           host="${QT_HOST_PATH:-$(dirname "$QT_ROOT_DIR")/gcc_64}"
@@ -413,7 +423,13 @@ jobs:
           for f in HAVE_MUPDF HAVE_CHMLIB; do
             grep -q "$f" build-android/build.ninja || { echo "built without $f"; exit 1; }
           done
-          cmake --build build-android --target apk
+          # Packaging downloads Gradle's libraries: tried again after a minute when Maven Central refuses (429).
+          for attempt in 1 2 3; do
+            cmake --build build-android --target apk && break
+            [ "$attempt" = 3 ] && exit 1
+            echo "Packaging failed (attempt $attempt); trying again in 60 s"
+            sleep 60
+          done
           apk=$(find build-android -name '*-release-unsigned.apk' | head -n 1)
           test -n "$apk"
           # Signed with a key made for this run (test installs only; an installed copy updates only from the same key).
