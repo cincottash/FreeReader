@@ -1,6 +1,7 @@
 // Answers from the Word List: a word looked up (or highlighted and given a meaning) before, in any sentence, is
-// answered with the meaning saved then, with no internet. Asked after Gemini and LM Studio, before the offline
-// dictionary and translator: the saved meaning came from the reader's own lookup.
+// answered with the meaning saved then, with no internet. Asked last of all, after the offline dictionaries and
+// translator: the saved meaning was right for the sentence it was looked up in, often not for this one (the owner's
+// rule, 2026-11-27).
 #pragma once
 
 #include "Translation.h"

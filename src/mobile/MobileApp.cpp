@@ -214,7 +214,7 @@ MobileApp::MobileApp(const QString& dataFolder, QObject* parent) : QObject(paren
         emit busyChanged();
     });
 
-    // Translation: Gemini, then what the Word List already says, then the offline dictionary.
+    // Translation: Gemini, then the offline dictionary, then (last) what the Word List already says.
     m_net = new QNetworkAccessManager(this);
     m_gemini = new core::GeminiProvider(m_net, this);
     m_gemini->setKey(core::secrets::read(kGeminiKey));
@@ -229,7 +229,8 @@ MobileApp::MobileApp(const QString& dataFolder, QObject* parent) : QObject(paren
     m_savedWords->setWordLog(m_words.get());
     m_translator = new core::TranslationService(this);
     m_translator->setCache(m_library.get());
-    m_translator->setProviders({m_gemini, m_savedWords, m_dictionary, m_dictionaryEn});
+    // The Word List last: its meaning was right for another sentence (the owner's rule, 2026-11-27).
+    m_translator->setProviders({m_gemini, m_dictionary, m_dictionaryEn, m_savedWords});
     m_translator->setInstant({m_dictionary, m_dictionaryEn});
     // One answer per lookup, from the first engine that can give it (as on the desktop).
     connect(m_translator, &core::TranslationService::finished, this, &MobileApp::onTranslated);

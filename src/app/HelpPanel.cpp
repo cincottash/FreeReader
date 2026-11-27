@@ -204,7 +204,7 @@ QString HelpPanel::html() const
           tr("<b>Your language alongside:</b> %1 (Ctrl+Shift+B) translates every paragraph on the page in a panel beside it.")
               .arg(link(QStringLiteral("bilingual"), tr("Show %1 Alongside").arg(core::languages::displayName(core::languages::readerLanguage())))),
           tr("<b>Where answers come from,</b> in this order: Google's Gemini (online, free), LM Studio on your computer, "
-             "your Word List, then the offline dictionaries and the offline translator. Each can be switched off in "
+             "the offline dictionaries, the offline translator, then last of all your Word List. Each can be switched off in "
              "Settings ▸ Translation. When Gemini or LM Studio takes longer than its <b>Wait</b> time there over a word "
              "or passage (2.5 seconds at first), the next one answers instead."),
           tr("<b>Gemini for explanations only:</b> with <b>Use Gemini Only for Explain This Sentence</b> on (Settings ▸ "
