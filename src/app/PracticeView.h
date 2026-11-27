@@ -143,6 +143,9 @@ private:
     void fitListColumns();                        // the kept widths, or the meaning filling the rest
     bool listColumnsKept() const;                 // widths dragged for this room
     QList<int> wideColumnWidths(int room) const;  // with room: each column for its entries, the rest shared
+    QList<int> naturalColumnWidths() const;       // each column for the entries listed (word, meaning, book capped)
+    mutable QList<int> m_naturalWidths;           // naturalColumnWidths(), until the list or its font changes
+    mutable QString m_naturalFont;
     bool m_fittingColumns = false;
     QComboBox* m_listSort = nullptr;
     void updatePageNumbers();
