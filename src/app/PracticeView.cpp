@@ -1105,6 +1105,7 @@ void PracticeView::fillList()
     m_keepCurrent = m_list->currentItem() ? m_list->currentItem()->data(0, Qt::UserRole).toInt() : 0;
     const QString needle = core::practice::foldAccents(m_search->text().trimmed().toLower());
     m_listEntries.clear();
+    m_naturalWidths.clear();
     const int choice = m_listBook->currentData().toInt();
     QList<core::WordEntry> all = m_log->words(choice == kThisPage ? m_openBook : choice);
     if (choice == kThisPage) {
@@ -1124,7 +1125,7 @@ void PracticeView::fillList()
         m_listEntries << w;
     }
     sortListEntries();
-    if (listIsWide() && !listColumnsKept()) fitListColumns();   // the widths follow the words listed
+    if (!listColumnsKept()) fitListColumns();   // the widths follow the words listed
     const int shown = int(m_listEntries.size());
     m_listCount->setText(shown == int(all.size()) ? count(shown, tr("word"), tr("words"))
                                                    : tr("%1 of %2").arg(QLocale().toString(shown), count(int(all.size()), tr("word"), tr("words"))));
@@ -1391,29 +1392,64 @@ void PracticeView::fitListColumns()
     const QStringList kept = (wide ? m_settings.wordListColumnsWide : m_settings.wordListColumns).split(QLatin1Char(','), Qt::SkipEmptyParts);
     if (kept.size() == m_list->columnCount()) {
         for (int c = 0; c + 1 < m_list->columnCount(); ++c) m_list->setColumnWidth(c, qMax(36, kept[c].toInt()));
-    } else if (!wide) {
-        // Word, (meaning), book, page, looked up, next review. Beside the book, all six fit the panel's usual 480 px
-        // (narrower, the list scrolls sideways).
-        const QList<int> w{96, 0, 88, 40, 54, 74};
-        int others = 0;
-        for (int c = 0; c < m_list->columnCount(); ++c)
-            if (c != 1) {
-                m_list->setColumnWidth(c, w[c]);
-                others += w[c];
-            }
-        const int room = m_list->viewport()->width() > 50 ? m_list->viewport()->width() : 440;
-        m_list->setColumnWidth(1, qMax(80, room - others));
     } else {
-        // With room: each column as wide as its longest entry (word, meaning and book within a limit), and the room
-        // left shared by those three in proportion. The meaning taking it all left a wide gap between the meanings
-        // and the book on a big screen (the owner's report, 2026-11-26).
-        const QList<int> w = wideColumnWidths(m_list->viewport()->width() > 50 ? m_list->viewport()->width() : 900);
-        for (int c = 0; c + 1 < m_list->columnCount(); ++c) m_list->setColumnWidth(c, w[c]);
+        // Decided by the room, not by where the panel is: each column as wide as its longest entry (word, meaning and
+        // book within a limit), and the room left shared by those three in proportion. The meaning taking it all
+        // left a wide gap between the meanings and the book on a big screen, maximized (the owner's report,
+        // 2026-11-26) and beside the book made wide by dragging its edge (2026-11-27).
+        const int room = m_list->viewport()->width() > 50 ? m_list->viewport()->width() : (wide ? 900 : 440);
+        const QList<int> w = wideColumnWidths(room);
+        int total = 0;
+        for (int v : w) total += v;
+        if (wide || total <= room) {
+            for (int c = 0; c + 1 < m_list->columnCount(); ++c) m_list->setColumnWidth(c, w[c]);
+        } else {
+            // Too narrow for that beside the book: word, (meaning), book, page, looked up, next review at small fixed
+            // widths, so all six fit the panel's usual 480 px (narrower, the list scrolls sideways).
+            const QList<int> n{96, 0, 88, 40, 54, 74};
+            int others = 0;
+            for (int c = 0; c < m_list->columnCount(); ++c)
+                if (c != 1) {
+                    m_list->setColumnWidth(c, n[c]);
+                    others += n[c];
+                }
+            m_list->setColumnWidth(1, qMax(80, room - others));
+        }
     }
     m_fittingColumns = false;
 }
 
 QList<int> PracticeView::wideColumnWidths(int room) const
+{
+    // The widths the words listed need, worked out once per list and font (the panel's edge dragged refits at every
+    // step; measured before the list had its font, the columns came out too narrow).
+    const QString font = m_list->font().key() + QLatin1Char('|') + m_list->header()->font().key();
+    if (m_naturalWidths.size() != m_list->columnCount() || m_naturalFont != font) {
+        m_naturalWidths = naturalColumnWidths();
+        m_naturalFont = font;
+    }
+    QList<int> want = m_naturalWidths;
+    // The last column stretches, but never below the header's default size: counted at that, or the columns end
+    // past the right edge.
+    want.last() = qMax(want.last(), m_list->header()->defaultSectionSize());
+    int total = 0;
+    for (int v : want) total += v;
+    if (total < room) {
+        const int spare = room - total, text = want[0] + want[1] + want[2];
+        for (int c = 0; c < 3; ++c) want[c] += spare * want[c] / qMax(1, text);
+    } else {
+        // Too little room: the meaning gives way first, then the word, then the book (then the list scrolls).
+        int over = total - room;
+        for (int c : {1, 0, 2}) {
+            const int give = qMin(over, qMax(0, want[c] - 100));
+            want[c] -= give;
+            over -= give;
+        }
+    }
+    return want;
+}
+
+QList<int> PracticeView::naturalColumnWidths() const
 {
     const QFontMetrics fm(m_list->font());
     const QFontMetrics hm(m_list->header()->font());
@@ -1431,20 +1467,6 @@ QList<int> PracticeView::wideColumnWidths(int room) const
     widen(5, tr("In %1").arg(QStringLiteral("30 days")));
     const QList<int> most{260, 420, 260};   // word, meaning, book: longer ones end in "…"
     for (int c = 0; c < 3; ++c) want[c] = qMin(want[c], most[c]);
-    int total = 0;
-    for (int v : want) total += v;
-    if (total < room) {
-        const int spare = room - total, text = want[0] + want[1] + want[2];
-        for (int c = 0; c < 3; ++c) want[c] += spare * want[c] / qMax(1, text);
-    } else {
-        // Too little room: the meaning gives way first, then the word, then the book (then the list scrolls).
-        int over = total - room;
-        for (int c : {1, 0, 2}) {
-            const int give = qMin(over, qMax(0, want[c] - 100));
-            want[c] -= give;
-            over -= give;
-        }
-    }
     return want;
 }
 
