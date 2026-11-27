@@ -26,6 +26,7 @@
 
 class BookPage;
 class QNetworkAccessManager;
+class QTextToSpeech;
 
 namespace core {
 class BookEngine;
@@ -124,6 +125,12 @@ class MobileApp : public QObject {
     Q_PROPERTY(int safeBottom READ safeBottom NOTIFY insetsChanged)
     Q_PROPERTY(int safeLeft READ safeLeft NOTIFY insetsChanged)
     Q_PROPERTY(int safeRight READ safeRight NOTIFY insetsChanged)
+    // The settings the screens show and change, by name (setOption): useGemini, geminiExplainOnly, geminiModel,
+    // geminiWaitSec, useDictionary, bookOffline (the open book), practiceHighlights, practiceLookups, practiceTyped,
+    // practiceSentenceFront, practicePassages, practiceDirections.
+    Q_PROPERTY(QVariantMap options READ options NOTIFY optionsChanged)
+    // Hear Pronunciation or Read Aloud is speaking (the button then stops it).
+    Q_PROPERTY(bool speaking READ isSpeaking NOTIFY speakingChanged)
 public:
     MobileApp(const QString& dataFolder, QObject* parent = nullptr);
     ~MobileApp() override;
@@ -152,6 +159,7 @@ public:
     // Looks up the page's selection (a word, a phrase or a sentence); the answer arrives in `lookup`.
     Q_INVOKABLE void lookUp(QObject* page);   // a BookPage
     Q_INVOKABLE void closeLookup();
+    Q_INVOKABLE void explain(QObject* page);   // Explain This Sentence: the selection's sentence, with notes
     Q_INVOKABLE void pageMoved(QObject* page);   // a BookPage   // the reader turned a page: update and save the position
 
     // Settings
@@ -178,6 +186,7 @@ public:
     // The Dictionary card for the page's selection; false when no dictionary knows the word (then look it up).
     Q_INVOKABLE bool showDictionary(QObject* page);
     Q_INVOKABLE void closeCard();
+    Q_INVOKABLE void flipCard();   // the card's other side (the book's language, or the reader's)
     QVariantMap card() const { return m_card; }
 
     // Highlights, notes and bookmarks (the same rules as the desktop: whole words, merged, the same color again
@@ -221,11 +230,24 @@ public:
     Q_INVOKABLE void refreshPractice();   // the counts on the start screen
     Q_INVOKABLE bool startPractice();
     Q_INVOKABLE void revealCard();
+    Q_INVOKABLE void checkTyped(const QString& typed);   // Type the Answer: checks it, then shows the card's back
+    Q_INVOKABLE QVariantList wordBooks() const;           // {id, title} of the books the Word List has words from
     Q_INVOKABLE void rateCard(int rating);   // 1 Again, 2 Hard, 3 Good, 4 Easy
     Q_INVOKABLE void endPractice();
     QString practiceOrder() const { return m_settings.practiceOrder; }
     void setPracticeOrder(const QString& order);
     Q_INVOKABLE void openLink(const QString& url);
+    QVariantMap options() const;
+    Q_INVOKABLE void setOption(const QString& key, const QVariant& value);
+    Q_INVOKABLE void testGemini();   // looks up one word with the saved key; geminiTested says how it went
+    bool bookOffline() const;
+    // Hear Pronunciation (a word, in the book's language) and Read Aloud (the selection).
+    Q_INVOKABLE void hear(const QString& text);
+    Q_INVOKABLE void readAloud(QObject* page);
+    Q_INVOKABLE void stopSpeaking();
+    bool isSpeaking() const;
+    QString lastSpoken() const { return m_lastSpoken; }   // tests
+    void setQuietForTests(bool on) { m_quiet = on; }       // never start the system's speech engine
     // Report an AI's answer (Google Play's AI-generated content policy): opens a new GitHub issue, filled in.
     Q_INVOKABLE void reportAnswer();
     QUrl reportUrl() const;   // that issue's address (tests read it without opening a browser)
@@ -276,9 +298,14 @@ signals:
     void selectRequested(int spine, int start, int end);   // after a jump: the words to show (a highlight, a word bookmark)
     void wordsChanged();
     void practiceChanged();   // the reader goes there (contents, notebook, search)
+    void optionsChanged();
+    void geminiTested(const QString& result);
+    void speakingChanged();
 
 private:
     void setMessage(const QString& text);
+    void applyTranslationSettings();
+    void speak(const QString& text, const QString& language);
     void onOpened();
     void onTranslated(int id, const core::TranslationResult& r, const QString& why);
     void savePosition();
@@ -329,6 +356,13 @@ private:
 
     int m_lookupId = -1;
     QVariantMap m_lookup;
+    QTextToSpeech* m_speech = nullptr;   // made on first use
+    int m_practiceBook = 0;              // this session's "Words From" (0: every book)
+    bool m_practiceStarred = false;      // this session's "Starred Words Only"
+    QString m_verdict;                   // Type the Answer: how the typed answer went
+    int m_suggested = 0;                 // the rating it suggests
+    QString m_lastSpoken;
+    bool m_quiet = false;
     struct Asked {
         int spine = -1, start = 0, end = 0;
         QString sentence;

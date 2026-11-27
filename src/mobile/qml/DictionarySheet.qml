@@ -24,6 +24,18 @@ Drawer {
         radius: 14
         border.color: sheet.theme.line
         Rectangle { width: parent.width; height: 14; anchors.bottom: parent.bottom; color: sheet.theme.bg }
+        // The handle: pull down here to close the card.
+        Rectangle {
+            objectName: "sheetHandle"
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.top: parent.top
+            anchors.topMargin: 8
+            width: 40
+            height: 4
+            radius: 2
+            color: sheet.theme.muted
+            opacity: 0.5
+        }
     }
 
     Flickable {
@@ -35,13 +47,34 @@ Drawer {
             id: content
             width: parent.width
             spacing: 8
-            Label {
+            RowLayout {
                 Layout.fillWidth: true
-                text: sheet.c.title || ""
-                font.pixelSize: 11
-                font.letterSpacing: 1
-                color: sheet.theme.muted
-                wrapMode: Text.Wrap
+                Label {
+                    Layout.fillWidth: true
+                    text: sheet.c.title || ""
+                    font.pixelSize: 11
+                    font.letterSpacing: 1
+                    color: sheet.theme.muted
+                    wrapMode: Text.Wrap
+                }
+                // Hear Pronunciation (the phone's voice for the book's language).
+                IconButton {
+                    objectName: "cardHear"
+                    theme: sheet.theme
+                    iconName: "speaker"
+                    text: qsTr("Hear Pronunciation")
+                    visible: (sheet.c.word || "").length > 0
+                    onClicked: sheet.app.hear(sheet.c.word)
+                }
+                // Flip: the card's other side (the book's language, or the reader's), as on the desktop.
+                IconButton {
+                    objectName: "cardFlip"
+                    theme: sheet.theme
+                    iconName: "flip"
+                    text: qsTr("Flip")
+                    visible: (sheet.c.sides || []).length > 1
+                    onClicked: sheet.app.flipCard()
+                }
             }
             Text {
                 objectName: "cardBody"
@@ -54,6 +87,7 @@ Drawer {
             RowLayout {
                 spacing: 16
                 Label {
+                    visible: (sheet.c.url || "").length > 0
                     text: qsTr("Full Definition")
                     color: sheet.theme.accent
                     font.pixelSize: sheet.theme.body

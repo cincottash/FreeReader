@@ -101,6 +101,45 @@ Page {
                       ? qsTr("Translates words and sentences in context. The free tier needs no card. The key is kept in the phone's key store.")
                       : qsTr("Translates words and sentences in context. The free tier needs no card. This phone's key store isn't available yet, so a key works until the app closes.")
             }
+            // The same switches as the desktop's Settings › Translation.
+            Switch {
+                objectName: "optUseGemini"
+                text: qsTr("Use Gemini")
+                checked: settings.app.options.useGemini === true
+                onToggled: settings.app.setOption("useGemini", checked)
+            }
+            Switch {
+                objectName: "optExplainOnly"
+                text: qsTr("Use Gemini Only for Explain This Sentence")
+                enabled: settings.app.options.useGemini === true
+                checked: settings.app.options.geminiExplainOnly === true
+                onToggled: settings.app.setOption("geminiExplainOnly", checked)
+                Layout.fillWidth: true
+                contentItem: Label {
+                    leftPadding: parent.indicator.width + parent.spacing
+                    text: parent.text
+                    wrapMode: Text.Wrap
+                    color: settings.theme.fg
+                    opacity: parent.enabled ? 1 : 0.5
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
+            Note {
+                visible: settings.app.options.geminiExplainOnly === true && settings.app.options.useGemini === true
+                text: qsTr("Gemini then answers only Explain This Sentence. Words come from the offline dictionaries; whole sentences have no other engine on the phone yet.")
+            }
+            Switch {
+                objectName: "optBookOffline"
+                visible: settings.app.reading
+                text: qsTr("Keep This Book Offline")
+                enabled: settings.app.options.useGemini === true
+                checked: settings.app.options.bookOffline === true
+                onToggled: settings.app.setOption("bookOffline", checked)
+            }
+            Note {
+                visible: settings.app.reading
+                text: qsTr("Open now: %1. Text from a book kept offline is never sent to Gemini.").arg(settings.app.bookTitle)
+            }
             Label { text: settings.app.hasGeminiKey ? qsTr("A key is saved.") : qsTr("No key yet."); color: settings.theme.fg }
             TextField {
                 id: keyField
@@ -118,6 +157,44 @@ Page {
                 Button { text: qsTr("Get a Free Key"); flat: true; onClicked: settings.app.openLink("https://aistudio.google.com/apikey") }
             }
             Note { id: keyMessage; visible: text.length > 0 }
+            Label { text: qsTr("Model"); color: settings.theme.fg }
+            ComboBox {
+                objectName: "optGeminiModel"
+                Layout.fillWidth: true
+                editable: true
+                model: ["gemini-flash-lite-latest", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-flash-latest"]
+                Component.onCompleted: editText = settings.app.options.geminiModel
+                onAccepted: settings.app.setOption("geminiModel", editText)
+                onActivated: settings.app.setOption("geminiModel", currentText)
+            }
+            Note { text: qsTr("gemini-flash-lite-latest always uses Google's newest Flash-Lite model, which has the most free lookups a day.") }
+            RowLayout {
+                Label { text: qsTr("Wait"); color: settings.theme.fg; Layout.fillWidth: true }
+                SpinBox {
+                    objectName: "optGeminiWait"
+                    from: 0
+                    to: 300
+                    stepSize: 5
+                    value: Math.round((settings.app.options.geminiWaitSec || 0) * 10)
+                    textFromValue: (v) => v === 0 ? qsTr("No Limit") : qsTr("%1 s").arg((v / 10).toLocaleString(Qt.locale(), 'f', 1))
+                    valueFromText: (t) => Math.round(Number.fromLocaleString(Qt.locale(), t.replace(/[^0-9.,]/g, "")) * 10)
+                    onValueModified: settings.app.setOption("geminiWaitSec", value / 10)
+                }
+            }
+            Note { text: qsTr("A word or passage Gemini hasn't answered by then is answered by the next engine; Gemini's answer, when it comes, is kept for next time.") }
+            RowLayout {
+                Button {
+                    objectName: "testGemini"
+                    text: qsTr("Test")
+                    enabled: settings.app.hasGeminiKey
+                    onClicked: { testResult.text = qsTr("Testing…"); settings.app.testGemini() }
+                }
+                Note { id: testResult; Layout.fillWidth: true }
+            }
+            Connections {
+                target: settings.app
+                function onGeminiTested(result) { testResult.text = result }
+            }
 
             Section { text: qsTr("OFFLINE DICTIONARIES") }
             // What happened with the last download (installed, or why it failed).
@@ -132,6 +209,12 @@ Page {
                 color: settings.theme.fg
             }
             Note { text: qsTr("Optional downloads that work with no internet. Each is made from free data (Wiktionary, CC BY-SA 4.0; Open English WordNet, CC BY 4.0).") }
+            Switch {
+                objectName: "optUseDictionary"
+                text: qsTr("Use the Offline Dictionaries")
+                checked: settings.app.options.useDictionary === true
+                onToggled: settings.app.setOption("useDictionary", checked)
+            }
             Repeater {
                 model: settings.app.dictionaries
                 delegate: ColumnLayout {

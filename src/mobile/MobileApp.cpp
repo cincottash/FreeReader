@@ -13,6 +13,7 @@
 #include "core/services/Library.h"
 #include "core/services/Secrets.h"
 #include "core/services/WordLog.h"
+#include "core/practice/Answer.h"
 #include "core/translate/AiProviders.h"
 #include "core/translate/DictionaryCardHtml.h"
 #include "core/translate/DictionaryDownload.h"
@@ -31,6 +32,10 @@
 #include <QFileInfo>
 #include <QLocale>
 #include <QNetworkAccessManager>
+#include <QPointer>
+#ifdef HAVE_TEXT_TO_SPEECH
+#include <QTextToSpeech>
+#endif
 #include <QRegularExpression>
 
 namespace {
@@ -233,9 +238,10 @@ MobileApp::MobileApp(const QString& dataFolder, QObject* parent) : QObject(paren
     // The Word List last: its meaning was right for another sentence (the owner's rule, 2026-11-27).
     m_translator->setProviders({m_gemini, m_dictionary, m_dictionaryEn, m_savedWords});
     m_translator->setInstant({m_dictionary, m_dictionaryEn});
-    // A word or passage Gemini hasn't answered by then (2.5 s, as on the desktop) is answered by the next engine;
-    // Gemini's late answer is kept for next time (the owner's rule, 2026-11-26).
-    m_translator->setWait(m_gemini->name(), qMax(0, m_settings.geminiWaitMs));
+    // The engines switched on or off, Gemini's model and its wait: a word or passage Gemini hasn't answered by then
+    // (2.5 s, as on the desktop) is answered by the next engine; Gemini's late answer is kept for next time (the
+    // owner's rule, 2026-11-26).
+    applyTranslationSettings();
     // One answer per lookup, from the first engine that can give it (as on the desktop).
     connect(m_translator, &core::TranslationService::finished, this, &MobileApp::onTranslated);
 
@@ -407,6 +413,7 @@ void MobileApp::onOpened()
     emit locationChanged();
     emit annotationsChanged();
     emit contentsChanged();
+    emit optionsChanged();   // Keep This Book Offline is the open book's
     emit bookOpened();
 }
 
@@ -428,6 +435,7 @@ void MobileApp::closeBook()
     emit searchChanged();
     emit annotationsChanged();
     emit contentsChanged();
+    emit optionsChanged();
     m_model->refresh();
     emit readingChanged();
     emit locationChanged();
@@ -546,6 +554,31 @@ void MobileApp::lookUp(QObject* object)
     m_asked = {page->selectionSpine(), page->selectionStart(), page->selectionEnd(), r.sentence.isEmpty() ? r.text : r.sentence};
     m_lookup = QVariantMap{{QStringLiteral("text"), text}, {QStringLiteral("loading"), true}, {QStringLiteral("isWord"), r.isWord()}};
     emit lookupChanged();
+    m_translator->setOfflineOnly(bookOffline());   // Keep This Book Offline: Gemini isn't asked about it
+    m_lookupId = m_translator->translate(r);
+}
+
+void MobileApp::explain(QObject* object)
+{
+    // Explain This Sentence (as on the desktop): the selection's sentence translated, with notes on its grammar and
+    // idioms; a selection longer than a sentence is explained as it is. Only an AI can answer it.
+    auto* page = qobject_cast<BookPage*>(object);
+    if (!page || !page->hasSelection()) return;
+    QString text = page->selectionSentence().simplified();
+    const QString selected = page->selectedText().simplified();
+    if (selected.size() > text.size()) text = selected;
+    if (text.isEmpty()) return;
+    if (text.size() > 1500) text = text.left(1500);
+    core::TranslationRequest r;
+    r.kind = core::TranslationRequest::Kind::Explain;
+    r.text = text;
+    r.sentence = text;
+    r.from = languageCode();
+    m_asked = {page->selectionSpine(), page->selectionStart(), page->selectionEnd(), text};
+    m_lookup = QVariantMap{{QStringLiteral("text"), text}, {QStringLiteral("loading"), true}, {QStringLiteral("isWord"), false},
+                           {QStringLiteral("explain"), true}};
+    emit lookupChanged();
+    m_translator->setOfflineOnly(bookOffline());
     m_lookupId = m_translator->translate(r);
 }
 
@@ -563,10 +596,27 @@ void MobileApp::onTranslated(int id, const core::TranslationResult& r, const QSt
     m[QStringLiteral("text")] = m_lookup.value(QStringLiteral("text"));
     m[QStringLiteral("isWord")] = m_lookup.value(QStringLiteral("isWord"));
     m[QStringLiteral("loading")] = false;
+    const bool explaining = m_lookup.value(QStringLiteral("explain")).toBool();
+    m[QStringLiteral("explain")] = explaining;
     if (r.isEmpty()) {
         QString text = why.isEmpty() ? tr("No translation engine is set up yet.") : why;
-        if (!m_dictionary->info().ok) text += QLatin1Char('\n') + tr("Tip: add a Gemini key, or download the offline dictionary, in Settings.");
+        if (explaining)
+            text = bookOffline() ? tr("Explanations come from Gemini, and this book is kept offline (Settings).")
+                 : !m_gemini->hasKey() || !m_settings.useGemini ? tr("Explanations come from Gemini: add a key, or turn Gemini on, in Settings.")
+                 : tr("Explanations come from Gemini, and it couldn't answer.") + (why.isEmpty() ? QString() : QLatin1Char('\n') + why);
+        else if (bookOffline() && m_settings.useGemini)
+            text += QLatin1Char('\n') + tr("This book is kept offline, so Gemini isn't asked.");
+        else if (!m_dictionary->info().ok) text += QLatin1Char('\n') + tr("Tip: add a Gemini key, or download the offline dictionary, in Settings.");
+        if (!explaining && m_settings.useGemini && m_settings.geminiExplainOnly)
+            text += QLatin1Char('\n') + tr("Gemini is used only for Explain This Sentence (Settings).");
         m[QStringLiteral("nothing")] = text;
+    } else if (explaining) {
+        // An explanation isn't vocabulary: shown, not logged.
+        m[QStringLiteral("translation")] = r.translation;
+        m[QStringLiteral("explanation")] = r.explanation;
+        m[QStringLiteral("source")] = r.provider.isEmpty() ? QString() : tr("Source: %1").arg(r.provider);
+        m[QStringLiteral("provider")] = r.provider;
+        m[QStringLiteral("ai")] = r.provider == m_gemini->name();
     } else {
         m[QStringLiteral("translation")] = r.translation;
         m[QStringLiteral("alternatives")] = r.alternatives.join(QStringLiteral(", "));
@@ -656,11 +706,15 @@ void MobileApp::setWordMeaning(int id, const QString& meaning)
 
 namespace {
 
-core::WordLog::Filter practiceFilter(const Settings& s)
+// The cards to practice: the directions and passages of the settings, and this session's book and starred choice
+// (as the desktop's "Words From" and "Starred Words Only").
+core::WordLog::Filter practiceFilter(const Settings& s, int bookId = 0, bool starredOnly = false)
 {
     core::WordLog::Filter f;
     f.directions = s.practiceDirections.isEmpty() ? QStringList{QStringLiteral("recognize")} : s.practiceDirections;
     f.passages = s.practicePassages;
+    f.bookId = bookId;
+    f.starredOnly = starredOnly;
     return f;
 }
 
@@ -682,7 +736,10 @@ QVariantMap MobileApp::practice() const
     if (!m_words) return m;
     const QDateTime now = QDateTime::currentDateTimeUtc();
     // Every card is practiced, in the order chosen (no "due" or "new today", as on the desktop).
-    m[QStringLiteral("cards")] = m_words->practisableCount(practiceFilter(m_settings));
+    m[QStringLiteral("cards")] = m_words->practisableCount(practiceFilter(m_settings, m_practiceBook, m_practiceStarred));
+    m[QStringLiteral("book")] = m_practiceBook;
+    m[QStringLiteral("starredOnly")] = m_practiceStarred;
+    m[QStringLiteral("typed")] = m_settings.practiceTyped;
     m[QStringLiteral("words")] = m_words->count();
     m[QStringLiteral("summary")] = m_practiceSummary;
     const bool active = m_session && m_session->isActive();
@@ -702,6 +759,8 @@ QVariantMap MobileApp::practice() const
     m[QStringLiteral("source")] = f.source;
     m[QStringLiteral("needsMeaning")] = f.needsMeaning;
     m[QStringLiteral("revealed")] = m_revealed;
+    m[QStringLiteral("verdict")] = m_verdict;       // Type the Answer: how the typed answer went
+    m[QStringLiteral("suggested")] = m_suggested;   // the rating that verdict suggests (1 Again .. 4 Easy; 0 none)
     m[QStringLiteral("progress")] = tr("%1 of %2").arg(m_session->done() + 1).arg(m_session->done() + m_session->remaining() + 1);
     Q_UNUSED(now);
     return m;
@@ -723,7 +782,9 @@ bool MobileApp::startPractice()
     if (!m_session) m_session = std::make_unique<core::practice::Session>(m_words.get());
     m_practiceSummary.clear();
     m_revealed = false;
-    const bool ok = m_session->start(practiceFilter(m_settings), m_settings.practiceOrder, QDateTime::currentDateTimeUtc());
+    m_verdict.clear();
+    m_suggested = 0;
+    const bool ok = m_session->start(practiceFilter(m_settings, m_practiceBook, m_practiceStarred), m_settings.practiceOrder, QDateTime::currentDateTimeUtc());
     if (!ok) m_practiceSummary = tr("Nothing to practice now. Highlight words while reading, then come back.");
     emit practiceChanged();
     return ok;
@@ -736,11 +797,50 @@ void MobileApp::revealCard()
     emit practiceChanged();
 }
 
+void MobileApp::checkTyped(const QString& typed)
+{
+    // Type the Answer (as on the desktop): forgiving about case, articles and punctuation; a missing accent or a
+    // small typo is told apart from a wrong answer, and suggests a rating.
+    if (!m_session || !m_session->isActive() || m_revealed) return;
+    using core::practice::AnswerMatch;
+    const core::WordEntry& w = m_session->word();
+    const QString d = m_session->card().direction;
+    const core::practice::AnswerCheck c = core::practice::checkAnswer(typed, core::practice::acceptedAnswers(w, d), core::practice::answerLanguage(w, d));
+    switch (c.match) {
+    case AnswerMatch::Correct: m_verdict = tr("Correct."); m_suggested = 3; break;
+    case AnswerMatch::Accents: m_verdict = tr("Right, but mind the accents: %1").arg(c.expected); m_suggested = 2; break;
+    case AnswerMatch::Typo: m_verdict = tr("Almost: %1").arg(c.expected); m_suggested = 2; break;
+    case AnswerMatch::Wrong:
+        m_verdict = typed.trimmed().isEmpty() ? tr("The answer: %1").arg(c.expected) : tr("Not quite. The answer: %1").arg(c.expected);
+        m_suggested = 1;
+        break;
+    }
+    m_revealed = true;
+    emit practiceChanged();
+}
+
+QVariantList MobileApp::wordBooks() const
+{
+    // The books the Word List has words from: the practice's "Words From" choice.
+    QVariantList out;
+    if (!m_words) return out;
+    QHash<int, QString> seen;
+    for (const core::WordEntry& w : m_words->words())
+        if (w.bookId && !seen.contains(w.bookId)) seen.insert(w.bookId, w.bookTitle);
+    for (auto it = seen.cbegin(); it != seen.cend(); ++it) out << QVariantMap{{QStringLiteral("id"), it.key()}, {QStringLiteral("title"), it.value()}};
+    std::sort(out.begin(), out.end(), [](const QVariant& a, const QVariant& b) {
+        return QString::localeAwareCompare(a.toMap().value(QStringLiteral("title")).toString(), b.toMap().value(QStringLiteral("title")).toString()) < 0;
+    });
+    return out;
+}
+
 void MobileApp::rateCard(int rating)
 {
     if (!m_session || !m_session->isActive() || !m_revealed || rating < 1 || rating > 4) return;
     m_session->rate(core::practice::Rating(rating), QDateTime::currentDateTimeUtc());
     m_revealed = false;
+    m_verdict.clear();
+    m_suggested = 0;
     if (!m_session->isActive()) endPractice();
     else emit practiceChanged();
 }
@@ -765,6 +865,167 @@ void MobileApp::endPractice()
 // ---------------------------------------------------------------- settings
 
 void MobileApp::saveSettings() { m_settings.save(QDir(m_folder).filePath(QStringLiteral("settings.json"))); }
+
+// ---------------------------------------------------------------- speech
+
+void MobileApp::speak(const QString& text, const QString& language)
+{
+    // Hear Pronunciation and Read Aloud: the phone's own voices, at the speed and volume of the settings (as on the
+    // desktop). Tests and the screenshot mode never start the system's speech engine.
+    const QString said = text.simplified();
+    if (said.isEmpty()) return;
+    m_lastSpoken = said;
+    if (m_quiet) return;
+#ifdef HAVE_TEXT_TO_SPEECH
+    if (!m_speech) {
+        m_speech = new QTextToSpeech(this);
+        connect(m_speech, &QTextToSpeech::stateChanged, this, &MobileApp::speakingChanged);
+    }
+    if (m_speech->state() == QTextToSpeech::Error) {
+        setMessage(tr("This phone's speech engine isn't working. Check Settings › General management › Text-to-speech."));
+        return;
+    }
+    const QLocale want(language.isEmpty() ? QStringLiteral("en") : language);
+    QLocale best;
+    for (const QLocale& l : m_speech->availableLocales())
+        if (l.language() == want.language() && (best.language() != want.language() || l.territory() == want.territory())) best = l;
+    if (best.language() != want.language()) {
+        // Another language's voice would read the word wrongly: nothing is said, and the fix is a free voice.
+        setMessage(tr("No %1 voice is installed. Add one (free) in the phone's Settings › General management › "
+                      "Text-to-speech.").arg(QLocale::languageToString(want.language())));
+        return;
+    }
+    m_speech->setLocale(best);
+    m_speech->setRate(m_settings.speechRatePct / 100.0);
+    m_speech->setVolume(m_settings.speechVolumePct / 100.0);
+    m_speech->say(said);
+#else
+    Q_UNUSED(language);
+    setMessage(tr("Reading aloud isn't available in this build."));
+#endif
+}
+
+void MobileApp::hear(const QString& text) { speak(text, languageCode()); }
+
+void MobileApp::readAloud(QObject* object)
+{
+    auto* page = qobject_cast<BookPage*>(object);
+    if (!page || !page->hasSelection()) return;
+    speak(page->selectedText(), languageCode());
+}
+
+void MobileApp::stopSpeaking()
+{
+#ifdef HAVE_TEXT_TO_SPEECH
+    if (m_speech) m_speech->stop();
+#endif
+}
+
+bool MobileApp::isSpeaking() const
+{
+#ifdef HAVE_TEXT_TO_SPEECH
+    return m_speech && m_speech->state() == QTextToSpeech::Speaking;
+#else
+    return false;
+#endif
+}
+
+bool MobileApp::bookOffline() const { return m_bookId && m_settings.offlineBooks.contains(QString::number(m_bookId)); }
+
+QVariantMap MobileApp::options() const
+{
+    // The settings the screens show and change (the same ones, with the same meaning, as the desktop's).
+    const Settings& s = m_settings;
+    return {{QStringLiteral("useGemini"), s.useGemini},
+            {QStringLiteral("geminiExplainOnly"), s.geminiExplainOnly},
+            {QStringLiteral("geminiModel"), s.geminiModel.isEmpty() ? QString::fromLatin1(core::GeminiProvider::kDefaultModel) : s.geminiModel},
+            {QStringLiteral("geminiWaitSec"), s.geminiWaitMs / 1000.0},
+            {QStringLiteral("useDictionary"), s.useDictionary},
+            {QStringLiteral("bookOffline"), bookOffline()},
+            {QStringLiteral("practiceHighlights"), s.practiceHighlights},
+            {QStringLiteral("practiceLookups"), s.practiceLookups},
+            {QStringLiteral("practiceTyped"), s.practiceTyped},
+            {QStringLiteral("practiceSentenceFront"), s.practiceSentenceFront},
+            {QStringLiteral("practicePassages"), s.practicePassages},
+            {QStringLiteral("practiceDirections"), s.practiceDirections},
+            {QStringLiteral("practiceBook"), m_practiceBook},
+            {QStringLiteral("practiceStarredOnly"), m_practiceStarred}};
+}
+
+void MobileApp::setOption(const QString& key, const QVariant& value)
+{
+    Settings& s = m_settings;
+    if (key == QLatin1String("useGemini")) s.useGemini = value.toBool();
+    else if (key == QLatin1String("geminiExplainOnly")) s.geminiExplainOnly = value.toBool();
+    else if (key == QLatin1String("geminiModel")) {
+        const QString v = value.toString().trimmed();
+        s.geminiModel = v == QLatin1String(core::GeminiProvider::kDefaultModel) ? QString() : v;
+    } else if (key == QLatin1String("geminiWaitSec")) s.geminiWaitMs = qBound(0, int(value.toDouble() * 1000 + 0.5), 30000);
+    else if (key == QLatin1String("useDictionary")) s.useDictionary = value.toBool();
+    else if (key == QLatin1String("bookOffline")) {
+        if (!m_bookId) return;
+        const QString id = QString::number(m_bookId);
+        s.offlineBooks.removeAll(id);
+        if (value.toBool()) s.offlineBooks << id;
+    } else if (key == QLatin1String("practiceBook") || key == QLatin1String("practiceStarredOnly")) {
+        // This session's choice only, as on the desktop (not kept in the settings file).
+        if (key == QLatin1String("practiceBook")) m_practiceBook = value.toInt();
+        else m_practiceStarred = value.toBool();
+        emit optionsChanged();
+        emit practiceChanged();
+        return;
+    } else if (key == QLatin1String("practiceHighlights")) s.practiceHighlights = value.toBool();
+    else if (key == QLatin1String("practiceLookups")) s.practiceLookups = value.toBool();
+    else if (key == QLatin1String("practiceTyped")) s.practiceTyped = value.toBool();
+    else if (key == QLatin1String("practiceSentenceFront")) s.practiceSentenceFront = value.toBool();
+    else if (key == QLatin1String("practicePassages")) s.practicePassages = value.toBool();
+    else if (key == QLatin1String("practiceDirections")) {
+        QStringList d = value.toStringList();
+        d.removeAll(QString());
+        s.practiceDirections = d.isEmpty() ? QStringList{QStringLiteral("recognize")} : d;
+    } else return;
+    saveSettings();
+    applyTranslationSettings();
+    emit optionsChanged();
+    emit practiceChanged();
+}
+
+void MobileApp::applyTranslationSettings()
+{
+    m_gemini->setEnabled(m_settings.useGemini);
+    m_gemini->setExplainOnly(m_settings.geminiExplainOnly);
+    m_gemini->setModel(m_settings.geminiModel);
+    m_translator->setWait(m_gemini->name(), qMax(0, m_settings.geminiWaitMs));
+    for (core::OfflineDictionary* d : {m_dictionary, m_dictionaryEn, m_definitionsEs}) d->setEnabled(m_settings.useDictionary);
+    m_translator->clearPauses();
+}
+
+void MobileApp::testGemini()
+{
+    // One word looked up with the key saved (uses one of today's free lookups), as the desktop's Test.
+    if (!m_gemini->hasKey()) {
+        emit geminiTested(tr("Save a key first."));
+        return;
+    }
+    core::TranslationRequest r;
+    r.text = QStringLiteral("casa");
+    r.from = QStringLiteral("es");
+    QElapsedTimer* t = new QElapsedTimer;
+    t->start();
+    QPointer<MobileApp> self(this);
+    const bool wasEnabled = m_settings.useGemini;
+    m_gemini->setEnabled(true);
+    m_gemini->translate(r, [self, t, wasEnabled](const core::TranslationResult& res, core::TranslationFailure f, const QString&) {
+        const qint64 ms = t->elapsed();
+        delete t;
+        if (!self) return;
+        self->m_gemini->setEnabled(wasEnabled && self->m_settings.useGemini);
+        if (f == core::TranslationFailure::None && !res.translation.isEmpty())
+            emit self->geminiTested(tr("Working: “casa” is “%1” (%2 s).").arg(res.translation, QLocale().toString(ms / 1000.0, 'f', 1)));
+        else
+            emit self->geminiTested(core::failureText(f == core::TranslationFailure::None ? core::TranslationFailure::Failed : f));
+    });
+}
 
 void MobileApp::setTextSize(int pct)
 {
@@ -940,18 +1201,58 @@ bool MobileApp::showDictionary(QObject* object)
 {
     auto* page = qobject_cast<BookPage*>(object);
     if (!page || !page->hasSelection()) return false;
-    const core::FoundCard f = core::findDictionaryCard({m_definitionsEs, m_dictionaryEn, m_dictionary}, page->selectedText(), languageCode());
+    const QList<core::OfflineDictionary*> all{m_definitionsEs, m_dictionaryEn, m_dictionary};
+    const QString text = page->selectedText(), book = languageCode();
+    const core::FoundCard f = core::findDictionaryCard(all, text, book);
     if (!f.found()) return false;
     const Colors c = pageColors();
-    m_card = {{QStringLiteral("found"), true},
-              {QStringLiteral("title"), f.title.toUpper()},
-              {QStringLiteral("html"), core::dictionaryCardHtml(f.card, c.fg, c.muted, c.line)},
-              {QStringLiteral("source"), f.source},
-              {QStringLiteral("url"), f.fullDefinition.toString(QUrl::FullyEncoded)},
-              {QStringLiteral("offer"), f.offerDefinitions},
-              {QStringLiteral("word"), f.card.headwords.first().word}};
+    auto side = [&](const core::FoundCard& card) {
+        return QVariantMap{{QStringLiteral("title"), card.title.toUpper()},
+                           {QStringLiteral("html"), core::dictionaryCardHtml(card.card, c.fg, c.muted, c.line)},
+                           {QStringLiteral("source"), card.source},
+                           {QStringLiteral("url"), card.fullDefinition.toString(QUrl::FullyEncoded)},
+                           {QStringLiteral("offer"), card.offerDefinitions},
+                           {QStringLiteral("word"), card.card.headwords.first().word}};
+    };
+    // A book in another language: two sides, as on the desktop: the book's language first (its dictionary of
+    // definitions, or why there is none), then the reader's (Flip turns the card over).
+    QVariantList sides;
+    const core::FoundCard defs = core::findDictionaryCard(all, text, book, core::DictionaryKind::Definitions);
+    const core::FoundCard trans = core::findDictionaryCard(all, text, book, core::DictionaryKind::Translating);
+    if (trans.found() && trans.dictionary->info().target != book) {
+        if (defs.found()) {
+            sides << side(defs);
+        } else {
+            const bool installed = m_definitionsEs->info().ok && book == QLatin1String("es");
+            sides << QVariantMap{{QStringLiteral("title"), tr("SPANISH DEFINITIONS")},
+                                 {QStringLiteral("html"), QStringLiteral("<p>%1</p>").arg((installed ? tr("The Spanish definitions don't have this word.")
+                                                                                                    : tr("The Spanish definitions aren't installed.")).toHtmlEscaped())},
+                                 {QStringLiteral("offer"), !installed && book == QLatin1String("es")},
+                                 {QStringLiteral("word"), trans.card.headwords.first().word}};
+        }
+        sides << side(trans);
+    } else {
+        sides << side(f);
+    }
+    m_card = sides.first().toMap();
+    m_card[QStringLiteral("found")] = true;
+    m_card[QStringLiteral("sides")] = sides;
+    m_card[QStringLiteral("side")] = 0;
     emit cardChanged();
     return true;
+}
+
+void MobileApp::flipCard()
+{
+    const QVariantList sides = m_card.value(QStringLiteral("sides")).toList();
+    if (sides.size() < 2) return;
+    const int next = 1 - m_card.value(QStringLiteral("side")).toInt();
+    QVariantMap m = sides[next].toMap();
+    m[QStringLiteral("found")] = true;
+    m[QStringLiteral("sides")] = sides;
+    m[QStringLiteral("side")] = next;
+    m_card = m;
+    emit cardChanged();
 }
 
 void MobileApp::closeCard()

@@ -46,6 +46,12 @@ qt_add_qml_module(freereader_mobile
 
 target_include_directories(freereader_mobile PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(freereader_mobile PRIVATE freereader_core Qt6::Quick Qt6::QuickControls2)
+# Hear Pronunciation and Read Aloud: the phone's own voices (Android's text-to-speech), when this Qt has the module.
+find_package(Qt6 QUIET COMPONENTS TextToSpeech)
+if(TARGET Qt6::TextToSpeech)
+    target_link_libraries(freereader_mobile PRIVATE Qt6::TextToSpeech)
+    target_compile_definitions(freereader_mobile PRIVATE HAVE_TEXT_TO_SPEECH)
+endif()
 
 # The bundled fonts and the icon (SIL Open Font License; the license texts sit next to the fonts).
 file(GLOB MOBILE_FONT_FILES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/resources/fonts/*.ttf)

@@ -237,6 +237,7 @@ Page {
             else reader.lookUpSelection()
         }
         onTranslateRequested: reader.lookUpSelection()
+        onExplainRequested: reader.app.explain(book)   // Explain This Sentence, in the same sheet
     }
 
     NoteEditor { id: note; app: reader.app; theme: reader.theme; page: book; onClosed: book.clearSelection() }

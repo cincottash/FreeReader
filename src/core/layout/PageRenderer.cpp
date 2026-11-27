@@ -1,7 +1,9 @@
 #include "PageRenderer.h"
 
 #include <QFontMetricsF>
+#include <QGlyphRun>
 #include <QPainter>
+#include <QRawFont>
 #include <QPainterPath>
 
 #include <cmath>
@@ -112,6 +114,33 @@ bool lineSpan(const LineRef& r, int start, int end, qreal* x1, qreal* x2)
     return true;
 }
 
+// The height of a selection or highlight on a line: the line's slot, unless bigger text elsewhere on the line (a
+// drop cap at 300 %) made it taller than the selected words need. Then a normal line's height, around the selected
+// words (the owner's report, 2026-11-27: "señora" highlighted far above the word).
+void spanHeight(const LineRef& r, int start, int end, qreal* top, qreal* height)
+{
+    *top = r.slotTop;
+    *height = r.slotHeight;
+    const QTextLine line = r.lines->ui().lineAt(r.line);
+    const int ls = r.lines->F(line.textStart()), le = r.lines->F(line.textStart() + line.textLength());
+    const int s = qMax(start - r.block->start, ls), e = qMin(end - r.block->start, le);
+    if (e <= s) return;
+    const int from = r.lines->L(s), to = r.lines->L(e);
+    qreal ascent = 0, descent = 0;
+    for (const QGlyphRun& run : line.glyphRuns(from, to - from)) {
+        ascent = qMax(ascent, run.rawFont().ascent());
+        descent = qMax(descent, run.rawFont().descent());
+    }
+    if (ascent <= 0) return;
+    const float spacing = qMax(r.lines->params.lineSpacing, r.block->lineHeight);
+    const qreal normal = std::ceil(qMax<qreal>(ascent + descent, r.block->fontPx * spacing));
+    if (normal >= r.slotHeight) return;   // the line is no taller than these words need: its whole slot
+    const qreal baseline = r.off.y() + line.y() + line.ascent();
+    const qreal middle = baseline + (descent - ascent) / 2;
+    *top = qBound<qreal>(r.slotTop, middle - normal / 2, r.slotTop + r.slotHeight - normal);
+    *height = normal;
+}
+
 }  // namespace
 
 void paintPage(QPainter& p, const ChapterLayout& cl, int page, const QPointF& origin, const RenderColors& colors,
@@ -131,8 +160,10 @@ void paintPage(QPainter& p, const ChapterLayout& cl, int page, const QPointF& or
             for (const Overlay& o : overlays) {
                 qreal x1, x2;
                 if (!lineSpan(r, o.start, o.end, &x1, &x2)) continue;
+                qreal top, height;
+                spanHeight(r, o.start, o.end, &top, &height);
                 QPainterPath path;
-                path.addRoundedRect(QRectF(x1 - 1, r.slotTop + 1, x2 - x1 + 2, r.slotHeight - 2), 3, 3);
+                path.addRoundedRect(QRectF(x1 - 1, top + 1, x2 - x1 + 2, height - 2), 3, 3);
                 p.fillPath(path, o.color);
             }
         };
@@ -275,7 +306,11 @@ std::vector<QRectF> rangeRects(const ChapterLayout& cl, int page, int start, int
     Visitor v;
     v.line = [&](const LineRef& r) {
         qreal x1, x2;
-        if (lineSpan(r, start, end, &x1, &x2)) out.emplace_back(x1, r.slotTop, x2 - x1, r.slotHeight);
+        if (lineSpan(r, start, end, &x1, &x2)) {
+            qreal top, height;
+            spanHeight(r, start, end, &top, &height);
+            out.emplace_back(x1, top, x2 - x1, height);
+        }
     };
     v.image = [&](const ImageRef& r) {
         if (r.block->start >= start && r.block->start < end) out.push_back(r.rect);

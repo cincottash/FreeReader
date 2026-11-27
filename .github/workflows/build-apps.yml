@@ -364,6 +364,7 @@ jobs:
           host: all_os
           target: android
           arch: android_arm64_v8a
+          modules: "qtspeech qtmultimedia"   # Hear Pronunciation and Read Aloud (the phone's voices)
           cache: true
 
       - uses: actions/cache@v4

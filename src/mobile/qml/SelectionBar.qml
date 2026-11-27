@@ -18,6 +18,7 @@ Popup {
     signal noteRequested()
     signal dictionaryRequested()
     signal translateRequested()
+    signal explainRequested()
 
     function show(pressY) {
         acted = false
@@ -77,6 +78,8 @@ Popup {
                     {"icon": "bookmark", "label": bar.marked ? qsTr("Unmark") : qsTr("Bookmark"), "act": "bookmark"},
                     {"icon": "dictionary", "label": qsTr("Dictionary"), "act": "dictionary"},
                     {"icon": "translate", "label": qsTr("Translate"), "act": "translate"},
+                    {"icon": "explain", "label": qsTr("Explain"), "act": "explain"},
+                    {"icon": "speaker", "label": qsTr("Listen"), "act": "listen"},
                     {"icon": "copy", "label": qsTr("Copy"), "act": "copy"}
                 ]
                 delegate: AbstractButton {
@@ -90,7 +93,7 @@ Popup {
                         Label {
                             anchors.horizontalCenter: parent.horizontalCenter
                             text: modelData.label
-                            font.pixelSize: 12
+                            font.pixelSize: 11   // seven choices side by side on a phone
                             color: bar.theme.fg
                         }
                     }
@@ -101,6 +104,8 @@ Popup {
                         else if (modelData.act === "bookmark") bar.app.toggleWordBookmark(bar.page)
                         else if (modelData.act === "dictionary") bar.dictionaryRequested()
                         else if (modelData.act === "translate") bar.translateRequested()
+                        else if (modelData.act === "explain") bar.explainRequested()
+                        else if (modelData.act === "listen") { bar.app.readAloud(bar.page); bar.page.clearSelection() }
                         else { bar.app.copyText(bar.page.selectedText); bar.page.clearSelection() }
                         bar.close()
                     }

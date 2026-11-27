@@ -15,6 +15,29 @@ Page {
 
     function startPractice() { tab = 0; app.startPractice() }
 
+    component Section: Label {
+        Layout.topMargin: 14
+        font.pixelSize: 12
+        font.weight: Font.DemiBold
+        font.letterSpacing: 1
+        color: words.theme.muted
+    }
+    // A practice option: a check box bound to one of the app's options by name.
+    component Option: CheckBox {
+        id: opt
+        property string key
+        Layout.fillWidth: true
+        checked: words.app.options[key] === true
+        onToggled: words.app.setOption(key, checked)
+        contentItem: Label {
+            leftPadding: opt.indicator.width + opt.spacing
+            text: opt.text
+            wrapMode: Text.Wrap
+            color: words.theme.fg
+            verticalAlignment: Text.AlignVCenter
+        }
+    }
+
     background: Rectangle { color: words.theme.bg }
     Component.onCompleted: app.refreshPractice()
     StackView.onRemoved: app.endPractice()
@@ -69,10 +92,16 @@ Page {
 
         // ---- Practice
         Item {
-            // The start: what is due, and Start.
-            ColumnLayout {
+            // The start: how many cards, Start, and the desktop's practice options below it.
+            Flickable {
                 visible: !words.p.active
-                anchors.centerIn: parent
+                anchors.fill: parent
+                contentHeight: start.implicitHeight + 48
+                clip: true
+            ColumnLayout {
+                id: start
+                x: 24
+                y: 24
                 width: parent.width - 48
                 spacing: 14
                 Label {
@@ -122,6 +151,57 @@ Page {
                     font.pixelSize: words.theme.small
                     color: words.theme.muted
                 }
+
+                // ---- The options (the same as the desktop's Practice page).
+                Section { text: qsTr("WHAT TO PRACTICE") }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Label { text: qsTr("Words From"); color: words.theme.fg }
+                    ComboBox {
+                        id: fromBook
+                        objectName: "practiceBook"
+                        Layout.fillWidth: true
+                        textRole: "title"
+                        valueRole: "id"
+                        model: [{"id": 0, "title": qsTr("All Books")}].concat(words.app ? words.app.wordBooks() : [])
+                        Component.onCompleted: currentIndex = Math.max(0, indexOfValue(words.app.options.practiceBook))
+                        onActivated: words.app.setOption("practiceBook", currentValue)
+                    }
+                }
+                Repeater {
+                    // The four kinds of card; at least one stays on.
+                    model: [{"key": "recognize", "label": qsTr("Book Language → English")},
+                            {"key": "recall", "label": qsTr("English → Book Language")},
+                            {"key": "definition", "label": qsTr("Definition → Word")},
+                            {"key": "cloze", "label": qsTr("Sentence With a Gap → Word")}]
+                    delegate: CheckBox {
+                        id: dir
+                        required property var modelData
+                        objectName: "dir-" + modelData.key
+                        Layout.fillWidth: true
+                        text: modelData.label
+                        checked: (words.app.options.practiceDirections || []).indexOf(modelData.key) >= 0
+                        onToggled: {
+                            let d = (words.app.options.practiceDirections || []).filter(k => k !== modelData.key)
+                            if (checked) d.push(modelData.key)
+                            words.app.setOption("practiceDirections", d)
+                        }
+                        contentItem: Label {
+                            leftPadding: dir.indicator.width + dir.spacing
+                            text: dir.text
+                            color: words.theme.fg
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                    }
+                }
+                Option { objectName: "practicePassages"; key: "practicePassages"; text: qsTr("Include Passages (Longer Selections)") }
+                Option { objectName: "practiceStarred"; key: "practiceStarredOnly"; text: qsTr("Starred Words Only") }
+                Option { objectName: "practiceHighlights"; key: "practiceHighlights"; text: qsTr("Add Highlighted Words to the Word Log") }
+                Option { objectName: "practiceLookups"; key: "practiceLookups"; text: qsTr("Add Looked-Up Words to the Word Log") }
+                Section { text: qsTr("HOW") }
+                Option { objectName: "practiceTyped"; key: "practiceTyped"; text: qsTr("Type the Answer (Instead of Flipping the Card)") }
+                Option { objectName: "practiceSentenceFront"; key: "practiceSentenceFront"; text: qsTr("Show the Sentence on the Front") }
+            }
             }
 
             // A card.
@@ -176,6 +256,18 @@ Page {
                             color: words.theme.fg
                         }
                         Rectangle { Layout.fillWidth: true; Layout.topMargin: 8; height: 1; color: words.theme.line; visible: words.p.revealed === true }
+                        // Type the Answer: how the typed answer went.
+                        Label {
+                            objectName: "cardVerdict"
+                            Layout.fillWidth: true
+                            horizontalAlignment: Text.AlignHCenter
+                            wrapMode: Text.Wrap
+                            visible: words.p.revealed === true && (words.p.verdict || "").length > 0
+                            text: words.p.verdict || ""
+                            font.pixelSize: words.theme.body
+                            font.weight: Font.DemiBold
+                            color: words.p.suggested >= 3 ? words.theme.accent : words.theme.fg
+                        }
                         Label {
                             objectName: "cardBack"
                             Layout.fillWidth: true
@@ -217,10 +309,29 @@ Page {
                         }
                     }
                 }
+                // Type the Answer (as on the desktop): a field and Check instead of Show Answer.
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: words.p.revealed !== true && words.p.typed === true
+                    TextField {
+                        id: answer
+                        objectName: "cardAnswer"
+                        Layout.fillWidth: true
+                        placeholderText: qsTr("Type the Answer")
+                        inputMethodHints: Qt.ImhNoPredictiveText
+                        onAccepted: { words.app.checkTyped(text); text = "" }
+                    }
+                    Button {
+                        objectName: "checkAnswer"
+                        text: qsTr("Check")
+                        highlighted: true
+                        onClicked: { words.app.checkTyped(answer.text); answer.text = "" }
+                    }
+                }
                 Button {
                     objectName: "showAnswer"
                     Layout.fillWidth: true
-                    visible: words.p.revealed !== true
+                    visible: words.p.revealed !== true && words.p.typed !== true
                     text: qsTr("Show Answer")
                     highlighted: true
                     implicitHeight: words.theme.touch + 4
@@ -238,9 +349,10 @@ Page {
                             objectName: "rate" + (index + 1)
                             Layout.fillWidth: true
                             implicitHeight: 60
-                            highlighted: index === 2
+                            // The rating a typed answer suggests (else Good), highlighted.
+                            highlighted: index + 1 === (words.p.suggested > 0 ? words.p.suggested : 3)
                             contentItem: Column {
-                                Label { anchors.horizontalCenter: parent.horizontalCenter; text: modelData; font.pixelSize: words.theme.body; color: index === 2 ? "white" : words.theme.fg }
+                                Label { anchors.horizontalCenter: parent.horizontalCenter; text: modelData; font.pixelSize: words.theme.body; color: parent.parent.highlighted ? "white" : words.theme.fg }
                             }
                             onClicked: words.app.rateCard(index + 1)
                         }
