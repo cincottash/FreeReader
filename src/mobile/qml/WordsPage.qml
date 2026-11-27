@@ -80,7 +80,7 @@ Page {
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.Wrap
                     text: (words.p.summary || "").length > 0 ? words.p.summary
-                          : (words.p.cards === 1 ? qsTr("1 card to practise") : qsTr("%1 cards to practise").arg(words.p.cards || 0))
+                          : (words.p.cards === 1 ? qsTr("1 Card to Practice") : qsTr("%1 Cards to Practice").arg(words.p.cards || 0))
                     font.pixelSize: words.theme.body
                     color: words.theme.fg
                 }
@@ -118,7 +118,7 @@ Page {
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.Wrap
                     visible: (words.p.words || 0) === 0
-                    text: qsTr("Words you look up or highlight while reading become flashcards here.")
+                    text: qsTr("Words highlighted while reading become flashcards here.")
                     font.pixelSize: words.theme.small
                     color: words.theme.muted
                 }
@@ -280,7 +280,7 @@ Page {
                         Label {
                             Layout.fillWidth: true
                             visible: entry.modelData.needsMeaning
-                            text: qsTr("No meaning yet: look it up while reading.")
+                            text: qsTr("No Meaning Yet")
                             font.pixelSize: 12
                             color: words.theme.muted
                         }
@@ -330,7 +330,8 @@ Page {
                 visible: list.count === 0
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.Wrap
-                text: qsTr("No words yet. Press and hold a word while reading to look it up or highlight it.")
+                // The empty list's text in title case (the owner's rule), then how to fill it.
+                text: qsTr("No Words Yet") + "\n" + qsTr("Press and hold a word while reading, then pick a highlight color.")
                 color: words.theme.muted
             }
         }

@@ -2,7 +2,7 @@
 
 An e-book reader for DRM-free books (EPUB, PDF, Kindle, FB2, comics, documents and more), for Windows (tested) and Linux (experimental), built to make reading in
 another language easy: right-click a word or a passage and its English meaning appears next to it. Every word you
-look up or highlight is saved, ready to practise as flashcards.
+highlight is saved, ready to practice as flashcards.
 
 ![FreeReader showing Don Quijote with the contents panel open](.github/screenshot.png)
 

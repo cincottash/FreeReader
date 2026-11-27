@@ -346,7 +346,7 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;${ANDROID_NDK_VERSION}" \
-            "platforms;android-35" "build-tools;35.0.0" > /dev/null
+            "platforms;android-36" "build-tools;36.0.0" > /dev/null
           echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
 
       - uses: jurplel/install-qt-action@v4
@@ -409,7 +409,7 @@ jobs:
           apk=$(find build-android -name '*-release-unsigned.apk' | head -n 1)
           test -n "$apk"
           # Signed with a key made for this run (test installs only; an installed copy updates only from the same key).
-          bt="$ANDROID_HOME/build-tools/35.0.0"
+          bt="$ANDROID_HOME/build-tools/36.0.0"
           keytool -genkeypair -keystore run.keystore -storepass android -keypass android -alias run \
             -dname "CN=FreeReader test" -keyalg RSA -keysize 2048 -validity 30 > /dev/null
           mkdir -p dist

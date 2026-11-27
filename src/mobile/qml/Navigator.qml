@@ -80,7 +80,7 @@ Drawer {
                 Label {
                     anchors.centerIn: parent
                     visible: contents.count === 0
-                    text: qsTr("This book has no contents.")
+                    text: qsTr("No Contents in This Book")
                     color: nav.theme.muted
                 }
             }
@@ -162,7 +162,7 @@ Drawer {
                     visible: notes.count === 0
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.Wrap
-                    text: qsTr("No highlights yet. Press and hold a word, then pick a color.")
+                    text: qsTr("No Highlights Yet") + "\n" + qsTr("Press and hold a word, then pick a color.")
                     color: nav.theme.muted
                 }
             }

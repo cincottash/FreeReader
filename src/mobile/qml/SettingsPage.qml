@@ -56,13 +56,40 @@ Page {
             Slider { Layout.fillWidth: true; from: 60; to: 250; stepSize: 10; value: settings.app.textSize; onMoved: settings.app.textSize = value }
             Label { text: qsTr("Margins: %1 px").arg(settings.app.margins); color: settings.theme.fg }
             Slider { Layout.fillWidth: true; from: 4; to: 80; stepSize: 4; value: settings.app.margins; onMoved: settings.app.margins = value }
-            Label { text: qsTr("Theme"); color: settings.theme.fg }
-            ThemeList {
-                // Every theme shown, the page scrolling (a list of its own 300 px high hid Green Tea and the groups
-                // after it behind a second scroll inside the page, 2026-11-27).
-                objectName: "settingsThemes"
+            // The theme: one line with the current one, folded by default; a tap opens every theme (the owner's
+            // request, 2026-11-27: the whole list was in the way of the settings below it).
+            ItemDelegate {
+                id: themeToggle
+                objectName: "settingsThemeToggle"
+                property bool open: false
                 Layout.fillWidth: true
-                Layout.preferredHeight: contentHeight
+                leftPadding: 0
+                rightPadding: 4
+                onClicked: open = !open
+                contentItem: RowLayout {
+                    spacing: 8
+                    Label { text: qsTr("Theme"); color: settings.theme.fg; Layout.fillWidth: true }
+                    Label {
+                        objectName: "settingsThemeName"
+                        text: {
+                            const list = settings.app ? settings.app.themes : []
+                            for (let i = 0; i < list.length; ++i)
+                                if (list[i].key === settings.app.theme) return list[i].name
+                            return ""
+                        }
+                        color: settings.theme.accent
+                    }
+                    Label { text: themeToggle.open ? "▴" : "▾"; color: settings.theme.muted }
+                }
+                background: Rectangle { color: themeToggle.pressed ? Qt.rgba(0.5, 0.5, 0.5, 0.15) : "transparent"; radius: 6 }
+            }
+            ThemeList {
+                // Every theme shown when open, the page scrolling (a list of its own 300 px high hid Green Tea and the
+                // groups after it behind a second scroll inside the page, 2026-11-27).
+                objectName: "settingsThemes"
+                visible: themeToggle.open
+                Layout.fillWidth: true
+                Layout.preferredHeight: visible ? contentHeight : 0
                 interactive: false
                 app: settings.app
                 theme: settings.theme

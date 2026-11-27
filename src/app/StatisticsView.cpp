@@ -218,7 +218,7 @@ StatisticsView::StatisticsView(core::Library* library, QWidget* parent) : QWidge
     body->setSpacing(6);
 
     m_empty = new QLabel(tr("Nothing yet. Reading time is counted as you turn pages; words and reviews come from translating, "
-                            "highlighting and practising."));
+                            "highlighting and practicing."));
     m_empty->setObjectName(QStringLiteral("Muted"));
     m_empty->setWordWrap(true);
     m_empty->setProperty("testId", "statisticsEmpty");

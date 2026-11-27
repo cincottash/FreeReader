@@ -57,12 +57,21 @@ if(ANDROID)
     if(EXISTS ${CMAKE_SOURCE_DIR}/android/AndroidManifest.xml)
         set_target_properties(freereader_mobile PROPERTIES QT_ANDROID_PACKAGE_SOURCE_DIR ${CMAKE_SOURCE_DIR}/android)
     endif()
+    # The version code Google Play needs, growing with every release: 0.7.15 -> 7015, 1.2.3 -> 1002003. A dev build
+    # (0.1.0-dev) gets a low number, below any release.
+    string(REGEX MATCH "^([0-9]+)\\.([0-9]+)\\.([0-9]+)" _v "${APP_VERSION}")
+    if(_v)
+        math(EXPR FREEREADER_VERSION_CODE "${CMAKE_MATCH_1} * 1000000 + ${CMAKE_MATCH_2} * 1000 + ${CMAKE_MATCH_3}")
+    else()
+        set(FREEREADER_VERSION_CODE 1)
+    endif()
+    # Android 16 (API 36): what Google Play requires of new apps and updates since 2026-08-31.
     set_target_properties(freereader_mobile PROPERTIES
         QT_ANDROID_PACKAGE_NAME org.cincottash.freereader
-        QT_ANDROID_TARGET_SDK_VERSION 35
+        QT_ANDROID_TARGET_SDK_VERSION 36
         QT_ANDROID_MIN_SDK_VERSION 28
         QT_ANDROID_VERSION_NAME ${APP_VERSION}
-        QT_ANDROID_VERSION_CODE 1)
+        QT_ANDROID_VERSION_CODE ${FREEREADER_VERSION_CODE})
     # HTTPS (Gemini, the dictionary downloads): Qt for Android uses OpenSSL, which isn't part of Android.
     if(DEFINED FREEREADER_ANDROID_OPENSSL_DIR)
         set_property(TARGET freereader_mobile APPEND PROPERTY QT_ANDROID_EXTRA_LIBS
