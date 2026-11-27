@@ -407,6 +407,15 @@ void MobileApp::onOpened()
         if (saved.cfi.isEmpty() || !m_engine->positionForCfi(saved.cfi, &m_start)) m_start = saved.position;
     }
     if (m_start.spine < 0 || m_start.spine >= int(book->spine.size())) m_start = {};
+    // Opened for Show in Book (the Word List): at the word, then the word selected once the page is there.
+    if (m_pendingWord.bookId == m_bookId && m_pendingWord.spine >= 0 && m_pendingWord.spine < int(book->spine.size())) {
+        core::Position p{m_pendingWord.spine, m_pendingWord.start};
+        if (!m_pendingWord.cfi.isEmpty()) m_engine->positionForCfi(m_pendingWord.cfi, &p);
+        m_start = p;
+        const int length = m_pendingWord.end - m_pendingWord.start;
+        QTimer::singleShot(600, this, [this, p, length] { emit selectRequested(p.spine, p.offset, p.offset + length); });
+    }
+    m_pendingWord = {};
     m_position = m_start;
     m_model->refresh();
     emit readingChanged();
@@ -656,9 +665,53 @@ void MobileApp::onTranslated(int id, const core::TranslationResult& r, const QSt
 
 QVariantList MobileApp::words() const
 {
+    // The Word List as the desktop's: searched (word, dictionary form, meaning, other meanings; accents ignored), one
+    // book or all, in the order chosen (kept in the settings, the same choices as the desktop's Sort).
     QVariantList out;
     if (!m_words) return out;
-    for (const core::WordEntry& w : m_words->words()) {
+    const QString needle = core::practice::foldAccents(m_wordSearch.trimmed().toLower());
+    QList<core::WordEntry> list;
+    for (const core::WordEntry& w : m_words->words(m_wordBook)) {
+        if (!needle.isEmpty()) {
+            const QString hay = core::practice::foldAccents((w.text + QLatin1Char(' ') + w.lemma + QLatin1Char(' ') + w.translation +
+                                                             QLatin1Char(' ') + w.alternatives.join(QLatin1Char(' '))).toLower());
+            if (!hay.contains(needle)) continue;
+        }
+        list << w;
+    }
+    const QString key = m_settings.wordListSort;
+    using W = core::WordEntry;
+    auto folded = [](const QString& s) { return core::practice::foldAccents(s.toLower()); };
+    auto alpha = [&](const QString& a, const QString& b) { return QString::localeAwareCompare(folded(a), folded(b)); };
+    std::function<bool(const W&, const W&)> before;
+    const QString base = key.section(QLatin1Char('-'), 0, 0);
+    if (key == QLatin1String("newest")) before = [](const W& a, const W& b) { return a.added > b.added; };
+    else if (key == QLatin1String("oldest")) before = [](const W& a, const W& b) { return a.added < b.added; };
+    else if (key == QLatin1String("az") || key == QLatin1String("za")) before = [&](const W& a, const W& b) { return alpha(a.headword(), b.headword()) < 0; };
+    else if (base == QLatin1String("meaning")) before = [&](const W& a, const W& b) { return alpha(a.translation, b.translation) < 0; };
+    else if (base == QLatin1String("book"))
+        before = [&](const W& a, const W& b) {
+            if (a.bookTitle != b.bookTitle) return alpha(a.bookTitle, b.bookTitle) < 0;
+            if (a.spine != b.spine) return a.spine < b.spine;
+            return a.start < b.start;
+        };
+    else if (base == QLatin1String("lookups")) before = [](const W& a, const W& b) { return a.lookups > b.lookups; };
+    else if (key == QLatin1String("starred")) before = [](const W& a, const W& b) { return a.starred && !b.starred; };
+    if (base == QLatin1String("review")) {
+        // The soonest review first (latest, the other way); words not practiced yet after them either way.
+        const QHash<int, QDateTime> due = m_words->nextReviews();
+        const bool latest = key == QLatin1String("review-latest");
+        std::stable_sort(list.begin(), list.end(), [&](const W& a, const W& b) {
+            const QDateTime da = due.value(a.id), db = due.value(b.id);
+            if (da.isValid() != db.isValid()) return da.isValid();
+            return da.isValid() && (latest ? db < da : da < db);
+        });
+    } else if (before) {
+        const bool reversed = key == QLatin1String("za") || key.contains(QLatin1Char('-'));
+        if (reversed) std::stable_sort(list.begin(), list.end(), [&](const W& a, const W& b) { return before(b, a); });
+        else std::stable_sort(list.begin(), list.end(), before);
+    }
+    for (const core::WordEntry& w : std::as_const(list)) {
         out << QVariantMap{{QStringLiteral("id"), w.id},
                            {QStringLiteral("headword"), w.headword()},
                            {QStringLiteral("text"), w.text},
@@ -668,9 +721,36 @@ QVariantList MobileApp::words() const
                            {QStringLiteral("book"), w.bookTitle},
                            {QStringLiteral("page"), w.pageLabel},
                            {QStringLiteral("starred"), w.starred},
+                           {QStringLiteral("lookups"), w.lookups},
                            {QStringLiteral("needsMeaning"), w.translation.isEmpty()}};
     }
     return out;
+}
+
+void MobileApp::startOverWord(int id)
+{
+    // Start Over (as on the desktop): the word's cards become new again.
+    if (!m_words || id <= 0) return;
+    m_words->resetCards(id);
+    emit wordsChanged();
+    refreshPractice();
+}
+
+void MobileApp::showWordInBook(int id)
+{
+    // Show in Book: the place the word was seen, selected; its book opened first when another one is open.
+    if (!m_words) return;
+    const core::WordEntry w = m_words->word(id);
+    if (w.id == 0 || !w.bookId || w.spine < 0) return;
+    core::Position p{w.spine, w.start};
+    if (w.bookId == m_bookId) {
+        if (!w.cfi.isEmpty()) m_engine->positionForCfi(w.cfi, &p);
+        emit jumpRequested(p.spine, p.offset);
+        emit selectRequested(p.spine, p.offset, p.offset + (w.end - w.start));
+        return;
+    }
+    m_pendingWord = {w.bookId, w.spine, w.start, w.end, w.cfi};
+    openBook(w.bookId);
 }
 
 int MobileApp::wordCount() const { return m_words ? m_words->count() : 0; }
@@ -949,7 +1029,10 @@ QVariantMap MobileApp::options() const
             {QStringLiteral("practicePassages"), s.practicePassages},
             {QStringLiteral("practiceDirections"), s.practiceDirections},
             {QStringLiteral("practiceBook"), m_practiceBook},
-            {QStringLiteral("practiceStarredOnly"), m_practiceStarred}};
+            {QStringLiteral("practiceStarredOnly"), m_practiceStarred},
+            {QStringLiteral("wordSearch"), m_wordSearch},
+            {QStringLiteral("wordBook"), m_wordBook},
+            {QStringLiteral("wordListSort"), s.wordListSort}};
 }
 
 void MobileApp::setOption(const QString& key, const QVariant& value)
@@ -967,6 +1050,22 @@ void MobileApp::setOption(const QString& key, const QVariant& value)
         const QString id = QString::number(m_bookId);
         s.offlineBooks.removeAll(id);
         if (value.toBool()) s.offlineBooks << id;
+    } else if (key == QLatin1String("wordSearch") || key == QLatin1String("wordBook")) {
+        // The Word List's search and book: this session's only.
+        if (key == QLatin1String("wordSearch")) m_wordSearch = value.toString();
+        else m_wordBook = value.toInt();
+        emit optionsChanged();
+        emit wordsChanged();
+        return;
+    } else if (key == QLatin1String("wordListSort")) {
+        static const QStringList keys{"recent", "newest", "oldest", "az", "za", "meaning", "meaning-za", "book", "book-reverse",
+                                      "lookups", "lookups-least", "starred", "review", "review-latest"};
+        if (!keys.contains(value.toString())) return;
+        s.wordListSort = value.toString();
+        saveSettings();
+        emit optionsChanged();
+        emit wordsChanged();
+        return;
     } else if (key == QLatin1String("practiceBook") || key == QLatin1String("practiceStarredOnly")) {
         // This session's choice only, as on the desktop (not kept in the settings file).
         if (key == QLatin1String("practiceBook")) m_practiceBook = value.toInt();
@@ -1386,10 +1485,58 @@ void MobileApp::toggleBookmark()
         a.cfi = m_engine->cfiFor(m_position);
         if (const auto ix = m_engine->index()) a.pageLabel = ix->pageLabel(m_position);
         a.chapter = chapterTitleAt(m_position);
-        m_notes->add(a);
+        const int newId = m_notes->add(a);
+        emit annotationsChanged();
+        // Remove the bookmark before it? (as on the desktop, the owner's request of 2026-11-26: a bookmark usually
+        // marks where reading got to, and the old one is then in the way). The question is the screen's to show.
+        QList<core::Annotation> earlier;
+        for (const core::Annotation& b : m_notes->forBook(m_bookId))
+            if (b.kind == core::Annotation::Bookmark && b.id != newId) earlier << b;
+        if (earlier.isEmpty()) return;
+        std::sort(earlier.begin(), earlier.end(), [](const core::Annotation& x, const core::Annotation& y) {
+            return x.created != y.created ? x.created > y.created : x.id > y.id;
+        });
+        m_earlierBookmarks.clear();
+        for (const core::Annotation& b : earlier) m_earlierBookmarks << b.id;
+        const core::Annotation& last = earlier.first();
+        const QString where = !last.pageLabel.isEmpty() ? tr("page %1").arg(last.pageLabel) : QStringLiteral("“%1…”").arg(last.text.left(40).trimmed());
+        const int n = int(earlier.size());
+        emit bookmarkQuestion(n == 1 ? tr("This book also has a bookmark on %1. Remove it?").arg(where)
+                                     : tr("This book also has %1 other bookmarks; the last one added is on %2. Remove it?").arg(QLocale().toString(n), where),
+                              n);
+        return;
     }
     emit annotationsChanged();
 }
+
+void MobileApp::removeEarlierBookmarks(bool all)
+{
+    // The answer to bookmarkQuestion: the bookmark added last before the new one, or all of them.
+    if (!m_notes || m_earlierBookmarks.isEmpty()) return;
+    if (all) for (int id : std::as_const(m_earlierBookmarks)) m_notes->remove(id);
+    else m_notes->remove(m_earlierBookmarks.first());
+    m_earlierBookmarks.clear();
+    emit annotationsChanged();
+}
+
+void MobileApp::goToLatestBookmark()
+{
+    // The bookmark added last, in any book: its book opened when another one (or none) is open.
+    if (!m_notes) return;
+    const core::Annotation a = m_notes->latestBookmark();
+    if (a.id == 0) {
+        setMessage(tr("No bookmarks yet."));
+        return;
+    }
+    if (a.bookId == m_bookId) {
+        goToAnnotation(a.id);
+        return;
+    }
+    m_pendingWord = {a.bookId, a.spine, a.start, core::Annotations::isWordBookmark(a) ? a.end : a.start, a.cfi};
+    openBook(a.bookId);
+}
+
+bool MobileApp::hasBookmarks() const { return m_notes && m_notes->latestBookmark().id != 0; }
 
 bool MobileApp::pageBookmarked() const
 {

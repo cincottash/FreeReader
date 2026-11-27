@@ -39,6 +39,41 @@ Page {
     }
 
     background: Rectangle { color: words.theme.bg }
+
+    // A word's actions (a tap on it in the Word List).
+    Menu {
+        id: wordMenu
+        objectName: "wordMenu"
+        property int wordId: 0
+        property string meaning: ""
+        MenuItem {
+            objectName: "wordShowInBook"
+            text: qsTr("Show in Book")
+            // Back to the reader (its book, or the word's book once it opens).
+            onTriggered: { words.app.showWordInBook(wordMenu.wordId); words.closeRequested() }
+        }
+        MenuItem {
+            objectName: "wordChangeMeaning"
+            text: qsTr("Change Meaning…")
+            onTriggered: { meaningField.text = wordMenu.meaning; meaningDialog.open() }
+        }
+        MenuItem {
+            objectName: "wordStartOver"
+            text: qsTr("Start Over")
+            onTriggered: words.app.startOverWord(wordMenu.wordId)
+        }
+    }
+    Dialog {
+        id: meaningDialog
+        objectName: "meaningDialog"
+        anchors.centerIn: parent
+        width: parent.width - 48
+        modal: true
+        title: qsTr("Change Meaning")
+        standardButtons: Dialog.Cancel | Dialog.Save
+        TextField { id: meaningField; width: parent.width; placeholderText: qsTr("Meaning") }
+        onAccepted: words.app.setWordMeaning(wordMenu.wordId, meaningField.text)
+    }
     Component.onCompleted: app.refreshPractice()
     StackView.onRemoved: app.endPractice()
 
@@ -361,10 +396,56 @@ Page {
             }
         }
 
-        // ---- Word List
+        // ---- Word List: search, book and order on top (as on the desktop), then the words. A tap on a word: Show
+        // in Book, Change Meaning, Start Over.
+        ColumnLayout {
+            spacing: 0
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.margins: 12
+                spacing: 8
+                TextField {
+                    objectName: "wordSearch"
+                    Layout.fillWidth: true
+                    placeholderText: qsTr("Search Words and Meanings")
+                    inputMethodHints: Qt.ImhNoPredictiveText
+                    text: words.app.options.wordSearch || ""
+                    onTextEdited: words.app.setOption("wordSearch", text)
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    ComboBox {
+                        objectName: "wordBook"
+                        Layout.fillWidth: true
+                        textRole: "title"
+                        valueRole: "id"
+                        model: [{"id": 0, "title": qsTr("All Books")}].concat(words.app ? words.app.wordBooks() : [])
+                        Component.onCompleted: currentIndex = Math.max(0, indexOfValue(words.app.options.wordBook))
+                        onActivated: words.app.setOption("wordBook", currentValue)
+                    }
+                    ComboBox {
+                        objectName: "wordSort"
+                        Layout.fillWidth: true
+                        textRole: "label"
+                        valueRole: "key"
+                        model: [{"key": "recent", "label": qsTr("Recently Looked Up")}, {"key": "newest", "label": qsTr("Newest First")},
+                                {"key": "oldest", "label": qsTr("Oldest First")}, {"key": "az", "label": qsTr("A to Z")},
+                                {"key": "za", "label": qsTr("Z to A")}, {"key": "meaning", "label": qsTr("Meaning A to Z")},
+                                {"key": "meaning-za", "label": qsTr("Meaning Z to A")}, {"key": "book", "label": qsTr("Book Order")},
+                                {"key": "book-reverse", "label": qsTr("Book Order, Last First")}, {"key": "lookups", "label": qsTr("Most Looked Up")},
+                                {"key": "lookups-least", "label": qsTr("Least Looked Up")}, {"key": "starred", "label": qsTr("Starred First")},
+                                {"key": "review", "label": qsTr("Next Review")}, {"key": "review-latest", "label": qsTr("Next Review, Latest First")}]
+                        Component.onCompleted: currentIndex = Math.max(0, indexOfValue(words.app.options.wordListSort))
+                        onActivated: words.app.setOption("wordListSort", currentValue)
+                    }
+                }
+            }
+            Rectangle { Layout.fillWidth: true; height: 1; color: words.theme.line }
         ListView {
             id: list
             objectName: "wordList"
+            Layout.fillWidth: true
+            Layout.fillHeight: true
             clip: true
             model: words.app ? words.app.words : []
             delegate: Item {
@@ -372,6 +453,12 @@ Page {
                 required property var modelData
                 width: ListView.view.width
                 height: col.implicitHeight + 24
+                Rectangle { anchors.fill: parent; color: rowTap.pressed ? Qt.rgba(0.5, 0.5, 0.5, 0.15) : "transparent" }
+                MouseArea {
+                    id: rowTap
+                    anchors.fill: parent
+                    onClicked: { wordMenu.wordId = entry.modelData.id; wordMenu.meaning = entry.modelData.translation; wordMenu.popup() }
+                }
                 RowLayout {
                     x: 16
                     y: 12
@@ -443,9 +530,11 @@ Page {
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.Wrap
                 // The empty list's text in title case (the owner's rule), then how to fill it.
-                text: qsTr("No Words Yet") + "\n" + qsTr("Press and hold a word while reading, then pick a highlight color.")
+                text: (words.app.options.wordSearch || "").length > 0 ? qsTr("No Matching Words")
+                      : qsTr("No Words Yet") + "\n" + qsTr("Press and hold a word while reading, then pick a highlight color.")
                 color: words.theme.muted
             }
+        }
         }
     }
 }

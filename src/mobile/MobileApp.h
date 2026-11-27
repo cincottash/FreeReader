@@ -131,6 +131,8 @@ class MobileApp : public QObject {
     Q_PROPERTY(QVariantMap options READ options NOTIFY optionsChanged)
     // Hear Pronunciation or Read Aloud is speaking (the button then stops it).
     Q_PROPERTY(bool speaking READ isSpeaking NOTIFY speakingChanged)
+    // The open book's id (0: none), so a reader screen closes only its own book.
+    Q_PROPERTY(int bookId READ bookId NOTIFY readingChanged)
 public:
     MobileApp(const QString& dataFolder, QObject* parent = nullptr);
     ~MobileApp() override;
@@ -232,6 +234,12 @@ public:
     Q_INVOKABLE void revealCard();
     Q_INVOKABLE void checkTyped(const QString& typed);   // Type the Answer: checks it, then shows the card's back
     Q_INVOKABLE QVariantList wordBooks() const;           // {id, title} of the books the Word List has words from
+    Q_INVOKABLE void startOverWord(int id);               // Start Over: the word's cards become new again
+    Q_INVOKABLE void removeEarlierBookmarks(bool all);    // the answer to bookmarkQuestion
+    Q_INVOKABLE void goToLatestBookmark();                // the bookmark added last, in any book
+    Q_INVOKABLE bool hasBookmarks() const;
+    Q_INVOKABLE void showWordInBook(int id);              // Show in Book: the word's place, its book opened if needed
+    int bookId() const { return m_bookId; }
     Q_INVOKABLE void rateCard(int rating);   // 1 Again, 2 Hard, 3 Good, 4 Easy
     Q_INVOKABLE void endPractice();
     QString practiceOrder() const { return m_settings.practiceOrder; }
@@ -301,6 +309,8 @@ signals:
     void optionsChanged();
     void geminiTested(const QString& result);
     void speakingChanged();
+    // A bookmark was added where the book has others: remove the earlier one(s)? (count: how many there are)
+    void bookmarkQuestion(const QString& question, int count);
 
 private:
     void setMessage(const QString& text);
@@ -361,6 +371,13 @@ private:
     bool m_practiceStarred = false;      // this session's "Starred Words Only"
     QString m_verdict;                   // Type the Answer: how the typed answer went
     int m_suggested = 0;                 // the rating it suggests
+    QList<int> m_earlierBookmarks;       // the book's other bookmarks when one was added (newest first)
+    QString m_wordSearch;                // the Word List's search (this session)
+    int m_wordBook = 0;                  // the Word List's book (0: all)
+    struct PendingWord {                 // Show in Book in a book not open yet: where to go once it is
+        int bookId = 0, spine = -1, start = 0, end = 0;
+        QString cfi;
+    } m_pendingWord;
     QString m_lastSpoken;
     bool m_quiet = false;
     struct Asked {

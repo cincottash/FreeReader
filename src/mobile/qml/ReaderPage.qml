@@ -30,7 +30,10 @@ Page {
     function lookUpSelection() { reader.app.lookUp(book) }
 
     background: Rectangle { color: reader.theme.bg }
-    StackView.onRemoved: app.closeBook()
+    // Closing this screen closes its own book only (Show in Book can open another one meanwhile).
+    property int openedId: 0
+    Component.onCompleted: openedId = app.bookId
+    StackView.onRemoved: if (app.bookId === openedId) app.closeBook()
 
     BookPage {
         id: book
@@ -247,6 +250,51 @@ Page {
     Connections {
         target: reader.app
         function onLookupChanged() { if ((reader.app.lookup.text || "").length > 0 && !sheet.opened) sheet.open() }
+        function onBookmarkQuestion(question, count) { bookmarkDialog.ask(question, count) }
+    }
+
+    // A new bookmark where the book has others: remove the earlier one(s)? (as on the desktop)
+    Dialog {
+        id: bookmarkDialog
+        objectName: "bookmarkDialog"
+        property int count: 0
+        property alias question: questionLabel.text
+        function ask(q, n) { question = q; count = n; open() }
+        anchors.centerIn: parent
+        width: parent.width - 48
+        modal: true
+        title: qsTr("Bookmark Added")
+        Label { id: questionLabel; width: parent.width; wrapMode: Text.Wrap; color: reader.theme.fg }
+        footer: ColumnLayout {
+            spacing: 4
+            Button {
+                objectName: "bookmarkRemovePrevious"
+                Layout.fillWidth: true
+                Layout.leftMargin: 12
+                Layout.rightMargin: 12
+                text: qsTr("Remove Previous Bookmark")
+                highlighted: true
+                onClicked: { reader.app.removeEarlierBookmarks(false); bookmarkDialog.close() }
+            }
+            Button {
+                objectName: "bookmarkRemoveAll"
+                Layout.fillWidth: true
+                Layout.leftMargin: 12
+                Layout.rightMargin: 12
+                visible: bookmarkDialog.count > 1
+                text: qsTr("Remove All %1").arg(bookmarkDialog.count)
+                onClicked: { reader.app.removeEarlierBookmarks(true); bookmarkDialog.close() }
+            }
+            Button {
+                objectName: "bookmarkKeep"
+                Layout.fillWidth: true
+                Layout.leftMargin: 12
+                Layout.rightMargin: 12
+                Layout.bottomMargin: 12
+                text: bookmarkDialog.count === 1 ? qsTr("Keep Both") : qsTr("Keep All")
+                onClicked: bookmarkDialog.close()
+            }
+        }
     }
 
     LookupSheet {

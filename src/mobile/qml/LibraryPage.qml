@@ -29,6 +29,15 @@ Page {
                 color: page.theme.fg
                 Layout.fillWidth: true
             }
+            // Go to Latest Bookmark (as on the desktop's library): the bookmark added last, in any book.
+            IconButton {
+                objectName: "latestBookmarkButton"
+                theme: page.theme
+                iconName: "bookmark"
+                text: qsTr("Go to Latest Bookmark")
+                visible: page.app.bookCount > 0
+                onClicked: page.app.goToLatestBookmark()
+            }
             ToolButton {
                 id: wordsButton
                 objectName: "wordsButton"

@@ -85,7 +85,12 @@ ApplicationWindow {
 
     Connections {
         target: win.app
-        function onBookOpened() { stack.push(readerScreen) }
+        // A book opened: its reader on top of the library (a reader or the Words screen open before, from Show in
+        // Book, goes; Back then leads to the library).
+        function onBookOpened() {
+            if (stack.depth > 1) stack.pop(null, StackView.Immediate)
+            stack.push(readerScreen)
+        }
     }
 
     onClosing: (close) => {
