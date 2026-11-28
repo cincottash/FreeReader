@@ -57,6 +57,16 @@ find_package(Qt6 QUIET COMPONENTS TextToSpeech)
 if(TARGET Qt6::TextToSpeech)
     target_link_libraries(freereader_mobile PRIVATE Qt6::TextToSpeech)
     target_compile_definitions(freereader_mobile PRIVATE HAVE_TEXT_TO_SPEECH)
+    # The voices come from Android's own text-to-speech; Qt Multimedia (a dependency of the module) is linked but
+    # needs none of its media plugins, and the FFmpeg one alone would add about 10 MB of video libraries. The QML
+    # debugging plugins and the test voice aren't needed in the app either. (Android only: the desktop test build
+    # uses the test voice.)
+    if(ANDROID)
+        qt_import_plugins(freereader_mobile EXCLUDE_BY_TYPE multimedia qmltooling)
+        if(TARGET Qt6::QTextToSpeechMockPlugin)
+            qt_import_plugins(freereader_mobile EXCLUDE Qt6::QTextToSpeechMockPlugin)
+        endif()
+    endif()
 endif()
 
 # The bundled fonts and the icon (SIL Open Font License; the license texts sit next to the fonts), and the app's

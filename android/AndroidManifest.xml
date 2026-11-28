@@ -6,7 +6,13 @@
     android:installLocation="auto"
     android:versionCode="-- %%INSERT_VERSION_CODE%% --"
     android:versionName="-- %%INSERT_VERSION_NAME%% --">
-    <!-- %%INSERT_PERMISSIONS -->
+    <!-- The permissions are listed here instead of Qt's %%INSERT_PERMISSIONS... line, which adds every Qt module's
+         list: Qt Multimedia (which the phone's voices bring in) would add the camera, the microphone, Bluetooth and
+         audio settings, none of which the app uses. Internet and the network state: Gemini, LM Studio, the
+         dictionary downloads; external storage: Qt Core's (saving files on older Android). -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
     <!-- %%INSERT_FEATURES -->
     <supports-screens
         android:anyDensity="true"
