@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FreeReader</title>
+<meta name="description" content="FreeReader: a free e-book reader for Android, Windows and Linux, made for reading books in another language.">
+<link rel="icon" href="assets/icon.png">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<header>
+  <img src="assets/icon.png" alt="FreeReader icon">
+  <div>
+    <h1>FreeReader</h1>
+    <p>A free e-book reader for reading books in another language</p>
+  </div>
+</header>
+<nav>
+  <a href="#download">Download</a>
+  <a href="#google">Google Account</a>
+  <a href="privacy.html">Privacy Policy</a>
+  <a href="terms.html">Terms of Service</a>
+</nav>
+<main>
+  <p>
+    <strong>FreeReader</strong> is a free, open-source e-book reader for Android, Windows and Linux. It opens your own
+    DRM-free books (EPUB, PDF, Kindle files without DRM, FB2, comics, Word documents and more) and is built to make
+    reading in a language you are learning easy: tap or right-click a word or a passage and its meaning appears next
+    to it. Every word you look up is saved to your Word List, ready to practice as flashcards.
+  </p>
+
+  <div class="pictures">
+    <img class="desktop" src="assets/desktop.png" alt="FreeReader on Windows, reading Don Quijote with the contents open">
+    <img class="phone" src="assets/phone-translate.png" alt="FreeReader on a phone, showing the meaning of a word">
+  </div>
+
+  <h2>What FreeReader does</h2>
+  <ul>
+    <li>A library of your books, with covers, collections, search and reading progress.</li>
+    <li>Comfortable reading: fonts, text size, margins, themes (day, sepia, night), two pages side by side,
+        page-turn animations.</li>
+    <li>Meanings of words and sentences from offline dictionaries, or, if you add your own Google Gemini key,
+        from Gemini.</li>
+    <li>Highlights in four colors, notes, bookmarks, and a Notebook you can export.</li>
+    <li>A Word List and flashcard practice with spaced repetition.</li>
+    <li>Reading statistics, read aloud with your device's voices, and the app in English or Spanish.</li>
+    <li>No ads, no tracking and no account needed.</li>
+  </ul>
+
+  <h2 id="download">Download</h2>
+  <table>
+    <tr><th>Windows 10 and 11</th><td><a href="https://github.com/cincottash/FreeReader/releases/latest">FreeReader.exe</a> (one file, nothing to install)</td></tr>
+    <tr><th>Linux</th><td><a href="https://github.com/cincottash/FreeReader/releases/latest">FreeReader-x86_64.AppImage</a> (experimental)</td></tr>
+    <tr><th>Android</th><td>Coming to Google Play (in testing now)</td></tr>
+  </table>
+  <p>The source code is on <a href="https://github.com/cincottash/FreeReader">GitHub</a>, under the GNU GPL version 3.</p>
+
+  <h2 id="google">Your Google Account and Google Drive</h2>
+  <div class="box">
+    <p>
+      FreeReader works without any account. Signing in with Google is optional and is used for one thing only:
+      <strong>Sync</strong>, which keeps your books, reading positions, highlights, notes, bookmarks, Word List,
+      flashcard progress, reading statistics and settings the same on all your devices (for example your phone and
+      your computer).
+    </p>
+    <p>
+      When you turn Sync on, FreeReader asks Google for permission to use a hidden folder in your own Google Drive
+      that only FreeReader can see (the <em>app data folder</em>, Google's scope
+      <code>drive.appdata</code>). FreeReader stores its sync files and copies of your books there. It cannot see or
+      change any other file in your Drive, and the data goes straight between your devices and your Drive: there is
+      no FreeReader server, and the developer never receives it.
+    </p>
+    <p>
+      You can turn Sync off at any time, and remove FreeReader's folder from your Drive (Google Drive, Settings,
+      Manage Apps, FreeReader, Delete Hidden App Data). Details are in the <a href="privacy.html">Privacy Policy</a>.
+    </p>
+  </div>
+</main>
+<footer>
+  <a href="privacy.html">Privacy Policy</a>
+  <a href="terms.html">Terms of Service</a>
+  <a href="https://github.com/cincottash/FreeReader">Source Code</a>
+  <a href="https://github.com/cincottash/FreeReader/issues">Report a Problem</a>
+  <p>FreeReader &copy; 2026 cincottash</p>
+</footer>
+</body>
+</html>
