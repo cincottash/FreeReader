@@ -1,4 +1,4 @@
-// Downloads the offline dictionary from FreeReader's GitHub releases, only when the user asks: a zip with the
+// Downloads the offline dictionary from Biblioglot's GitHub releases, only when the user asks: a zip with the
 // SQLite file and its license. The zip is checked against the size and SHA-256 built into the app before it is
 // unpacked, so a damaged or replaced file is never installed. The caller installs the unpacked file.
 #pragma once

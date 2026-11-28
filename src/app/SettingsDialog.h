@@ -81,13 +81,13 @@ public:
     QString installDictionary(const QString& file);
     // `language`: the dictionary's key ("es", "en" or "es-es", as above).
     void removeDictionary(const QString& language = QStringLiteral("es"));
-    // Download: from FreeReader's GitHub releases (tests point it at a local server).
+    // Download: from Biblioglot's GitHub releases (tests point it at a local server).
     void downloadDictionary(const QString& language = QStringLiteral("es"));
     void cancelDictionaryDownload(const QString& language = QStringLiteral("es"));
     bool isDownloadingDictionary(const QString& language = QString()) const;   // empty: either
     void setDictionarySource(const core::DictionaryDownload::Source& s, const QString& language = QStringLiteral("es"));
     // The offline sentence translator: a pack (the program and its Spanish -> English model) downloaded from
-    // FreeReader's GitHub releases into the translator's folder.
+    // Biblioglot's GitHub releases into the translator's folder.
     void setOfflineTranslator(core::OfflineTranslator* translator);
     void downloadTranslator();
     void cancelTranslatorDownload();

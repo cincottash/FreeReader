@@ -447,7 +447,7 @@ QString MobileApp::copyIntoApp(const QUrl& url, QString* error)
         const QString suffix = core::convert::bookSuffixFromBytes(head);
         if (suffix.isEmpty() || !core::FormatRegistry::instance().fileSuffixes().contains(suffix)) {
             QFile::remove(incoming);
-            *error = tr("This file isn't a book FreeReader can open.");
+            *error = tr("This file isn't a book Biblioglot can open.");
             return {};
         }
         if (name.isEmpty() || name.startsWith(QLatin1Char('.'))) name = QStringLiteral("book");
@@ -941,7 +941,7 @@ QString MobileApp::notebookFileName(const QString& format) const
 {
     static const QHash<QString, QString> endings{{QStringLiteral("json"), QStringLiteral("json")}, {QStringLiteral("text"), QStringLiteral("txt")},
                                                  {QStringLiteral("csv"), QStringLiteral("csv")},   {QStringLiteral("tsv"), QStringLiteral("tsv")}};
-    return safeFileName(tr("%1 - Notebook").arg(m_title.isEmpty() ? QStringLiteral("FreeReader") : m_title)) + QLatin1Char('.') +
+    return safeFileName(tr("%1 - Notebook").arg(m_title.isEmpty() ? QStringLiteral("Biblioglot") : m_title)) + QLatin1Char('.') +
            endings.value(format, QStringLiteral("md"));
 }
 
@@ -3125,16 +3125,16 @@ void MobileApp::openLink(const QString& url)
 
 QUrl MobileApp::reportUrl() const
 {
-    // A new issue on FreeReader's GitHub page, filled in with the answer being reported; the reader reads it, can
+    // A new issue on Biblioglot's GitHub page, filled in with the answer being reported; the reader reads it, can
     // change it, and sends it there (or not).
     const QString text = m_lookup.value(QStringLiteral("text")).toString();
     const QString answer = m_lookup.value(QStringLiteral("translation")).toString();
-    const QString body = tr("What is wrong with this answer?\n\n\n---\nSelected text: %1\nAnswer: %2\nFrom: %3\nFreeReader %4 (phone)")
+    const QString body = tr("What is wrong with this answer?\n\n\n---\nSelected text: %1\nAnswer: %2\nFrom: %3\nBiblioglot %4 (phone)")
                              .arg(text.left(500), answer.left(1000), m_lookup.value(QStringLiteral("provider")).toString(), version());
     QUrlQuery q;
     q.addQueryItem(QStringLiteral("title"), tr("Report: the answer for “%1”").arg(text.left(60)));
     q.addQueryItem(QStringLiteral("body"), body);
-    QUrl url(QStringLiteral("https://github.com/cincottash/FreeReader/issues/new"));
+    QUrl url(QStringLiteral("https://github.com/cincottash/Biblioglot/issues/new"));
     url.setQuery(q);
     return url;
 }

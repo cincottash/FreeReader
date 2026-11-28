@@ -10,7 +10,7 @@ ApplicationWindow {
     width: 412
     height: 915
     visible: true
-    title: "FreeReader"
+    title: "Biblioglot"
     color: appTheme.bg
 
     Theme { id: appTheme; colors: win.app.colors }

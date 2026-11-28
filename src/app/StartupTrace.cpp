@@ -20,7 +20,7 @@ void startupTrace(const char* stage)
     if (!tmp) tmp = std::getenv("TMPDIR");
     if (!tmp) tmp = "/tmp";
     char path[1024];
-    std::snprintf(path, sizeof path, "%s/FreeReader-startup.log", tmp);
+    std::snprintf(path, sizeof path, "%s/Biblioglot-startup.log", tmp);
     if (FILE* probe = std::fopen(path, "rb")) {
         std::fseek(probe, 0, SEEK_END);
         const long size = std::ftell(probe);

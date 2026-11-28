@@ -12,7 +12,7 @@ KindleImportDialog::KindleImportDialog(const core::KindleExport& ex, const core:
                                        QWidget* parent)
     : QDialog(parent), m_apply(std::move(apply))
 {
-    // A FreeReader Notebook export or a Kindle's: the same choices, worded for where they come from.
+    // A Biblioglot Notebook export or a Kindle's: the same choices, worded for where they come from.
     const bool nb = plan.notebook;
     setWindowTitle(nb ? tr("Import Highlights") : tr("Import Kindle Highlights"));
     const QLocale loc;

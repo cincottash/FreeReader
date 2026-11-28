@@ -1,5 +1,5 @@
 // The offline sentence translator: Mozilla's Bergamot (the engine Firefox translates with), downloaded on request
-// as a small separate program with its Spanish -> English model. FreeReader starts the program for each lookup,
+// as a small separate program with its Spanish -> English model. Biblioglot starts the program for each lookup,
 // sends the text and reads the English back (about 0.15 s for a sentence, 0.3 s for a page of paragraphs, on one
 // CPU thread). Used for sentences and passages, and for the bilingual view's paragraphs, when Gemini and LM Studio
 // can't answer; never for Explain This Sentence (it translates, it doesn't explain).

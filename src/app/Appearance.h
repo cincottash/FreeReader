@@ -22,7 +22,7 @@ struct Appearance {
     void clamp();
 
     static QStringList keys();               // the JSON keys, for removing a value from narrower layers
-    static QStringList bundledFonts();       // fonts that ship with FreeReader
+    static QStringList bundledFonts();       // fonts that ship with Biblioglot
 };
 
 // Registers the bundled fonts with Qt (once).

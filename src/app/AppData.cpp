@@ -36,10 +36,10 @@ QString choiceFile()
 QString ask(QWidget* parent, const QString& current, bool firstRun)
 {
     QDialog d(parent);
-    d.setWindowTitle(firstRun ? QStringLiteral("Welcome to " APP_NAME) : QStringLiteral("App Data Folder"));
+    d.setWindowTitle(firstRun ? QStringLiteral("Welcome to " APP_DISPLAY_NAME) : QStringLiteral("App Data Folder"));
     auto* lay = new QVBoxLayout(&d);
     auto* intro = new QLabel(QStringLiteral(
-        "Where should " APP_NAME " keep its library database (reading positions, and later notes and the word log) and its settings?\n"
+        "Where should " APP_DISPLAY_NAME " keep its library database (reading positions, and later notes and the word log) and its settings?\n"
         "Books stay where they are; they aren't copied here."));
     intro->setWordWrap(true);
     lay->addWidget(intro);

@@ -84,7 +84,7 @@ AppearancePanel::AppearancePanel(QWidget* parent) : QFrame(parent)
     m_font = new QComboBox;
     m_font->setProperty("testId", "font");
     m_font->addItem(tr("Book's Fonts"), QString());
-    m_font->setItemData(0, tr("The fonts the book asks for (FreeReader's Literata where it names none)."), Qt::ToolTipRole);
+    m_font->setItemData(0, tr("The fonts the book asks for (Biblioglot's Literata where it names none)."), Qt::ToolTipRole);
     for (const QString& f : Appearance::bundledFonts()) m_font->addItem(f, f);
     m_font->insertSeparator(m_font->count());
     for (const QString& f : QFontDatabase::families())

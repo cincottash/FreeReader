@@ -152,7 +152,7 @@ class MobileApp : public QObject {
     // The order the cards come in: random, alphabetical, newest, oldest, book (every card is practised).
     Q_PROPERTY(QString practiceOrder READ practiceOrder WRITE setPracticeOrder NOTIFY practiceChanged)
     Q_PROPERTY(QString version READ version CONSTANT)
-    // The file picker's filters: every format FreeReader opens, then all files (a picked file without a name
+    // The file picker's filters: every format Biblioglot opens, then all files (a picked file without a name
     // ending is recognised from its bytes).
     Q_PROPERTY(QStringList bookFilters READ bookFilters CONSTANT)
     // The open book's pages turn right to left (manga): taps and swipes are mirrored.
@@ -227,7 +227,7 @@ public:
     Q_INVOKABLE bool isMissing(int bookId) const;      // the book's file isn't there any more
     Q_INVOKABLE void locateBook(int bookId, const QUrl& url);   // the file picked again: copied in, the place kept
 
-    // Import Highlights (as on the desktop): a Kindle export (Bookcision's JSON, My Clippings.txt) or a FreeReader
+    // Import Highlights (as on the desktop): a Kindle export (Bookcision's JSON, My Clippings.txt) or a Biblioglot
     // Notebook export, into the open book. readHighlights shows what would come in (highlightImport); importHighlights
     // applies the choices (keys: highlights, equivalents, words, missingWords, missingPassages, bookmarks,
     // moveToLastRead).

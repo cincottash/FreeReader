@@ -18,8 +18,8 @@ BEGIN
             VALUE "CompanyName", "cincottash"
             VALUE "FileDescription", "E-book reader for DRM-free books"
             VALUE "LegalCopyright", "Copyright (C) 2026 cincottash. GPL-3.0."
-            VALUE "ProductName", "FreeReader"
-            VALUE "OriginalFilename", "FreeReader.exe"
+            VALUE "ProductName", "Biblioglot"
+            VALUE "OriginalFilename", "Biblioglot.exe"
         END
     END
     BLOCK "VarFileInfo"

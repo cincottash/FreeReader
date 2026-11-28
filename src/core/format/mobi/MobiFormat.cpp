@@ -784,7 +784,7 @@ bool openKf8(MemoryBook& book, const Pdb& pdb, const Header& h, QString* error)
 
 QString drmMessage()
 {
-    return QStringLiteral("This Kindle book is protected by DRM, so FreeReader can't open it. Books bought from Amazon can be "
+    return QStringLiteral("This Kindle book is protected by DRM, so Biblioglot can't open it. Books bought from Amazon can be "
                           "read in the Kindle app; DRM-free MOBI and AZW3 files (and EPUB) open here.");
 }
 
@@ -813,7 +813,7 @@ std::shared_ptr<Book> MobiFormat::open(const QString& path, QString* error) cons
         return nullptr;
     }
     if (data.startsWith("CONT\x02\x00") || QFileInfo(path).suffix().compare(QLatin1String("kfx"), Qt::CaseInsensitive) == 0) {
-        if (error) *error = QStringLiteral("This is a KFX book (Amazon's newest format), which FreeReader can't open. A MOBI, AZW3 or EPUB copy opens.");
+        if (error) *error = QStringLiteral("This is a KFX book (Amazon's newest format), which Biblioglot can't open. A MOBI, AZW3 or EPUB copy opens.");
         return nullptr;
     }
     Pdb pdb;
@@ -823,7 +823,7 @@ std::shared_ptr<Book> MobiFormat::open(const QString& path, QString* error) cons
     }
     const QByteArray type = pdb.type();
     if (type == "PNRdPPrs") {
-        if (error) *error = QStringLiteral("This is an eReader (Palm) book, which FreeReader can't open.");
+        if (error) *error = QStringLiteral("This is an eReader (Palm) book, which Biblioglot can't open.");
         return nullptr;
     }
     if (type != "BOOKMOBI" && type != "TEXtREAd") {
@@ -840,7 +840,7 @@ std::shared_ptr<Book> MobiFormat::open(const QString& path, QString* error) cons
         return nullptr;
     }
     if (h.compression != 1 && h.compression != 2 && h.compression != 17480) {
-        if (error) *error = QStringLiteral("The book's text is packed in a way FreeReader doesn't know (%1).").arg(h.compression);
+        if (error) *error = QStringLiteral("The book's text is packed in a way Biblioglot doesn't know (%1).").arg(h.compression);
         return nullptr;
     }
     auto book = std::make_shared<MemoryBook>();

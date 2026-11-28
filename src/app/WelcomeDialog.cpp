@@ -68,13 +68,13 @@ void WelcomeDialog::build()
         m_content->deleteLater();
     }
     m_rows.clear();
-    setWindowTitle(tr("Welcome to FreeReader"));
+    setWindowTitle(tr("Welcome to Biblioglot"));
     m_content = new QWidget;
     layout()->addWidget(m_content);
     auto* lay = new QVBoxLayout(m_content);
     lay->setContentsMargins(24, 18, 24, 16);
     lay->setSpacing(8);
-    auto* title = new QLabel(tr("Welcome to FreeReader"));
+    auto* title = new QLabel(tr("Welcome to Biblioglot"));
     title->setStyleSheet(QStringLiteral("font-size: 20px; font-weight: 600;"));
     lay->addWidget(title);
     lay->addWidget(muted(tr("Right-click a word while you read and its meaning appears beside it; every word you look up becomes a "
@@ -88,7 +88,7 @@ void WelcomeDialog::build()
     for (const QString& code : core::languages::readerLanguages()) m_languageBox->addItem(core::languages::nativeName(code), code);
     m_languageBox->setCurrentIndex(qMax(0, m_languageBox->findData(m_language)));
     langRow->addWidget(m_languageBox);
-    langRow->addWidget(muted(tr("FreeReader's text, translations and explanations are in it.")), 1);
+    langRow->addWidget(muted(tr("Biblioglot's text, translations and explanations are in it.")), 1);
     lay->addLayout(langRow);
 
     lay->addWidget(section(tr("LANGUAGES TO READ")));

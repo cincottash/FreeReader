@@ -22,25 +22,25 @@ class Book;
 struct KindleItem {
     QString text;              // the highlighted text (empty for a bookmark)
     QString note;              // the note on it, if any
-    int location = 0;          // Kindle location (a FreeReader export: worked out from its CFI, or its order)
+    int location = 0;          // Kindle location (a Biblioglot export: worked out from its CFI, or its order)
     bool bookmark = false;     // a bookmark (a note-only entry, or a highlight whose note just says "bookmark")
-    QString color;             // a FreeReader export: the highlight's color
-    QString cfi;               // a FreeReader export (JSON, CSV, TSV): the exact place in that edition
+    QString color;             // a Biblioglot export: the highlight's color
+    QString cfi;               // a Biblioglot export (JSON, CSV, TSV): the exact place in that edition
 };
 
 struct KindleExport {
     QString title, authors;
     QList<KindleItem> items;
     QString error;             // empty when it could be read
-    bool notebook = false;     // FreeReader's own Notebook export, not a Kindle's
+    bool notebook = false;     // Biblioglot's own Notebook export, not a Kindle's
 };
 
 // Reads a Kindle export (Bookcision's JSON, or a "My Clippings.txt": only the entries of the book whose title
-// starts like `titleHint`, when given), or a FreeReader Notebook export in any of its formats (Markdown, JSON, CSV,
+// starts like `titleHint`, when given), or a Biblioglot Notebook export in any of its formats (Markdown, JSON, CSV,
 // TSV, plain text).
 KindleExport parseKindleExport(const QByteArray& data, const QString& titleHint = QString());
 
-// A FreeReader Notebook export: the same highlights, notes and bookmarks in each format the Notebook saves.
+// A Biblioglot Notebook export: the same highlights, notes and bookmarks in each format the Notebook saves.
 struct NotebookRow {
     bool bookmark = false;
     QString color, text, note, page, chapter, cfi, created;
@@ -72,7 +72,7 @@ struct KindlePlan {
     Position lastRead;          // the place of the furthest Kindle location
     int lastLocation = 0;
     double lastFraction = 0;    // 0..1 of the book
-    bool notebook = false;      // from a FreeReader Notebook export (no Kindle place)
+    bool notebook = false;      // from a Biblioglot Notebook export (no Kindle place)
 };
 
 // `equivalents`: place the highlights this edition words differently on their equivalent words.

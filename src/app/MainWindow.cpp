@@ -60,7 +60,7 @@
 MainWindow::MainWindow(Settings& settings, core::Library* library, bool interactive, QWidget* parent)
     : QMainWindow(parent), m_settings(settings), m_library(library), m_interactive(interactive)
 {
-    setWindowTitle(QStringLiteral(APP_NAME));
+    setWindowTitle(QStringLiteral(APP_DISPLAY_NAME));
     setAcceptDrops(true);
     core::languages::setReaderLanguage(m_settings.readerLanguage);   // the engines answer in it
     m_builtLanguage = interfaceLanguage();
@@ -386,7 +386,7 @@ void MainWindow::buildCommands()
     });
     addCommand(QStringLiteral("fullscreen"), tr("Full Screen"), QKeySequence(Qt::Key_F11), [this] { toggleFullScreen(); });
     addCommand(QStringLiteral("data-folder"), tr("Change App Data Folder…"), QKeySequence(), [this] { changeDataFolder(); });
-    addCommand(QStringLiteral("about"), tr("About FreeReader"), QKeySequence(), [this] { about(); });
+    addCommand(QStringLiteral("about"), tr("About Biblioglot"), QKeySequence(), [this] { about(); });
     addCommand(QStringLiteral("quit"), tr("Quit"), QKeySequence(Qt::CTRL | Qt::Key_Q), [this] { close(); });
     // The Settings menu opens the Settings window at each of its tabs (no "Settings…" inside Settings).
     addCommand(QStringLiteral("settings"), tr("General…"), QKeySequence(Qt::CTRL | Qt::Key_Comma),
@@ -692,7 +692,7 @@ void MainWindow::importKindle(const QString& fileArg)
         if (!m_interactive) return;
         file = QFileDialog::getOpenFileName(this, tr("Import Highlights"), QStandardPaths::writableLocation(QStandardPaths::DownloadLocation),
                                             tr("Highlights (*.json *.txt *.md *.csv *.tsv);;Kindle (*.json *.txt);;"
-                                               "FreeReader Notebook (*.md *.txt *.csv *.tsv *.json);;All files (*)"));
+                                               "Biblioglot Notebook (*.md *.txt *.csv *.tsv *.json);;All files (*)"));
         if (file.isEmpty()) return;
     }
     QFile f(file);
@@ -1022,7 +1022,7 @@ void MainWindow::onOpened()
         if (saved.cfi.isEmpty() || !m_engine->positionForCfi(saved.cfi, &start)) start = saved.position;
     }
     if (start.spine < 0 || start.spine >= int(book->spine.size())) start = {};
-    setWindowTitle(book->metadata.title + QStringLiteral(" – ") + QStringLiteral(APP_NAME));
+    setWindowTitle(book->metadata.title + QStringLiteral(" – ") + QStringLiteral(APP_DISPLAY_NAME));
     m_stack->setCurrentWidget(m_reader);
     m_reader->showBook(id, start);
     if (m_pendingJump.spine >= 0) applyPendingJump();
@@ -1046,7 +1046,7 @@ void MainWindow::showLibrary()
     if (m_stack->currentWidget() != m_start) {
         m_reader->closeBook();
         m_engine->close();
-        setWindowTitle(QStringLiteral(APP_NAME));
+        setWindowTitle(QStringLiteral(APP_DISPLAY_NAME));
         m_stack->setCurrentWidget(m_start);
         if (m_settingsDialog) m_settingsDialog->refreshOfflineBooks();
     }
@@ -1094,10 +1094,10 @@ void MainWindow::changeDataFolder()
 void MainWindow::about()
 {
     if (!m_interactive) return;
-    QMessageBox::about(this, tr("About FreeReader"),
+    QMessageBox::about(this, tr("About Biblioglot"),
                        tr("<b>%1</b> %2<br>An e-book reader for DRM-free books.<br><br>Copyright (C) 2026 cincottash<br>"
                           "Licensed under the GNU General Public License v3.0.")
-                           .arg(QStringLiteral(APP_NAME), QStringLiteral(APP_VERSION)));
+                           .arg(QStringLiteral(APP_DISPLAY_NAME), QStringLiteral(APP_VERSION)));
 }
 
 void MainWindow::saveSettingsSoon() { m_settingsTimer->start(); }

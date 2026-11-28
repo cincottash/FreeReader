@@ -1495,7 +1495,7 @@ QString ReaderView::speechProblem(const QString& language, bool* canOpenSettings
                              : tr("No %1 voice is installed. Add one (free) in Windows Settings > Time & Language > Speech > Add voices.").arg(name);
 #else
     return locales.isEmpty() ? tr("No speech engine was found. Install speech-dispatcher and espeak-ng (for example: sudo apt install "
-                                  "speech-dispatcher espeak-ng), then start FreeReader again.")
+                                  "speech-dispatcher espeak-ng), then start Biblioglot again.")
                              : tr("No %1 voice is installed. Install one for speech-dispatcher, for example the espeak-ng package.").arg(name);
 #endif
 }

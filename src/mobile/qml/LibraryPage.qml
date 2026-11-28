@@ -25,7 +25,7 @@ Page {
         anchors.centerIn: parent
         width: page.width - 48
         modal: true
-        title: qsTr("About FreeReader")
+        title: qsTr("About Biblioglot")
         ColumnLayout {
             width: parent.width
             spacing: 8
@@ -34,10 +34,10 @@ Page {
                 Layout.fillWidth: true
                 wrapMode: Text.Wrap
                 color: page.theme.fg
-                text: qsTr("FreeReader %1\nAn e-book reader for DRM-free books.\n\nCopyright (C) 2026 cincottash\nLicensed under the GNU General Public License v3.0.").arg(page.app.version)
+                text: qsTr("Biblioglot %1\nAn e-book reader for DRM-free books.\n\nCopyright (C) 2026 cincottash\nLicensed under the GNU General Public License v3.0.").arg(page.app.version)
             }
-            Button { Layout.fillWidth: true; flat: true; text: qsTr("Privacy Policy"); onClicked: page.app.openLink("https://github.com/cincottash/FreeReader/blob/main/PRIVACY.md") }
-            Button { Layout.fillWidth: true; flat: true; text: qsTr("Report a Problem"); onClicked: page.app.openLink("https://github.com/cincottash/FreeReader/issues/new") }
+            Button { Layout.fillWidth: true; flat: true; text: qsTr("Privacy Policy"); onClicked: page.app.openLink("https://cincottash.github.io/Biblioglot/privacy.html") }
+            Button { Layout.fillWidth: true; flat: true; text: qsTr("Report a Problem"); onClicked: page.app.openLink("https://github.com/cincottash/Biblioglot/issues/new") }
         }
         standardButtons: Dialog.Close
     }
@@ -57,7 +57,7 @@ Page {
             anchors.leftMargin: 16
             anchors.rightMargin: 4
             Label {
-                text: "FreeReader"
+                text: "Biblioglot"
                 font.pixelSize: page.theme.title
                 font.weight: Font.DemiBold
                 color: page.theme.fg
@@ -107,7 +107,7 @@ Page {
                 MenuItem { objectName: "menuSettings"; text: qsTr("Settings"); onTriggered: page.settingsRequested() }
                 MenuItem { objectName: "menuStatistics"; text: qsTr("Statistics"); onTriggered: page.statisticsRequested() }
                 MenuItem { objectName: "menuGuide"; text: qsTr("Getting Started"); onTriggered: page.guideRequested() }
-                MenuItem { objectName: "menuAbout"; text: qsTr("About FreeReader"); onTriggered: aboutDialog.open() }
+                MenuItem { objectName: "menuAbout"; text: qsTr("About Biblioglot"); onTriggered: aboutDialog.open() }
             }
         }
         Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: page.theme.line }

@@ -50,7 +50,7 @@ Page {
             qsTr("Tap a word in the Word List for Show in Book, Change Meaning or Start Over.") ] },
         { title: qsTr("Your Notes"), lines: [
             qsTr("Notebook > Export… shares the Notebook (to email, Drive, Keep…) or saves it as Markdown, text, CSV, TSV or JSON."),
-            qsTr("Notebook > Import Highlights… brings in a Kindle export (Bookcision's JSON or My Clippings.txt) or a FreeReader Notebook export. What would come in is shown first."),
+            qsTr("Notebook > Import Highlights… brings in a Kindle export (Bookcision's JSON or My Clippings.txt) or a Biblioglot Notebook export. What would come in is shown first."),
             qsTr("Statistics (the library's menu) shows your reading time, days in a row, new words and reviews.") ] },
         { title: qsTr("Privacy"), lines: [
             qsTr("Your books, notes and words stay on this phone. Only the words you translate with Gemini are sent to Google, with your key."),
@@ -73,7 +73,7 @@ Page {
                 wrapMode: Text.Wrap
                 font.pixelSize: guide.theme.body
                 color: guide.theme.fg
-                text: qsTr("FreeReader is an e-book reader built for reading in another language: press and hold a word and its meaning in this sentence is a tap away; the words you look up become flashcards.")
+                text: qsTr("Biblioglot is an e-book reader built for reading in another language: press and hold a word and its meaning in this sentence is a tap away; the words you look up become flashcards.")
             }
             Repeater {
                 model: guide.sections

@@ -103,7 +103,7 @@ std::shared_ptr<Mu> openMu(const QString& path, QString* error)
     const int r = openDocument(m.get(), utf8.constData());
     const bool xps = QFileInfo(path).suffix().toLower().contains(QLatin1String("xps"));
     if (r == 2) {
-        if (error) *error = QStringLiteral("This PDF is locked with a password, so FreeReader can't open it.");
+        if (error) *error = QStringLiteral("This PDF is locked with a password, so Biblioglot can't open it.");
         return nullptr;
     }
     if (r != 0 || !m->doc) {
