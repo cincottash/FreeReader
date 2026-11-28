@@ -1,4 +1,4 @@
-// Language packs: everything FreeReader needs to read books in one language as a speaker of another, downloaded
+// Language packs: everything Biblioglot needs to read books in one language as a speaker of another, downloaded
 // together so the app itself stays small. A pack holds the language's offline dictionary into the reader's language,
 // its own dictionary of definitions (the Dictionary card) and the offline sentence translator with its model; Gemini
 // and LM Studio need nothing downloaded.
@@ -36,7 +36,7 @@ struct LanguagePack {
     QString contents() const;
 };
 
-// The languages FreeReader can be used in (its own text, the answers of every engine): English and Spanish.
+// The languages Biblioglot can be used in (its own text, the answers of every engine): English and Spanish.
 QStringList readerLanguages();
 // The complete packs for a reader: each language that can be read with every part (English: Spanish, and English
 // definitions for English books; Spanish: English, and Spanish definitions).
@@ -54,7 +54,7 @@ QString displayTitle(const QString& code);   // the same with a capital, to star
 // pop-ups label it and the app's own text is in it.
 QString readerLanguage();
 void setReaderLanguage(const QString& code);
-// The language to suggest on the first start: this computer's, when FreeReader can be used in it.
+// The language to suggest on the first start: this computer's, when Biblioglot can be used in it.
 QString suggestedReaderLanguage();
 
 }  // namespace core::languages

@@ -286,8 +286,8 @@ std::shared_ptr<Book> ComicFormat::open(const QString& path, QString* error) con
         break;
 #else
         if (error)
-            *error = book->kind == comic::Archive::Rar ? QStringLiteral("This comic is a RAR archive, which FreeReader can't open on this device yet. A CBZ copy opens.")
-                                                       : QStringLiteral("This comic is a 7-Zip archive, which FreeReader can't open on this device yet. A CBZ copy opens.");
+            *error = book->kind == comic::Archive::Rar ? QStringLiteral("This comic is a RAR archive, which Biblioglot can't open on this device yet. A CBZ copy opens.")
+                                                       : QStringLiteral("This comic is a 7-Zip archive, which Biblioglot can't open on this device yet. A CBZ copy opens.");
         return nullptr;
 #endif
     case comic::Archive::Unknown:

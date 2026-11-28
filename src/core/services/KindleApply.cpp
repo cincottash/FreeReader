@@ -120,7 +120,7 @@ KindleResult applyKindlePlan(const KindlePlan& plan, const KindleOptions& option
                     a.start = p.start;
                     a.end = p.end;
                     a.text = bookWords;
-                    // Its own color from a FreeReader export; yellow from a Kindle; orange on an equivalent.
+                    // Its own color from a Biblioglot export; yellow from a Kindle; orange on an equivalent.
                     a.color = !p.found                                    ? QStringLiteral("orange")
                               : Annotations::colors().contains(it.color) ? it.color
                                                                           : QStringLiteral("yellow");

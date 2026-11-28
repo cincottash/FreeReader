@@ -1,5 +1,5 @@
 // Themes restyle the whole app: page, header, panels, footer, pop-ups and the library. The table (ThemeData.cpp)
-// holds FreeReader's Reading Themes plus the Dark and Light editor schemes; each becomes a set of color roles.
+// holds Biblioglot's Reading Themes plus the Dark and Light editor schemes; each becomes a set of color roles.
 #pragma once
 
 #include <QColor>

@@ -1,9 +1,12 @@
 cmake_minimum_required(VERSION 3.21)
 
-# The app's name lives here (and nowhere else): rename it in one place.
+# The app's name as people see it (windows, the program's file, the About box).
+set(APP_DISPLAY_NAME "Biblioglot")
+# The app's first name, kept where it finds each user's data: the data folder, the settings and the saved keys
+# (renaming these would leave every library behind). Never shown.
 set(APP_NAME "FreeReader")
 set(APP_ORG "cincottash")
-project(${APP_NAME} VERSION 0.1.0 LANGUAGES CXX)
+project(${APP_DISPLAY_NAME} VERSION 0.1.0 LANGUAGES CXX)
 # Release builds pass the real version (e.g. -DRELEASE_VERSION=1.2.3); local builds show 0.1.0-dev.
 set(RELEASE_VERSION "" CACHE STRING "Version shown in the app (set by the release workflow)")
 if(RELEASE_VERSION)
@@ -145,7 +148,8 @@ add_library(freereader_core STATIC
     src/core/translate/LanguagePacks.cpp
 )
 target_include_directories(freereader_core PUBLIC src)
-target_compile_definitions(freereader_core PUBLIC APP_NAME="${APP_NAME}" APP_ORG="${APP_ORG}" APP_VERSION="${APP_VERSION}")
+target_compile_definitions(freereader_core PUBLIC APP_NAME="${APP_NAME}" APP_DISPLAY_NAME="${APP_DISPLAY_NAME}" APP_ORG="${APP_ORG}"
+    APP_VERSION="${APP_VERSION}")
 target_link_libraries(freereader_core PUBLIC Qt6::Gui Qt6::Sql Qt6::Concurrent Qt6::Network ZLIB::ZLIB)
 if(WIN32)
     target_link_libraries(freereader_core PUBLIC advapi32)   # Credential Manager
@@ -241,9 +245,9 @@ if(TARGET Qt6::TextToSpeech)
     target_link_libraries(freereader_ui PUBLIC Qt6::TextToSpeech)
     target_compile_definitions(freereader_ui PUBLIC HAVE_TEXT_TO_SPEECH)
 endif()
-# A log of where each start and close got to (FreeReader-startup.log in the temporary folder), for builds made to
+# A log of where each start and close got to (Biblioglot-startup.log in the temporary folder), for builds made to
 # find a start that shows no window; never in a release.
-option(STARTUP_TRACE "Write FreeReader-startup.log (local diagnostic builds only)" OFF)
+option(STARTUP_TRACE "Write Biblioglot-startup.log (local diagnostic builds only)" OFF)
 if(STARTUP_TRACE)
     target_compile_definitions(freereader_ui PUBLIC FREEREADER_STARTUP_TRACE)
 endif()
@@ -254,7 +258,7 @@ if(WIN32)
 endif()
 
 qt_add_executable(app WIN32 ${SOURCES})
-set_target_properties(app PROPERTIES OUTPUT_NAME ${APP_NAME})
+set_target_properties(app PROPERTIES OUTPUT_NAME ${APP_DISPLAY_NAME})
 target_include_directories(app PRIVATE src)
 target_link_libraries(app PRIVATE freereader_ui)
 

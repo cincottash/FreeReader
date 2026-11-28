@@ -163,7 +163,7 @@ QString HelpPanel::html() const
     };
 
     p(QStringLiteral("<span class=\"muted\">") +
-      tr("FreeReader is an e-book reader built for reading in another language: right-click a word and its meaning "
+      tr("Biblioglot is an e-book reader built for reading in another language: right-click a word and its meaning "
          "appears beside it, and every word you look up becomes a flashcard.") +
       QStringLiteral("</span>"));
     // The contents.
@@ -176,7 +176,7 @@ QString HelpPanel::html() const
     section("start");
     list({tr("<b>Add your books:</b> %1 or %2, or drop files on the window. The files stay where they are.")
               .arg(link(QStringLiteral("add-books"), tr("Add Books…")), link(QStringLiteral("add-folder"), tr("Add Folder…"))),
-          tr("<b>Open a book:</b> double-click its cover. FreeReader remembers your place."),
+          tr("<b>Open a book:</b> double-click its cover. Biblioglot remembers your place."),
           tr("<b>Look up a word:</b> right-click it and choose <b>Translate</b>."),
           tr("<b>Practice the words:</b> the <b>Practice</b> button while reading, or <b>Practice Words</b> in the library."),
           tr("<b>Set up Gemini</b> for the best translations: a free key from Google, pasted in %1.")
@@ -269,7 +269,7 @@ QString HelpPanel::html() const
           tr("No voice for the book's language? On Windows, add one (free) in Settings ▸ Time &amp; Language ▸ Speech.")});
 
     section("settings");
-    list({tr("%1: your language (FreeReader's text, translations and explanations), the language packs (a download per language read: its "
+    list({tr("%1: your language (Biblioglot's text, translations and explanations), the language packs (a download per language read: its "
              "dictionary, its definitions and the offline translator), the app data folder, the library's folders, resetting "
              "text and layout.").arg(link(QStringLiteral("settings"), tr("General"))),
           tr("%1: the Gemini key, LM Studio, offline dictionaries and the offline translator.")
@@ -289,7 +289,7 @@ QString HelpPanel::html() const
           "Answers looked up before are kept and work offline too."));
     qa(tr("Which languages can I read?"),
        tr("English and Spanish, each from the other, with everything offline as well; and books in your own language, "
-          "with its definitions. FreeReader itself is in English or Spanish. More languages come as their packs are made "
+          "with its definitions. Biblioglot itself is in English or Spanish. More languages come as their packs are made "
           "complete: every language offered has its dictionary, its definitions and the offline translator."));
     qa(tr("Is my text sent anywhere?"),
        tr("Only to Gemini, and only the words and sentence you ask about. Turn off Use Gemini, or keep one book offline, "
@@ -297,10 +297,10 @@ QString HelpPanel::html() const
     qa(tr("Why doesn't Hear Pronunciation say anything?"),
        tr("No voice for the book's language is installed. The pop-up says so, with a link to add one; Audio Settings "
           "lists the voices found."));
-    qa(tr("Does FreeReader change my book files?"),
-       tr("Never. Highlights, notes and your place are kept in FreeReader's own database."));
+    qa(tr("Does Biblioglot change my book files?"),
+       tr("Never. Highlights, notes and your place are kept in Biblioglot's own database."));
     qa(tr("Can it open books with DRM?"),
-       tr("No. FreeReader opens DRM-free books only (EPUB, PDF, Kindle MOBI and AZW3, comics, documents and more)."));
+       tr("No. Biblioglot opens DRM-free books only (EPUB, PDF, Kindle MOBI and AZW3, comics, documents and more)."));
     qa(tr("Where are my notes and settings kept?"),
        tr("In the app data folder, shown in %1. Move it there too.").arg(link(QStringLiteral("settings"), tr("General Settings"))));
     qa(tr("How do I get my words into Anki?"),

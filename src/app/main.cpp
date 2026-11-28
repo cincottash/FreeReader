@@ -57,7 +57,7 @@ static bool chooseDisplayPlugin()
     }
     fprintf(stderr, "%s needs an X11 display, and none was found (DISPLAY isn't set).\n"
                     "On a Wayland session it runs through XWayland: turn XWayland on in the desktop's settings,\n"
-                    "or choose an \"X11\" or \"Xorg\" session at the login screen.\n", APP_NAME);
+                    "or choose an \"X11\" or \"Xorg\" session at the login screen.\n", APP_DISPLAY_NAME);
     return false;
 }
 #endif

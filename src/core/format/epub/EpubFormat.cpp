@@ -18,14 +18,14 @@ QString drmMessage(const ZipArchive& zip)
 {
     bool ok = false;
     const QByteArray rights = zip.read(QStringLiteral("META-INF/rights.xml"), &ok);
-    if (!ok) return QStringLiteral("This book is protected by DRM, so FreeReader can't open it. Only DRM-free books can be opened.");
+    if (!ok) return QStringLiteral("This book is protected by DRM, so Biblioglot can't open it. Only DRM-free books can be opened.");
     QString store;
     if (rights.contains("books.google.com")) store = QStringLiteral("Google Play Books");
     else if (rights.contains("kobo")) store = QStringLiteral("Kobo");
     else if (rights.contains("barnesandnoble") || rights.contains("nook")) store = QStringLiteral("Barnes & Noble");
     QString text = QStringLiteral("This book is protected by Adobe DRM");
     if (!store.isEmpty()) text += QStringLiteral(" from %1").arg(store);
-    text += QStringLiteral(", so FreeReader can't open it. It can be read in ");
+    text += QStringLiteral(", so Biblioglot can't open it. It can be read in ");
     text += store == QLatin1String("Google Play Books") ? QStringLiteral("the Google Play Books app or website, or in Adobe Digital Editions.")
           : store == QLatin1String("Kobo")             ? QStringLiteral("the Kobo app, or in Adobe Digital Editions.")
                                                        : QStringLiteral("Adobe Digital Editions.");

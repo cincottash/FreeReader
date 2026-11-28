@@ -385,7 +385,7 @@ LibraryView::LibraryView(core::Library* library, Settings& settings, QWidget* pa
     auto* h = new QHBoxLayout(bar);
     h->setContentsMargins(16, 8, 10, 8);
     h->setSpacing(10);
-    auto* name = new QLabel(QStringLiteral(APP_NAME));
+    auto* name = new QLabel(QStringLiteral(APP_DISPLAY_NAME));
     name->setStyleSheet(QStringLiteral("font-size: 16px; font-weight: 600;"));
     h->addWidget(name);
     m_notKept = new QPushButton(tr("Settings Not Kept"));

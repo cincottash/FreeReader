@@ -17,7 +17,7 @@ namespace core {
 DictionaryDownload::Source DictionaryDownload::spanishEnglish()
 {
     Source s;
-    s.url = QUrl(QStringLiteral("https://github.com/cincottash/FreeReader/releases/download/dictionary-es-en-1/FreeReader-dictionary-es-en.zip"));
+    s.url = QUrl(QStringLiteral("https://github.com/cincottash/Biblioglot/releases/download/dictionary-es-en-1/FreeReader-dictionary-es-en.zip"));
     s.sha256 = "35f0ac5f35bf8fb2cd7c6ad11ea4e0375e3a47fe979e1e686387888fdf0830d8";
     s.size = 30644037;
     s.entry = QStringLiteral("es-en.sqlite");
@@ -28,7 +28,7 @@ DictionaryDownload::Source DictionaryDownload::spanishEnglish()
 DictionaryDownload::Source DictionaryDownload::englishDefinitions()
 {
     Source s;
-    s.url = QUrl(QStringLiteral("https://github.com/cincottash/FreeReader/releases/download/dictionary-en-1/FreeReader-dictionary-en.zip"));
+    s.url = QUrl(QStringLiteral("https://github.com/cincottash/Biblioglot/releases/download/dictionary-en-1/FreeReader-dictionary-en.zip"));
     s.sha256 = "366715a7a32a4061914d6a47c91678d188a42c6d62ff662a86e5feb95fd113e3";
     s.size = 10820423;
     s.entry = QStringLiteral("en-en.sqlite");
@@ -39,7 +39,7 @@ DictionaryDownload::Source DictionaryDownload::englishDefinitions()
 DictionaryDownload::Source DictionaryDownload::spanishDefinitions()
 {
     Source s;
-    s.url = QUrl(QStringLiteral("https://github.com/cincottash/FreeReader/releases/download/dictionary-es-es-1/FreeReader-dictionary-es-es.zip"));
+    s.url = QUrl(QStringLiteral("https://github.com/cincottash/Biblioglot/releases/download/dictionary-es-es-1/FreeReader-dictionary-es-es.zip"));
     s.sha256 = "c8febf1187b58e2f46280ec21a4a10a74553758795c461ddbe79f397404e82a1";
     s.size = 46427561;
     s.entry = QStringLiteral("es-es.sqlite");
@@ -50,7 +50,7 @@ DictionaryDownload::Source DictionaryDownload::spanishDefinitions()
 DictionaryDownload::Source DictionaryDownload::englishSpanish()
 {
     Source s;
-    s.url = QUrl(QStringLiteral("https://github.com/cincottash/FreeReader/releases/download/dictionary-en-es-2/FreeReader-dictionary-en-es.zip"));
+    s.url = QUrl(QStringLiteral("https://github.com/cincottash/Biblioglot/releases/download/dictionary-en-es-2/FreeReader-dictionary-en-es.zip"));
     s.sha256 = "daf6a82417bdc3618953efc772b49023364be77e5645c9095d44553de58cdfe8";
     s.size = 6333790;
     s.entry = QStringLiteral("en-es.sqlite");
@@ -62,7 +62,7 @@ DictionaryDownload::Source DictionaryDownload::translatorModel(const QString& pa
 {
     Source s;   // entry empty: the zip's folder (en-es/) is unpacked
     if (pair == QLatin1String("en-es")) {
-        s.url = QUrl(QStringLiteral("https://github.com/cincottash/FreeReader/releases/download/translator-en-es-1/FreeReader-translator-en-es.zip"));
+        s.url = QUrl(QStringLiteral("https://github.com/cincottash/Biblioglot/releases/download/translator-en-es-1/FreeReader-translator-en-es.zip"));
         s.sha256 = "e0b77c765e73afd3338c9a1b6451c3449e702d62843799b632f4331b12e576dd";
         s.size = 25367850;
         s.unpackedSize = 36579558;
@@ -74,12 +74,12 @@ DictionaryDownload::Source DictionaryDownload::offlineTranslator()
 {
     Source s;   // entry empty: the whole pack is unpacked into a folder
 #if defined(Q_OS_WIN) && defined(Q_PROCESSOR_X86_64)
-    s.url = QUrl(QStringLiteral("https://github.com/cincottash/FreeReader/releases/download/offline-translator-1/FreeReader-offline-translator-windows-x64.zip"));
+    s.url = QUrl(QStringLiteral("https://github.com/cincottash/Biblioglot/releases/download/offline-translator-1/FreeReader-offline-translator-windows-x64.zip"));
     s.sha256 = "3bf4d6861b487f6ad9746e594cf40933b9c5999d897b6a5d6994e59dec25a785";
     s.size = 30277946;
     s.unpackedSize = 48009153;
 #elif defined(Q_OS_LINUX) && !defined(Q_OS_ANDROID) && defined(Q_PROCESSOR_X86_64)
-    s.url = QUrl(QStringLiteral("https://github.com/cincottash/FreeReader/releases/download/offline-translator-1/FreeReader-offline-translator-linux-x64.zip"));
+    s.url = QUrl(QStringLiteral("https://github.com/cincottash/Biblioglot/releases/download/offline-translator-1/FreeReader-offline-translator-linux-x64.zip"));
     s.sha256 = "37d60635125e8193e8419e01e98e9e59b6b3aa97e213b9abca5bd0a02cac57fb";
     s.size = 31105442;
     s.unpackedSize = 48934585;
@@ -138,7 +138,7 @@ void DictionaryDownload::start(const Source& source, const QString& outFile)
     if (!m_part.open(QIODevice::WriteOnly | QIODevice::Truncate)) return fail(tr("The download can't be saved: %1").arg(m_part.errorString()));
 
     QNetworkRequest req(source.url);
-    req.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("FreeReader"));
+    req.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("Biblioglot"));
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
     req.setTransferTimeout(60000);   // no data for a minute: give up
     m_reply = m_net->get(req);

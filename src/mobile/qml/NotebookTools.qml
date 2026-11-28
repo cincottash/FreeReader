@@ -1,5 +1,5 @@
 // The Notebook's export (share it through the phone's share sheet, or save it to a file, in Markdown, plain text,
-// CSV, TSV or JSON) and Import Highlights (a Kindle export or a FreeReader Notebook export; what would come in is
+// CSV, TSV or JSON) and Import Highlights (a Kindle export or a Biblioglot Notebook export; what would come in is
 // shown first, with the desktop's choices).
 import QtQuick
 import QtQuick.Controls

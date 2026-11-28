@@ -1,9 +1,9 @@
 [Desktop Entry]
 Type=Application
-Name=FreeReader
-Comment=Read DRM-free e-books
-Exec=FreeReader %f
-Icon=FreeReader
+Name=Biblioglot
+Comment=Read DRM-free e-books in another language
+Exec=Biblioglot %f
+Icon=Biblioglot
 Categories=Office;Viewer;Education;
 MimeType=application/epub+zip;
 Terminal=false

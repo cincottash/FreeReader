@@ -1,10 +1,11 @@
-# FreeReader
+# Biblioglot
 
 An e-book reader for DRM-free books (EPUB, PDF, Kindle, FB2, comics, documents and more), for Windows (tested) and Linux (experimental), built to make reading in
 another language easy: right-click a word or a passage and its English meaning appears next to it. Every word you
-highlight is saved, ready to practice as flashcards.
+highlight is saved, ready to practice as flashcards. (Biblioglot was called FreeReader until version 0.7.18; your
+library, settings and keys carry over.) Website: [cincottash.github.io/Biblioglot](https://cincottash.github.io/Biblioglot/).
 
-![FreeReader showing Don Quijote with the contents panel open](.github/screenshot.png)
+![Biblioglot showing Don Quijote with the contents panel open](.github/screenshot.png)
 
 **Status:** early development (phase 4 of 7). The library, reading, themes, text settings, translation, the word
 log, flashcard practice, highlights, notes, bookmarks and search work, in many book formats, PDF included. A
@@ -12,12 +13,12 @@ phone app (Android) with the same reader is being built; it isn't released yet.
 
 ## Download
 
-Get the latest version from the [Releases](https://github.com/cincottash/FreeReader/releases) page.
+Get the latest version from the [Releases](https://github.com/cincottash/Biblioglot/releases) page.
 
 | System | File | Status |
 | --- | --- | --- |
-| Windows 10 and 11 | `FreeReader.exe` (one file, nothing to install) | Tested |
-| Linux | `FreeReader-x86_64.AppImage` | Experimental |
+| Windows 10 and 11 | `Biblioglot.exe` (one file, nothing to install) | Tested |
+| Linux | `Biblioglot-x86_64.AppImage` | Experimental |
 
 ## Book formats
 
@@ -49,14 +50,14 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 - **CHM** help files open in the order of their own contents.
 - Plain text finds its chapters ("Capítulo I", "CHAPTER 2"); a book that doesn't say its language gets it from its
   words.
-- Books with DRM (Adobe, Kindle) can't be opened; FreeReader says so and where they can be read.
+- Books with DRM (Adobe, Kindle) can't be opened; Biblioglot says so and where they can be read.
 
 ## Library
 
 <img src=".github/readme/library.png" align="right" width="420" alt="The library with a Kindle book, a PDF, an EPUB and two comics">
 
 - **Add Books** takes files or a whole folder, or drop them on the window. The files stay where they are.
-- A folder added with **Add Folder…** is kept: each time FreeReader starts, the books put there since are added
+- A folder added with **Add Folder…** is kept: each time Biblioglot starts, the books put there since are added
   (Settings ▸ General lists the folders). A book already in the library isn't added twice, even under another
   name or in another format (an EPUB and a MOBI of it: the same title and author). An edition in another
   language is a book of its own. A book whose file moved is found again.
@@ -115,7 +116,7 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 - **Keeping text offline:** Gemini is the only engine that sends text over the internet, so turning off **Use
   Gemini** keeps every book offline. **Keep This Book Offline** does it for the open book only. Both are in
   **Settings ▸ Translation**, and in the translation settings window, which also counts the books kept offline.
-- **Your language: English or Spanish.** FreeReader's menus, buttons and messages, its translations and its
+- **Your language: English or Spanish.** Biblioglot's menus, buttons and messages, its translations and its
   explanations are all in the language you choose, and so are its numbers ("30,6 MB" in Spanish, unless the
   computer itself is set to a Spanish-speaking country's own format). A Spanish speaker reads English books with Spanish meanings, the
   same way an English speaker reads Spanish ones.
@@ -129,22 +130,22 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 - **Offline dictionaries** (in the language packs, or one by one in the translation settings) answer single words
   with no internet, when the engines before them can't:
   - **Spanish → English** (31 MB): 120,000 words from [Wiktionary](https://en.wiktionary.org) (CC BY-SA 4.0),
-    with verb forms ("tenía" → tener). [Release](https://github.com/cincottash/FreeReader/releases/tag/dictionary-es-en-1).
+    with verb forms ("tenía" → tener). [Release](https://github.com/cincottash/Biblioglot/releases/tag/dictionary-es-en-1).
   - **English definitions** (11 MB), for English books: 160,000 words and names from
     [Open English WordNet](https://github.com/globalwordnet/english-wordnet) (CC BY 4.0), with their forms
-    ("ran" → run, "studies" → study). [Release](https://github.com/cincottash/FreeReader/releases/tag/dictionary-en-1).
+    ("ran" → run, "studies" → study). [Release](https://github.com/cincottash/Biblioglot/releases/tag/dictionary-en-1).
   - **Spanish definitions** (46 MB), for the Dictionary card: 148,000 Spanish words defined in Spanish, from the
-    [Spanish Wiktionary](https://es.wiktionary.org) (CC BY-SA 4.0). [Release](https://github.com/cincottash/FreeReader/releases/tag/dictionary-es-es-1).
+    [Spanish Wiktionary](https://es.wiktionary.org) (CC BY-SA 4.0). [Release](https://github.com/cincottash/Biblioglot/releases/tag/dictionary-es-es-1).
   - **English → Spanish** (6 MB), for Spanish speakers: 74,000 English words with their Spanish meanings and 84,000
     forms ("went" → go), from the English Wiktionary's translation tables and the Spanish Wiktionary's English
-    entries (CC BY-SA 4.0), common words first. [Release](https://github.com/cincottash/FreeReader/releases/tag/dictionary-en-es-2).
+    entries (CC BY-SA 4.0), common words first. [Release](https://github.com/cincottash/Biblioglot/releases/tag/dictionary-en-es-2).
 - **Offline translator** (30 MB, optional download in the same place): translates sentences and pages with no
   internet, in a fraction of a second, when Gemini and LM Studio can't. It's
   [Bergamot](https://github.com/browsermt/bergamot-translator), the engine Firefox translates with, and Mozilla's
   models (MPL 2.0): Spanish → English comes with it, and English → Spanish (25 MB) with the English pack for Spanish
   speakers. Its translations are plainer than Gemini's and weaker on old Spanish, so they aren't kept: Gemini's
-  answer replaces them once online. [Release](https://github.com/cincottash/FreeReader/releases/tag/offline-translator-1),
-  [English → Spanish model](https://github.com/cincottash/FreeReader/releases/tag/translator-en-es-1).
+  answer replaces them once online. [Release](https://github.com/cincottash/Biblioglot/releases/tag/offline-translator-1),
+  [English → Spanish model](https://github.com/cincottash/Biblioglot/releases/tag/translator-en-es-1).
 - <img src=".github/readme/selection-menu.png" align="right" width="200" alt="The right-click menu of a selection, with Read Aloud">
   **Read Aloud** (right-click a selection, or the command list) reads the selected words in the book's language;
   **Stop Reading Aloud** in the same menu stops it.
@@ -214,7 +215,7 @@ Get the latest version from the [Releases](https://github.com/cincottash/FreeRea
 - **Search All Books** (Ctrl+Shift+F, or **Search Inside Books** in the library): the same in the text of every
   book in the library, book by book; click a result to open the book there.
 
-FreeReader never changes your book files: highlights and notes live in its own database.
+Biblioglot never changes your book files: highlights and notes live in its own database.
 
 ## Reading
 
@@ -258,11 +259,11 @@ the Sides** show where (they can be turned off there).
 
 ![The theme list](.github/readme/themes.png)
 
-43 themes restyle the whole app: FreeReader's reading themes (Midnight, Paper, Sepia, Slate and more) and
+43 themes restyle the whole app: Biblioglot's reading themes (Midnight, Paper, Sepia, Slate and more) and
 popular dark and light editor schemes. Point at a theme to preview it; the Themes button in the header (or
 Ctrl+Shift+T) opens the list. **Match Operating System** follows Windows' light or dark mode.
 
-FreeReader only opens books without DRM. It never removes or works around DRM.
+Biblioglot only opens books without DRM. It never removes or works around DRM.
 
 <details>
 <summary>Keyboard shortcuts</summary>
@@ -312,11 +313,11 @@ desktop yet. It runs through X11; on a Wayland desktop it uses XWayland, which m
 <summary>Command line</summary>
 
 ```
-FreeReader [book] [--data-folder FOLDER]
-FreeReader [book] --screenshot out.png [--page N | --percent P] [--turn N] [--size WxH]
+Biblioglot [book] [--data-folder FOLDER]
+Biblioglot [book] --screenshot out.png [--page N | --percent P] [--turn N] [--size WxH]
            [--columns one|two|auto] [--text-size PERCENT] [--font FAMILY] [--theme KEY]
            [--contents] [--palette] [--appearance] [--theme-list] [--practice] [--add-books FOLDER] [--list-view]
-FreeReader --check-translation result.txt
+Biblioglot --check-translation result.txt
 ```
 
 `--data-folder` uses that folder for this run only. `--screenshot` draws the window off-screen to a picture and
@@ -354,7 +355,7 @@ cmake --build build
   page is rebuilt into paragraphs and headings (`pdf/PdfFormat.cpp`). Pages shown as pictures (scans, DjVu
   through DjVuLibre) are drawn only when they are shown (`pages/PageBook.h`). CHM files use chmlib.
 - `src/core/html`, `src/core/css`: a forgiving HTML parser and the CSS subset books use, with the cascade.
-- `src/core/layout`: FreeReader's own layout engine. Each chapter becomes a flow of paragraphs, images and
+- `src/core/layout`: Biblioglot's own layout engine. Each chapter becomes a flow of paragraphs, images and
   tables with stable character positions, laid out into pages on background threads (with hyphenation by
   Liang's algorithm) and drawn with QPainter. No browser engine is used.
 - `src/core/position`: positions as EPUB CFI, which keep working when the text size or window changes.

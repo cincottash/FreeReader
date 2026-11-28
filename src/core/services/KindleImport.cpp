@@ -219,7 +219,7 @@ std::vector<int> occurrences(const QString& hay, const QString& key)
     return out;
 }
 
-// ---- FreeReader's own Notebook exports (Markdown, JSON, CSV, TSV, plain text), read back.
+// ---- Biblioglot's own Notebook exports (Markdown, JSON, CSV, TSV, plain text), read back.
 
 const QStringList kColumns = {QStringLiteral("kind"), QStringLiteral("color"), QStringLiteral("text"), QStringLiteral("note"),
                               QStringLiteral("page"), QStringLiteral("chapter"), QStringLiteral("cfi"), QStringLiteral("created"),
@@ -508,7 +508,7 @@ QString tsv(const QString& title, const QList<NotebookRow>& rows)
 
 QString text(const QString& title, const QString& author, const QList<NotebookRow>& rows)
 {
-    QString out = QStringLiteral("FreeReader Notebook\n");
+    QString out = QStringLiteral("Biblioglot Notebook\n");
     if (!title.isEmpty()) out += QStringLiteral("Title: %1\n").arg(title);
     if (!author.isEmpty()) out += QStringLiteral("Author: %1\n").arg(author);
     for (const NotebookRow& r : rows) {
@@ -562,15 +562,16 @@ KindleExport parseKindleExport(const QByteArray& data, const QString& titleHint)
         }
         return parseNotebookTable(rows);
     }
-    if (text.startsWith(QLatin1String("FreeReader Notebook")))
+    // (Exports made before the app was renamed begin "FreeReader Notebook".)
+    if (text.startsWith(QLatin1String("Biblioglot Notebook")) || text.startsWith(QLatin1String("FreeReader Notebook")))
         return parseNotebookText(text);
     if (text.contains(QStringLiteral("==========")))
         return parseClippings(text, titleHint);
     if (text.startsWith(QLatin1String("# ")) && text.contains(QLatin1String("\n> ")))
         return parseNotebookMarkdown(text);
     KindleExport ex;
-    ex.error = QStringLiteral("That isn't a highlights export FreeReader knows: a Kindle's (Bookcision's JSON or My Clippings.txt) "
-                              "or a FreeReader Notebook export (Markdown, JSON, CSV, TSV or text).");
+    ex.error = QStringLiteral("That isn't a highlights export Biblioglot knows: a Kindle's (Bookcision's JSON or My Clippings.txt) "
+                              "or a Biblioglot Notebook export (Markdown, JSON, CSV, TSV or text).");
     return ex;
 }
 
@@ -591,7 +592,7 @@ KindlePlan planKindleImport(const Book& book, const KindleExport& exIn, const st
         }
         return qMin(lo, total - 1);
     };
-    // A FreeReader export of this edition carries each item's CFI: its place gives a location like a Kindle's (about
+    // A Biblioglot export of this edition carries each item's CFI: its place gives a location like a Kindle's (about
     // 110 characters each), so repeated words are told apart. Only when every item has one (else the file's order).
     KindleExport ex = exIn;
     std::vector<int> cfiAt(size_t(ex.items.size()), -1);   // the exact place, when the CFI resolves in this book
@@ -688,7 +689,7 @@ KindlePlan planKindleImport(const Book& book, const KindleExport& exIn, const st
         const KindleItem& it = ex.items[i];
         KindlePlaced p;
         p.item = it;
-        // A FreeReader export's own place, when its CFI resolves in this book: exactly there (a short word like "de"
+        // A Biblioglot export's own place, when its CFI resolves in this book: exactly there (a short word like "de"
         // is in the book thousands of times; with few anchors the predicted place was far off, and a Notebook read
         // back into its own book got a second highlight elsewhere, 2026-11-27). Else predicted from the anchors.
         const double expected = ex.notebook && cfiAt[size_t(i)] >= 0 ? double(cfiAt[size_t(i)]) : predict(it.location);
@@ -710,7 +711,7 @@ KindlePlan planKindleImport(const Book& book, const KindleExport& exIn, const st
                 }
             }
         }
-        // A FreeReader bookmark goes back exactly where its CFI says, when it resolves in this book.
+        // A Biblioglot bookmark goes back exactly where its CFI says, when it resolves in this book.
         if (it.bookmark && ex.notebook && cfiAt[size_t(i)] >= 0 && !p.found) p.approx = posAt(cfiAt[size_t(i)]);
         if (it.bookmark) ++plan.bookmarks;
         else if (p.found) ++plan.found;

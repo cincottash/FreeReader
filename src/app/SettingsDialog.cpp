@@ -412,15 +412,15 @@ QWidget* SettingsDialog::buildTranslationTab()
         d.download->setObjectName(QStringLiteral("Suggested"));
         d.download->setToolTip(d.language == QLatin1String("es")
                                    ? tr("Downloads the Spanish → English dictionary made from Wiktionary (CC BY-SA 4.0) from "
-                                        "FreeReader's page on GitHub, once. Nothing else is sent.")
+                                        "Biblioglot's page on GitHub, once. Nothing else is sent.")
                                : d.language == QLatin1String("en")
                                    ? tr("Downloads the English dictionary made from Open English WordNet (CC BY 4.0) from "
-                                        "FreeReader's page on GitHub, once. Nothing else is sent.")
+                                        "Biblioglot's page on GitHub, once. Nothing else is sent.")
                                : d.language == QLatin1String("en-es")
                                    ? tr("Downloads the English → Spanish dictionary made from Wiktionary (CC BY-SA 4.0) from "
-                                        "FreeReader's page on GitHub, once. Nothing else is sent.")
+                                        "Biblioglot's page on GitHub, once. Nothing else is sent.")
                                    : tr("Downloads the Spanish dictionary of definitions made from the Spanish Wiktionary "
-                                        "(CC BY-SA 4.0) from FreeReader's page on GitHub, once. Nothing else is sent."));
+                                        "(CC BY-SA 4.0) from Biblioglot's page on GitHub, once. Nothing else is sent."));
         d.remove = new QPushButton(tr("Uninstall"));
         d.remove->setProperty("testId", ("removeDictionary" + suffix).constData());
         rowLay->addWidget(d.download);
@@ -462,7 +462,7 @@ QWidget* SettingsDialog::buildTranslationTab()
         m_translatorGet->setProperty("testId", "downloadTranslator");
         m_translatorGet->setObjectName(QStringLiteral("Suggested"));
         m_translatorGet->setToolTip(tr("Downloads the translator (Bergamot, MPL 2.0) and Mozilla's Spanish → English model "
-                                       "(MPL 2.0) from FreeReader's page on GitHub, once. Nothing else is sent."));
+                                       "(MPL 2.0) from Biblioglot's page on GitHub, once. Nothing else is sent."));
         m_translatorRemove = new QPushButton(tr("Uninstall"));
         m_translatorRemove->setProperty("testId", "removeTranslator");
         rowLay->addWidget(m_translatorGet);
@@ -1314,7 +1314,7 @@ QWidget* SettingsDialog::buildGeneralTab()
     lay->setSpacing(8);
     // Languages: the reader's own, and a pack for each language read.
     lay->addWidget(sectionTitle(tr("LANGUAGES")));
-    lay->addWidget(muted(tr("FreeReader's text, translations and explanations are in this language. Each language read has a "
+    lay->addWidget(muted(tr("Biblioglot's text, translations and explanations are in this language. Each language read has a "
                             "pack: its dictionary, its definitions and the offline translator, for reading with no internet. "
                             "Gemini and LM Studio need nothing downloaded.")));
     {
@@ -1342,7 +1342,7 @@ QWidget* SettingsDialog::buildGeneralTab()
         auto* restart = new QPushButton(tr("Restart Now"));
         restart->setObjectName(QStringLiteral("Suggested"));
         restart->setProperty("testId", "restartForLanguage");
-        restart->setToolTip(tr("Opens FreeReader's window again in the language chosen, with the book that is open."));
+        restart->setToolTip(tr("Opens Biblioglot's window again in the language chosen, with the book that is open."));
         restartLay->addWidget(restart, 0, Qt::AlignTop);
         connect(restart, &QPushButton::clicked, this, [this] {
             accept();   // the settings as they are now
@@ -1377,7 +1377,7 @@ QWidget* SettingsDialog::buildGeneralTab()
 
     lay->addWidget(sectionTitle(tr("LIBRARY FOLDERS")));
     // In plain words (the owner's request, 2026-11-26: the wording before read awkwardly).
-    lay->addWidget(muted(tr("FreeReader checks these folders, and the folders inside them, every time it starts, and adds "
+    lay->addWidget(muted(tr("Biblioglot checks these folders, and the folders inside them, every time it starts, and adds "
                             "any new books it finds. Books already in the library are skipped.")));
     // The list in a frame, its buttons beside it (not floating below).
     auto* foldersRow = new QHBoxLayout;
@@ -1391,10 +1391,10 @@ QWidget* SettingsDialog::buildGeneralTab()
     auto* folderButtons = new QVBoxLayout;
     folderButtons->setSpacing(6);
     auto* addFolder = new QPushButton(tr("Add Folder…"));
-    addFolder->setToolTip(tr("Choose a folder of books. Its books are added now, and new ones each time FreeReader starts."));
+    addFolder->setToolTip(tr("Choose a folder of books. Its books are added now, and new ones each time Biblioglot starts."));
     addFolder->setProperty("testId", "addLibraryFolder");
     m_removeFolder = new QPushButton(tr("Remove Folder"));
-    m_removeFolder->setToolTip(tr("FreeReader stops checking this folder. Its books stay in the library."));
+    m_removeFolder->setToolTip(tr("Biblioglot stops checking this folder. Its books stay in the library."));
     m_removeFolder->setProperty("testId", "removeLibraryFolder");
     m_removeFolder->setEnabled(false);
     folderButtons->addWidget(addFolder);
@@ -1521,7 +1521,7 @@ void SettingsDialog::buildPackRows()
         r.get = new QPushButton;
         r.get->setObjectName(QStringLiteral("Suggested"));
         r.get->setProperty("testId", QStringLiteral("packDownload-") + p.language);
-        r.get->setToolTip(tr("Downloads %1 from FreeReader's page on GitHub, once. Nothing else is sent.").arg(p.contents()));
+        r.get->setToolTip(tr("Downloads %1 from Biblioglot's page on GitHub, once. Nothing else is sent.").arg(p.contents()));
         r.remove = new QPushButton(tr("Uninstall"));
         r.remove->setProperty("testId", QStringLiteral("packRemove-") + p.language);
         r.remove->setToolTip(tr("Deletes this pack's files from the app data folder. It can be downloaded again."));
@@ -1622,8 +1622,8 @@ void SettingsDialog::refreshRestart()
     // Said in the language chosen, so it can be read.
     if (other)
         m_restartNote->setText(m_settings.readerLanguage == QLatin1String("es")
-                                   ? QStringLiteral("El texto de FreeReader cambia a español al reiniciar la ventana.")
-                                   : QStringLiteral("FreeReader's text changes to English when the window restarts."));
+                                   ? QStringLiteral("El texto de Biblioglot cambia a español al reiniciar la ventana.")
+                                   : QStringLiteral("Biblioglot's text changes to English when the window restarts."));
     m_restartRow->setVisible(other);
 }
 
@@ -1795,7 +1795,7 @@ QWidget* SettingsDialog::buildAudioTab()
     slider(0, tr("Speed"), -100, 100, "speechRate", m_rate, m_rateLabel);
     slider(1, tr("Volume"), 0, 100, "speechVolume", m_volume, m_volumeLabel);
     m_rate->setToolTip(tr("How fast words and passages are read. Normal is the voice's own speed."));
-    m_volume->setToolTip(tr("How loud FreeReader reads, next to the computer's own volume."));
+    m_volume->setToolTip(tr("How loud Biblioglot reads, next to the computer's own volume."));
     grid->setColumnStretch(1, 1);
     lay->addLayout(grid);
     connect(m_rate, &QSlider::valueChanged, this, [this](int v) { setSpeechRate(v); });
@@ -1924,7 +1924,7 @@ void SettingsDialog::fillVoices()
                             "can be added.");
 #else
     const QString none = tr("No voices were found. Install speech-dispatcher and espeak-ng (for example: sudo apt install "
-                            "speech-dispatcher espeak-ng), then start FreeReader again.");
+                            "speech-dispatcher espeak-ng), then start Biblioglot again.");
 #endif
     m_voiceNote->setText(none);
     m_voiceNote->setVisible(languages.isEmpty());

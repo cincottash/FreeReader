@@ -1,4 +1,4 @@
-// FreeReader for phones and tablets.
+// Biblioglot for phones and tablets.
 //
 // Test mode (desktop builds): --data-folder <folder> keeps everything in a folder of its own; --screenshot <png>
 // renders the window off-screen and exits, never showing anything (with --book <epub> to add and open a book,

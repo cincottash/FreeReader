@@ -165,7 +165,7 @@ QString pageText(Djvu& dj, int index)
 std::shared_ptr<Book> DjvuFormat::open(const QString& path, QString* error) const
 {
     auto dj = std::make_shared<Djvu>();
-    dj->ctx = ddjvu_context_create("FreeReader");
+    dj->ctx = ddjvu_context_create("Biblioglot");
     if (!dj->ctx) {
         if (error) *error = QStringLiteral("There isn't enough memory to open this file.");
         return nullptr;

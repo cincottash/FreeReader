@@ -961,7 +961,7 @@ QWidget* PracticeView::buildList()
     connect(exp, &QPushButton::clicked, this, [this] {
         if (!m_interactive) return;
         const QString dir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
-        const QString path = QFileDialog::getSaveFileName(this, tr("Export Word Log"), dir + QStringLiteral("/FreeReader words.txt"),
+        const QString path = QFileDialog::getSaveFileName(this, tr("Export Word Log"), dir + QStringLiteral("/Biblioglot words.txt"),
                                                           tr("Tab-separated text (*.txt *.tsv)"));
         if (path.isEmpty()) return;
         QString err;

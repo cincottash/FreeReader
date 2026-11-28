@@ -49,7 +49,7 @@ Popup {
             Label {
                 Layout.fillWidth: true
                 horizontalAlignment: Text.AlignHCenter
-                text: welcome.language === "es" ? "Bienvenido a FreeReader" : "Welcome to FreeReader"
+                text: welcome.language === "es" ? "Bienvenido a Biblioglot" : "Welcome to Biblioglot"
                 font.pixelSize: 24
                 font.weight: Font.DemiBold
                 color: welcome.theme.fg

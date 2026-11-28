@@ -467,7 +467,7 @@ std::shared_ptr<Book> ZipBookFormat::open(const QString& path, QString* error) c
     if (pictures > 0) return ComicFormat().open(path, error);
     if (error)
         *error = !epub.isEmpty() ? QStringLiteral("The zip holds an EPUB book: unzip it, then add the EPUB file.")
-                                 : QStringLiteral("The zip holds no book FreeReader can open.");
+                                 : QStringLiteral("The zip holds no book Biblioglot can open.");
     return nullptr;
 }
 

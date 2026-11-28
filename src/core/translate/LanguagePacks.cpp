@@ -98,7 +98,7 @@ QString englishName(const QString& code)
 
 QString displayName(const QString& code)
 {
-    // The languages FreeReader reads, by name in the interface's language (Spanish writes them in lower case).
+    // The languages Biblioglot reads, by name in the interface's language (Spanish writes them in lower case).
     static const QHash<QString, const char*> names = {
         {QStringLiteral("en"), QT_TRANSLATE_NOOP("LanguagePacks", "English")}, {QStringLiteral("es"), QT_TRANSLATE_NOOP("LanguagePacks", "Spanish")},
         {QStringLiteral("fr"), QT_TRANSLATE_NOOP("LanguagePacks", "French")},  {QStringLiteral("de"), QT_TRANSLATE_NOOP("LanguagePacks", "German")},
@@ -117,7 +117,7 @@ QString displayTitle(const QString& code)
 
 QString nativeName(const QString& code)
 {
-    // The languages FreeReader has hyphenation for, by name (Qt says "American English" for en).
+    // The languages Biblioglot has hyphenation for, by name (Qt says "American English" for en).
     static const QHash<QString, QString> known = {{QStringLiteral("en"), QStringLiteral("English")}, {QStringLiteral("es"), QStringLiteral("Español")},
                                                   {QStringLiteral("fr"), QStringLiteral("Français")}, {QStringLiteral("de"), QStringLiteral("Deutsch")},
                                                   {QStringLiteral("it"), QStringLiteral("Italiano")}, {QStringLiteral("pt"), QStringLiteral("Português")}};

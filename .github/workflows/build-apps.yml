@@ -1,4 +1,4 @@
-# Builds FreeReader for Windows (a single FreeReader.exe) and Linux (FreeReader-x86_64.AppImage), and the phone app
+# Builds Biblioglot for Windows (a single Biblioglot.exe) and Linux (Biblioglot-x86_64.AppImage), and the phone app
 # for Android (an APK kept with the run only, for now).
 #
 # - Pull requests and manual runs: build both, check that each starts, and keep them as downloadable artifacts of
@@ -18,7 +18,7 @@ on:
 
 env:
   # PDF and XPS: MuPDF (AGPL-3.0), built from its source with these switches (no HTML engine, no JavaScript, no
-  # fallback fonts: FreeReader reads the text and draws pages, it doesn't need them).
+  # fallback fonts: Biblioglot reads the text and draws pages, it doesn't need them).
   MUPDF_VERSION: "1.28.6"
   MUPDF_SHA256: dc85000640a45d90ca9b77b061f6ca67cce0c4d4fbecf8819647baf573eef101
   MUPDF_FLAGS: >-
@@ -141,10 +141,10 @@ jobs:
             grep -q "$f" build/build.ninja || { echo "built without $f"; exit 1; }
           done
           mkdir -p dist
-          cp build/FreeReader.exe dist/
+          cp build/Biblioglot.exe dist/
           ls -l dist
           # Fail if the exe needs any DLL that isn't part of Windows.
-          if objdump -p dist/FreeReader.exe | grep "DLL Name" | grep -iE "lib(stdc|gcc|winpthread|png|z|freetype|harfbuzz|crypto)|Qt6"; then
+          if objdump -p dist/Biblioglot.exe | grep "DLL Name" | grep -iE "lib(stdc|gcc|winpthread|png|z|freetype|harfbuzz|crypto)|Qt6"; then
             echo "The exe depends on DLLs that aren't part of Windows"; exit 1
           fi
 
@@ -153,7 +153,7 @@ jobs:
         run: |
           $data = New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\appdata"
           # Draws the window off-screen to a picture and exits: proves Qt, its plugins and the UI all load.
-          $p = Start-Process dist/FreeReader.exe -ArgumentList "--screenshot", "$env:RUNNER_TEMP\shot.png" -PassThru -Wait
+          $p = Start-Process dist/Biblioglot.exe -ArgumentList "--screenshot", "$env:RUNNER_TEMP\shot.png" -PassThru -Wait
           if ($p.ExitCode -ne 0 -or -not (Test-Path "$env:RUNNER_TEMP\shot.png")) { throw "The screenshot check failed (exit $($p.ExitCode))" }
           # A PDF opens (MuPDF is in the exe): a one-page PDF written here.
           $pdf = "$env:RUNNER_TEMP\hola.pdf"
@@ -162,25 +162,25 @@ jobs:
             '3 0 obj <</Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Contents 4 0 R /Resources <</Font <</F1 5 0 R>>>>>> endobj',
             '4 0 obj <</Length 44>> stream', 'BT /F1 18 Tf 20 100 Td (Hola mundo) Tj ET', 'endstream endobj',
             '5 0 obj <</Type /Font /Subtype /Type1 /BaseFont /Helvetica>> endobj', 'trailer <</Root 1 0 R>>', '%%EOF')
-          $p = Start-Process dist/FreeReader.exe -ArgumentList "`"$pdf`"", "--screenshot", "$env:RUNNER_TEMP\pdf.png" -PassThru -Wait
+          $p = Start-Process dist/Biblioglot.exe -ArgumentList "`"$pdf`"", "--screenshot", "$env:RUNNER_TEMP\pdf.png" -PassThru -Wait
           if ($p.ExitCode -ne 0 -or -not (Test-Path "$env:RUNNER_TEMP\pdf.png")) { throw "The exe couldn't open a PDF (exit $($p.ExitCode))" }
           "A PDF opened"
           # Hear Pronunciation: Windows' speech engine (SAPI) is in the exe.
-          $p = Start-Process dist/FreeReader.exe -ArgumentList "--check-speech", "$env:RUNNER_TEMP\speech.txt" -PassThru -Wait
+          $p = Start-Process dist/Biblioglot.exe -ArgumentList "--check-speech", "$env:RUNNER_TEMP\speech.txt" -PassThru -Wait
           Get-Content "$env:RUNNER_TEMP\speech.txt"
           if (-not (Select-String -Path "$env:RUNNER_TEMP\speech.txt" -Pattern "sapi" -Quiet)) { throw "No speech engine in the exe" }
           # Starts normally and keeps running.
           $env:QT_QPA_PLATFORM = "offscreen"
-          $p = Start-Process dist/FreeReader.exe -ArgumentList "--data-folder", "$data" -PassThru
+          $p = Start-Process dist/Biblioglot.exe -ArgumentList "--data-folder", "$data" -PassThru
           Start-Sleep -Seconds 15
-          if ($p.HasExited) { throw "FreeReader.exe exited early with code $($p.ExitCode)" }
+          if ($p.HasExited) { throw "Biblioglot.exe exited early with code $($p.ExitCode)" }
           Stop-Process -Id $p.Id -Force
-          "FreeReader.exe started and kept running"
+          "Biblioglot.exe started and kept running"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: FreeReader-windows
-          path: dist/FreeReader.exe
+          name: Biblioglot-windows
+          path: dist/Biblioglot.exe
           retention-days: 14
 
   linux:
@@ -221,7 +221,7 @@ jobs:
           echo "${MUPDF_SHA256}  mupdf.tar.gz" | sha256sum -c
           tar -xzf mupdf.tar.gz
           mv "mupdf-${MUPDF_VERSION}-source" mupdf
-          # -fPIC: linked into FreeReader, which is built position-independent.
+          # -fPIC: linked into Biblioglot, which is built position-independent.
           make -C mupdf -j4 $MUPDF_FLAGS XCFLAGS="-fPIC -DARCH_HAS_SSE=0" libs
           find mupdf -mindepth 1 -maxdepth 1 ! -name include ! -name build -exec rm -rf {} +
           find mupdf/build/freereader -type f ! -name '*.a' -delete
@@ -253,9 +253,9 @@ jobs:
           # aren't needed for that and would add their own large libraries.
           find "$QT_ROOT_DIR/plugins/texttospeech" -type f ! -name 'libqtexttospeech_speechd.so' -print -delete || true
           rm -rfv "$QT_ROOT_DIR/plugins/multimedia"
-          cp resources/icon.svg FreeReader.svg
-          ./linuxdeploy --appdir AppDir --executable build/FreeReader \
-            --desktop-file packaging/linux/FreeReader.desktop --icon-file FreeReader.svg \
+          cp resources/icon.svg Biblioglot.svg
+          ./linuxdeploy --appdir AppDir --executable build/Biblioglot \
+            --desktop-file packaging/linux/Biblioglot.desktop --icon-file Biblioglot.svg \
             --plugin qt
           # The speech plug-in, if the Qt plug-in for linuxdeploy didn't bring it.
           if [ ! -f AppDir/usr/plugins/texttospeech/libqtexttospeech_speechd.so ]; then
@@ -265,7 +265,7 @@ jobs:
           ./linuxdeploy --appdir AppDir --deploy-deps-only AppDir/usr/plugins/texttospeech --output appimage
           find AppDir/usr/plugins -maxdepth 2 | sort
           mkdir -p dist
-          mv FreeReader*.AppImage dist/FreeReader-x86_64.AppImage
+          mv Biblioglot*.AppImage dist/Biblioglot-x86_64.AppImage
           ls -l dist
 
       - name: Check the AppImage starts
@@ -273,24 +273,24 @@ jobs:
           APPIMAGE_EXTRACT_AND_RUN: "1"
           QT_QPA_PLATFORM: offscreen
         run: |
-          ./dist/FreeReader-x86_64.AppImage --screenshot "$RUNNER_TEMP/shot.png"
+          ./dist/Biblioglot-x86_64.AppImage --screenshot "$RUNNER_TEMP/shot.png"
           test -s "$RUNNER_TEMP/shot.png"
           # A PDF opens (MuPDF is in the AppImage): a one-page PDF written here.
           printf '%s\n' '%PDF-1.4' '1 0 obj <</Type /Catalog /Pages 2 0 R>> endobj' '2 0 obj <</Type /Pages /Kids [3 0 R] /Count 1>> endobj' \
             '3 0 obj <</Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Contents 4 0 R /Resources <</Font <</F1 5 0 R>>>>>> endobj' \
             '4 0 obj <</Length 44>> stream' 'BT /F1 18 Tf 20 100 Td (Hola mundo) Tj ET' 'endstream endobj' \
             '5 0 obj <</Type /Font /Subtype /Type1 /BaseFont /Helvetica>> endobj' 'trailer <</Root 1 0 R>>' '%%EOF' > "$RUNNER_TEMP/hola.pdf"
-          ./dist/FreeReader-x86_64.AppImage "$RUNNER_TEMP/hola.pdf" --screenshot "$RUNNER_TEMP/pdf.png"
+          ./dist/Biblioglot-x86_64.AppImage "$RUNNER_TEMP/hola.pdf" --screenshot "$RUNNER_TEMP/pdf.png"
           test -s "$RUNNER_TEMP/pdf.png"
           echo "A PDF opened"
-          ./dist/FreeReader-x86_64.AppImage --data-folder "$RUNNER_TEMP/appdata" &
+          ./dist/Biblioglot-x86_64.AppImage --data-folder "$RUNNER_TEMP/appdata" &
           pid=$!
           sleep 20
           if ! kill -0 "$pid" 2>/dev/null; then wait "$pid"; echo "The AppImage exited early (code $?)"; exit 1; fi
           kill "$pid"
-          echo "FreeReader-x86_64.AppImage started and kept running"
+          echo "Biblioglot-x86_64.AppImage started and kept running"
           # Hear Pronunciation: the speech-dispatcher engine is in the AppImage (voices depend on the system).
-          ./dist/FreeReader-x86_64.AppImage --check-speech "$RUNNER_TEMP/speech.txt" || true
+          ./dist/Biblioglot-x86_64.AppImage --check-speech "$RUNNER_TEMP/speech.txt" || true
           cat "$RUNNER_TEMP/speech.txt"
           grep -q "speechd" "$RUNNER_TEMP/speech.txt"
 
@@ -301,16 +301,16 @@ jobs:
           # Many Wayland desktops set QT_QPA_PLATFORM=wayland. The AppImage has no Wayland plugin,
           # so it must pick XWayland's display by itself instead of aborting.
           xvfb-run -a env QT_QPA_PLATFORM=wayland XDG_SESSION_TYPE=wayland WAYLAND_DISPLAY=wayland-0 \
-            ./dist/FreeReader-x86_64.AppImage --screenshot "$RUNNER_TEMP/wayland.png"
+            ./dist/Biblioglot-x86_64.AppImage --screenshot "$RUNNER_TEMP/wayland.png"
           test -s "$RUNNER_TEMP/wayland.png"
           xvfb-run -a env QT_QPA_PLATFORM="wayland;xcb" XDG_SESSION_TYPE=wayland \
-            ./dist/FreeReader-x86_64.AppImage --screenshot "$RUNNER_TEMP/wayland2.png"
+            ./dist/Biblioglot-x86_64.AppImage --screenshot "$RUNNER_TEMP/wayland2.png"
           test -s "$RUNNER_TEMP/wayland2.png"
           echo "Started through X11 with QT_QPA_PLATFORM=wayland"
           # No X display at all: a clear message and exit code 1, not a crash
           set +e
           out=$(env -u DISPLAY QT_QPA_PLATFORM=wayland XDG_SESSION_TYPE=wayland \
-                ./dist/FreeReader-x86_64.AppImage --screenshot "$RUNNER_TEMP/none.png" 2>&1)
+                ./dist/Biblioglot-x86_64.AppImage --screenshot "$RUNNER_TEMP/none.png" 2>&1)
           code=$?
           set -e
           echo "$out"
@@ -320,8 +320,8 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: FreeReader-linux
-          path: dist/FreeReader-x86_64.AppImage
+          name: Biblioglot-linux
+          path: dist/Biblioglot-x86_64.AppImage
           retention-days: 14
 
   android:
@@ -436,24 +436,24 @@ jobs:
           # Signed with a key made for this run (test installs only; an installed copy updates only from the same key).
           bt="$ANDROID_HOME/build-tools/36.0.0"
           keytool -genkeypair -keystore run.keystore -storepass android -keypass android -alias run \
-            -dname "CN=FreeReader test" -keyalg RSA -keysize 2048 -validity 30 > /dev/null
+            -dname "CN=Biblioglot test" -keyalg RSA -keysize 2048 -validity 30 > /dev/null
           mkdir -p dist
           "$bt/zipalign" -f -p 4 "$apk" aligned.apk
           "$bt/apksigner" sign --ks run.keystore --ks-pass pass:android --key-pass pass:android \
-            --out dist/FreeReader-android-arm64-test.apk aligned.apk
-          "$bt/apksigner" verify dist/FreeReader-android-arm64-test.apk
+            --out dist/Biblioglot-android-arm64-test.apk aligned.apk
+          "$bt/apksigner" verify dist/Biblioglot-android-arm64-test.apk
           # The app's library, its Qt Quick screens, OpenSSL and the package name are all in the APK.
-          unzip -l dist/FreeReader-android-arm64-test.apk > contents.txt
+          unzip -l dist/Biblioglot-android-arm64-test.apk > contents.txt
           for f in lib/$ANDROID_ABI/libFreeReader_arm64-v8a.so lib/$ANDROID_ABI/libcrypto_3.so lib/$ANDROID_ABI/libssl_3.so; do
             grep -q "$f" contents.txt || { echo "missing from the APK: $f"; grep 'lib/' contents.txt | head -n 40; exit 1; }
           done
-          "$bt/aapt2" dump badging dist/FreeReader-android-arm64-test.apk | head -n 3
+          "$bt/aapt2" dump badging dist/Biblioglot-android-arm64-test.apk | head -n 3
           ls -l dist
 
       - uses: actions/upload-artifact@v4
         with:
-          name: FreeReader-android-arm64
-          path: dist/FreeReader-android-arm64-test.apk
+          name: Biblioglot-android-arm64
+          path: dist/Biblioglot-android-arm64-test.apk
           retention-days: 14
 
   release:
@@ -477,5 +477,5 @@ jobs:
           # For a merge this also creates the tag on the merged commit (a tag made this way doesn't start
           # another run).
           gh release create "$VERSION" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "FreeReader $VERSION" --generate-notes \
-            dist/FreeReader.exe dist/FreeReader-x86_64.AppImage
+            --title "Biblioglot $VERSION" --generate-notes \
+            dist/Biblioglot.exe dist/Biblioglot-x86_64.AppImage

@@ -221,7 +221,7 @@ bool OfflineDictionary::open(const QString& path)
     }
     QSqlQuery q(db);
     if (!q.exec(QStringLiteral("SELECT key, value FROM meta"))) {
-        m_info.error = tr("It isn't a FreeReader dictionary.");
+        m_info.error = tr("It isn't a Biblioglot dictionary.");
         return false;
     }
     while (q.next()) {
@@ -238,7 +238,7 @@ bool OfflineDictionary::open(const QString& path)
     // second for Spanish -> English, more for the Spanish definitions, on the window's thread at every start). The
     // files are written once, row after row, so the two agree.
     if (m_info.language.isEmpty() || !q.exec(QStringLiteral("SELECT MAX(rowid) FROM entries")) || !q.next()) {
-        m_info.error = tr("It isn't a FreeReader dictionary.");
+        m_info.error = tr("It isn't a Biblioglot dictionary.");
         return false;
     }
     m_info.entries = q.value(0).toInt();

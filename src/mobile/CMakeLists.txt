@@ -1,4 +1,4 @@
-# FreeReader for phones and tablets: a Qt Quick touch interface over the same core as the desktop app (books,
+# Biblioglot for phones and tablets: a Qt Quick touch interface over the same core as the desktop app (books,
 # layout, library, word log, translation). Android builds this; desktops can build it for testing.
 find_package(Qt6 6.5 REQUIRED COMPONENTS Quick QuickControls2)
 

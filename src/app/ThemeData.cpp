@@ -1,4 +1,4 @@
-// FreeReader's themes. The Reading Themes group is FreeReader's own (the mock-up's Midnight, Paper, Sepia and Slate
+// Biblioglot's themes. The Reading Themes group is Biblioglot's own (the mock-up's Midnight, Paper, Sepia and Slate
 // plus a few more); the Dark Themes and Light Themes are the editor schemes used in the owner's other apps
 // (desktop-app-playbook templates), adjusted for UI use. Keep every theme readable and distinct from the others:
 // run the playbook's scripts/theme_check.py on this file after any change.

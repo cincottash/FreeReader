@@ -353,7 +353,7 @@ Page {
             Note { text: qsTr("More voices (free): the phone's Settings › General management › Text-to-speech.") }
 
             Section { text: qsTr("ABOUT") }
-            Note { text: qsTr("FreeReader %1 · © cincottash · for DRM-free books.").arg(settings.app.version) }
+            Note { text: qsTr("Biblioglot %1 · © cincottash · for DRM-free books.").arg(settings.app.version) }
         }
     }
 }
