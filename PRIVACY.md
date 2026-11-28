@@ -1,6 +1,7 @@
 # FreeReader privacy policy
 
-*Last updated: November 27, 2026*
+*Last updated: November 28, 2026. The full policy, including Google Drive Sync, is on FreeReader's website:
+[cincottash.github.io/FreeReader/privacy.html](https://cincottash.github.io/FreeReader/privacy.html).*
 
 FreeReader is an e-book reader for Android, Windows and Linux, made by cincottash. This page says what happens to
 your information when you use it. In short: **your books and everything you do with them stay on your device.
@@ -12,6 +13,17 @@ FreeReader has no accounts, no ads, no analytics and no tracking, and its develo
   your Word List and flashcard progress, and your settings.
 - These are kept in FreeReader's private storage on your device. Android's own backup (to your Google account) may
   include them if you have device backup turned on; FreeReader itself never uploads them anywhere.
+
+## Google Drive Sync (optional)
+
+Sync is off until you choose Sign In With Google in Settings. Then FreeReader uses only its own hidden app data
+folder in your Google Drive (scope `drive.appdata`; it cannot see any other Drive file) to keep your books, reading
+positions, highlights, notes, bookmarks, Word List, flashcard progress, statistics and settings the same on your
+devices. The data goes directly between your devices and your Drive; there is no FreeReader server, and API keys are
+never synced. Sign Out stops it; Google Drive > Settings > Manage Apps > FreeReader > Delete Hidden App Data removes
+it. FreeReader's use and transfer to any other app of information received from Google APIs will adhere to the
+[Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy), including
+the Limited Use requirements.
 
 ## What is sent over the internet, and only when you ask for it
 
